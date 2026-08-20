@@ -6,7 +6,7 @@ allowed-tools: ["Bash", "Read", "Write"]
 
 # ai-learn: scan
 
-Pour un projet déjà avancé (ex. un RPG en C, un API en Fastify) qu'on continue
+Pour un projet déjà avancé (ex. un RPG en C, une API web) qu'on continue
 de maîtriser : `scan` analyse le code réel, montre **où l'on en est** (stack,
 git, tests, concepts mobilisés, niveau estimé) et propose une **suite
 d'approfondissement** — des directions strictement plus profondes, jamais une
@@ -30,7 +30,7 @@ ai-learn scan
 4. **Affiner les directions en phases réelles** : chaque `suggestion` devient
    1-2 phases de parcours, avec un **checkpoint exécutable** et des prédictions
    écrites attendues — en citant la **doc locale** indiquée dans
-   `suggestion.doc` (ex. `docs/sources/fastify-docs — Lifecycle; Hooks`) si
+   `suggestion.doc` (ex. `docs/sources/<nom>-docs — Reference`) si
    elle existe dans le projet, sinon la doc officielle en ligne.
 
 5. **Matérialiser le parcours** :

@@ -16,7 +16,7 @@ de révéler »).
 Résous dans l'ordre, en posant des questions **une à la fois** si le renseignement
 manque :
 
-1. **La technologie** à apprendre (ex. Fastify, React, PostgreSQL…). L'argument
+1. **La technologie** à apprendre (ex. Rust, React, PostgreSQL…). L'argument
    `$ARGUMENTS` peut la donner : premier mot.
 2. **Le projet à construire** pour apprendre (ex. « une API de traduction »).
    L'argument `$ARGUMENTS` peut le donner : le reste.
@@ -56,9 +56,9 @@ Découpe en **6-10 phases** progressives, chacune avec :
 - `predictionsRequired`: nombre de prédictions écrites exigées (2-3 par phase
   pour un protocole solide)
 
-Séquence type Fastify (modèle à adapter) : mise en route → routes/lifecycle →
-validation/sérialisation → plugins/encapsulation → décorateurs/IO → hooks →
-logique métier → erreurs → config/tests → prod.
+Séquence type API web (modèle à adapter à la techno choisie) : mise en route →
+routes → validation d'entrée → architecture/modularité → persistance/IO →
+logique métier → gestion des erreurs → config/tests → prod.
 
 ## 5. Scaffolder avec ai-learn
 

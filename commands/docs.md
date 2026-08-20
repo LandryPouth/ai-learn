@@ -29,29 +29,29 @@ Limite : **3 sources max** (y compris les sources générées). Une copie est un
 ai-learn docs list
 
 # Embarquer une doc locale dans le projet (max 3)
-ai-learn docs add fastify-docs /chemin/vers/fastify/docs
+ai-learn docs add <techno>-docs /chemin/vers/<techno>/docs
 
 # N'embarquer qu'un sous-dossier de la source (ex. juste docs/, pas le repo entier)
-ai-learn docs add fastify-docs /chemin/vers/fastify --path docs
+ai-learn docs add <techno>-docs /chemin/vers/<techno> --path docs
 
 # Cloner un repo GitHub (léger, --depth 1)
-ai-learn docs add fastify https://github.com/fastify/fastify
+ai-learn docs add <techno> https://github.com/<org>/<techno>
 
 # Mode online : URL seule, aucun fichier local
-ai-learn docs add fastify https://fastify.dev/docs --online
+ai-learn docs add <techno> https://<techno>.dev/docs --online
 
 # Mode généré : la source n'est pas clonable — l'IA la recrée localement
 ai-learn docs add backend-roadmap https://roadmap.sh/backend --regen
 
 # Source fichier (ex. un livre PDF) : embarqué entier, l'IA en distille l'essentiel
-ai-learn docs add fastify-book /chemin/vers/livre.pdf
+ai-learn docs add <techno>-book /chemin/vers/livre.pdf
 
 # Preset (raccourci, voir section dédiée)
 ai-learn docs add build-your-own-x
 
 # Rafraîchir / retirer une source
-ai-learn docs update fastify-docs
-ai-learn docs remove fastify-docs
+ai-learn docs update <techno>-docs
+ai-learn docs remove <techno>-docs
 ```
 
 ## Règle d'embarquement (copie sélective)
@@ -100,7 +100,7 @@ l'embarque **entier** comme origine vérifiée, puis l'IA **n'en distille que
 l'essentiel** :
 
 ```bash
-ai-learn docs add fastify-book /chemin/vers/livre.pdf
+ai-learn docs add <techno>-book /chemin/vers/livre.pdf
 ```
 
 - Le fichier est copié dans `docs/sources/<nom>/` : la **doc complète** reste

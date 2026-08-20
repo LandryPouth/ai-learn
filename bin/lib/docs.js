@@ -85,12 +85,12 @@ function findSource(config, name) {
 
 function assertName(name) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
-    fail(`invalid source name "${name}": use lowercase letters, digits and hyphens (ex. fastify-docs)`);
+    fail(`invalid source name "${name}": use lowercase letters, digits and hyphens (ex. project-docs)`);
   }
 }
 
-// Derive a source name from a path or URL (fastify-main → fastify-main,
-// https://github.com/fastify/fastify.git → fastify).
+// Derive a source name from a path or URL (project-main → project-main,
+// https://github.com/org/project.git → project).
 function deriveName(source) {
   const base = source.replace(/\/+$/, "").split(/[/:]/).pop();
   const clean = (base || "source")
@@ -209,8 +209,8 @@ function flattenSubpath(target, subpath) {
 }
 
 // Clone a repo. With a `path` filter we use a sparse checkout so only that
-// subdirectory is downloaded — cloning the whole repo (fastify, express…) just
-// to grab docs/ would pull megabytes of tests and deps the learner never opens.
+// subdirectory is downloaded — cloning the whole repo just to grab docs/
+// would pull megabytes of tests and deps the learner never opens.
 function gitClone(url, target, pathFilter = null) {
   mkdirp(path.dirname(target));
 
