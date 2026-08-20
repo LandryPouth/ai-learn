@@ -30,6 +30,11 @@ test("init scaffolds the expected structure", () => {
   assert.ok(fs.existsSync(path.join(dir, ".ai-learn", "runs")));
   assert.ok(created.includes("progress.json"));
 
+  // The learning protocol ships with the tool: written into AGENTS.md at the
+  // project root, or docs/plans/ when an AGENTS.md already exists.
+  assert.ok(fs.existsSync(path.join(dir, "AGENTS.md")));
+  assert.match(fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8"), /prédire avant de révéler/);
+
   const progress = readJson(path.join(dir, "progress.json"), null);
   assert.strictEqual(progress.version, 1);
   assert.strictEqual(progress.project, "demo");
@@ -55,4 +60,18 @@ test("init writes the given phases and keeps existing files", () => {
 
   assert.strictEqual(fs.readFileSync(planPath, "utf8"), "# custom plan");
   assert.strictEqual(readJson(path.join(dir, "progress.json"), null).phases.length, 1);
+});
+
+test("init keeps an existing AGENTS.md and writes the protocol to docs/plans/ instead", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), "# repo rules");
+
+  scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [] });
+
+  assert.strictEqual(fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8"), "# repo rules");
+  assert.ok(fs.existsSync(path.join(dir, "docs", "plans", "mode-apprentissage.md")));
+  assert.match(
+    fs.readFileSync(path.join(dir, "docs", "plans", "mode-apprentissage.md"), "utf8"),
+    /prédire avant de révéler/,
+  );
 });

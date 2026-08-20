@@ -66,6 +66,24 @@ function scaffold({ dir, project, technology, docSource, phases }) {
     log(`  kept    ${normalizePortable(path.relative(abs, journalFile))} (already exists)`);
   }
 
+  // The learning protocol travels with the tool: it is written into the project
+  // so the rules are next to the code, not in some other repo's AGENTS.md.
+  const rulesContent = fs
+    .readFileSync(templatePath("AGENTS-apprentissage.md"), "utf8")
+    .replace(/\{\{technology\}\}/g, technology || "votre techno");
+
+  const rootAgents = path.join(abs, "AGENTS.md");
+
+  if (!fs.existsSync(rootAgents)) {
+    fs.writeFileSync(rootAgents, rulesContent);
+    created.push(normalizePortable(path.relative(abs, rootAgents)));
+  } else {
+    const rulesFile = path.join(abs, "docs", "plans", "mode-apprentissage.md");
+    fs.writeFileSync(rulesFile, rulesContent);
+    created.push(normalizePortable(path.relative(abs, rulesFile)));
+    log("  note    AGENTS.md existe déjà — protocole écrit dans docs/plans/mode-apprentissage.md");
+  }
+
   return { dir: abs, created };
 }
 
