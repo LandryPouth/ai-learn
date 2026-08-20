@@ -30,6 +30,7 @@ Affiche la sortie telle quelle :
 ## Après
 
 - Si exit 0 : tout est cohérent. Dis-le simplement.
-- Si exit ≠ 0 : liste les erreurs, explique chacune, et propose la réparation
-  (typiquement : `/verify <phase>` pour prouver une phase marquée `done` sans
-  évidence, ou compléter l'artefact manquant).
+- Si exit ≠ 0 : liste les erreurs, explique chacune. La réparation d'une phase
+  non prouvée est **automatique** : lance toi-même `ai-learn verify <id>` pour
+  la prouver (si le checkpoint passe), ou complète l'artefact manquant. Ne
+  demande jamais à l'utilisateur de lancer une commande.

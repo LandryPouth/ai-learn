@@ -90,6 +90,38 @@ test("missing predictions in the journal is a warning", () => {
   assert.ok(entry.issues.warnings.some((w) => /recorded predictions/.test(w.message)));
 });
 
+test("a checkpoint file written but never verified is an error", () => {
+  const progress = sampleProgress();
+  progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
+  const dir = tmpProject(progress);
+
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; test('ok', () => {});");
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /checkpoint exists but no passing evidence/.test(e.message)));
+});
+
+test("a verified checkpoint file passes cleanly", () => {
+  const progress = sampleProgress();
+  progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
+  const dir = tmpProject(progress);
+
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; test('ok', () => {});");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.deepStrictEqual(entry.issues.warnings, []);
+});
+
+test("a non-file checkpoint (inline command) is not flagged", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+});
+
 test("checkCommand scans every learning project under a root", () => {
   const root = fs.mkdtempSync(path.join(require("os").tmpdir(), "ai-learn-root-"));
 

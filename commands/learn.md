@@ -92,6 +92,8 @@ Présente ensuite à l'utilisateur :
 ## Règles
 
 - Ne jamais marquer une phase `done` toi-même : seule `ai-learn verify` le fait,
-  et seulement si le checkpoint passe pour de vrai.
+  et seulement si le checkpoint passe pour de vrai. En clôture de phase, lance
+  `ai-learn verify <id>` **toi-même** (c'est automatique, pas une action de
+  l'utilisateur), puis `ai-learn check`.
 - Ne pas inventer de doc source : annoter ce qu'on a trouvé.
 - Les questions se posent une à la fois — pas de questionnaire d'un coup.

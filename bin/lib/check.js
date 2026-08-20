@@ -98,6 +98,19 @@ function checkProject(dir) {
           message: `phase ${phase.id} has passing evidence but is not marked done (stale or reverted?)`,
         });
       }
+
+      // The structural backstop: a checkpoint test file that exists but has no
+      // passing evidence means the agent wrote the proof but never ran it —
+      // verify was skipped even though the work was done. This is what makes
+      // verify non-skippable by omission, not just by word.
+      const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
+
+      if (checkpointFile && !latestEvidenceForPhase(dir, phase.id)) {
+        issues.errors.push({
+          file: relative(checkpointFile),
+          message: `checkpoint exists but no passing evidence — run \`ai-learn verify ${phase.id}\``,
+        });
+      }
     }
   }
 
@@ -113,6 +126,31 @@ function countJournalEntries(journalPath) {
 
 function normalizeRelative(dir, value) {
   return path.relative(dir, path.resolve(dir, value)).replace(/\\/g, "/");
+}
+
+// Extract the test file path a checkpoint command points at, if any. The
+// checkpoint format is a shell command (ex. `node --test checkpoint/phase-1.test.mjs`);
+// we look for a token that resolves to an existing file relative to the project.
+function checkpointFilePath(dir, command) {
+  if (typeof command !== "string") {
+    return null;
+  }
+
+  const tokens = command.split(/\s+/);
+
+  for (const token of tokens) {
+    if (!token || token.startsWith("-")) {
+      continue;
+    }
+
+    const candidate = path.resolve(dir, token);
+
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 function printProjectReport(entry) {

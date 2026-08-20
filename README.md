@@ -29,15 +29,19 @@ bash scripts/install-claude.sh
 Elle rend `ai-learn` disponible partout (`~/.local/bin`) et installe les
 commandes Claude Code dans `~/.claude/commands/`. Recharge Claude Code après.
 
-### Les 5 commandes de l'apprenant
+### Les 4 commandes de l'apprenant
 
 | Commande | Rôle |
 |---|---|
 | `/learn` | Crée un parcours d'apprentissage : doc solide + questions + plan + `progress.json` |
 | `/status` | Où j'en suis : phases et leur état |
 | `/next` | La prochaine phase à faire |
-| `/verify <id>` | Prouve la phase : lance son checkpoint, marque `done` seulement si ça passe |
 | `/check` | Scanner : tout est-il cohérent et prouvé ? |
+
+Il n'y a pas de `/verify` : la preuve est **automatique**. En clôture de chaque
+phase, l'agent lance `ai-learn verify <id>` lui-même — il n'écrit jamais `done`
+à la main. Et `ai-learn check` refuse tout checkpoint écrit mais jamais prouvé :
+`verify` ne peut être skippé, même par omission.
 
 Tout le reste est automatique : guard PreToolUse (bloque les écritures non
 prouvées), `.githooks/pre-push` (lance les tests avant chaque push).
