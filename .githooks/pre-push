@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+# pre-push — runs the test suite before any push and blocks if it breaks.
+#
+# This is the "automatic verification" of ai-learn: whoever commits or pushes,
+# even another agent, cannot skip it without --no-verify (which leaves a mark
+# in the push history).
+#
+# Only becomes active once per clone, after:
+#   git config core.hooksPath .githooks
+
+echo "→ pre-push: npm test"
+
+if ! npm test; then
+  echo "✗ Tests failing — push cancelled (use --no-verify to force)." >&2
+  exit 1
+fi
+
+echo "✓ Tests OK — push allowed."
