@@ -18,15 +18,29 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 
 ## Install / usage (local, sans release)
 
-```bash
-node /chemin/vers/ai-learn/bin/ai-learn.js --help
-```
-
-Ou un alias :
+**L'apprenant ne tape jamais de commande dans un terminal.** Il passe par
+Claude Code : 5 commandes `/…` lui suffisent (voir plus bas). L'install se fait
+une fois, par l'outil :
 
 ```bash
-alias ai-learn="node ~/dev/tools/ai-learn/bin/ai-learn.js"
+bash scripts/install-claude.sh
 ```
+
+Elle rend `ai-learn` disponible partout (`~/.local/bin`) et installe les
+commandes Claude Code dans `~/.claude/commands/`. Recharge Claude Code après.
+
+### Les 5 commandes de l'apprenant
+
+| Commande | Rôle |
+|---|---|
+| `/learn` | Crée un parcours d'apprentissage : doc solide + questions + plan + `progress.json` |
+| `/status` | Où j'en suis : phases et leur état |
+| `/next` | La prochaine phase à faire |
+| `/verify <id>` | Prouve la phase : lance son checkpoint, marque `done` seulement si ça passe |
+| `/check` | Scanner : tout est-il cohérent et prouvé ? |
+
+Tout le reste est automatique : guard PreToolUse (bloque les écritures non
+prouvées), `.githooks/pre-push` (lance les tests avant chaque push).
 
 ## La philosophie
 
