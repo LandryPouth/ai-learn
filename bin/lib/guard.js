@@ -418,8 +418,14 @@ dans son éditeur.
 // Wire the guard into a learning project: write the learner-file policy, the
 // solutions directory, and merge the PreToolUse hook into `.claude/settings.json`
 // without clobbering any existing hooks. Non-destructive and idempotent.
+//
+// The solutions README is a *generated* file (recognized by its title marker):
+// when it drifts from the current template it is refreshed so `ai-learn update`
+// propagates protocol changes to installed projects — just like AGENTS.md. A
+// README with a different title is treated as customized and never touched.
 function ensureGuardHook(dir) {
   const created = [];
+  const refreshed = [];
   const guardJsonPath = path.join(dir, ".ai-learn", "guard.json");
   const solutionsReadme = path.join(dir, "docs", "solutions", "README.md");
   const settingsPath = path.join(dir, ".claude", "settings.json");
@@ -430,10 +436,16 @@ function ensureGuardHook(dir) {
     created.push(normalizePortable(path.relative(dir, guardJsonPath)));
   }
 
-  if (!fs.existsSync(solutionsReadme)) {
+  // guard.json is learner-customizable (learnerFiles) — never overwritten here.
+  // The solutions README is pure generated content (its title is the marker).
+  const readmeText = fs.existsSync(solutionsReadme) ? fs.readFileSync(solutionsReadme, "utf8") : null;
+  const isGeneratedReadme = readmeText === null || readmeText.trimStart().startsWith("# Solutions de référence");
+
+  if (isGeneratedReadme && readmeText !== SOLUTIONS_README) {
     fs.mkdirSync(path.dirname(solutionsReadme), { recursive: true });
     fs.writeFileSync(solutionsReadme, SOLUTIONS_README);
-    created.push(normalizePortable(path.relative(dir, solutionsReadme)));
+    const rel = normalizePortable(path.relative(dir, solutionsReadme));
+    (readmeText === null ? created : refreshed).push(rel);
   }
 
   const toolBin = path.join(__dirname, "..", "ai-learn.js");
@@ -470,7 +482,7 @@ function ensureGuardHook(dir) {
     created.push(normalizePortable(path.relative(dir, settingsPath)));
   }
 
-  return { created, wired: alreadyWired };
+  return { created, refreshed, wired: alreadyWired };
 }
 
 module.exports = {

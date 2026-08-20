@@ -80,7 +80,9 @@ function updateCommand({ root }) {
     log(`\n${path.basename(project)}`);
     log(`  protocol: ${protocol.file} ${protocol.action}`);
     log(`  friction bank: ${traps.length} trap(s)`);
-    log(`  guard: ${guard.wired ? "hook already wired" : "hook wired"} — ${guard.created.length} file(s) created`);
+    const guardCreated = `${guard.created.length} file(s) created`;
+    const guardRefreshed = guard.refreshed.length > 0 ? `, ${guard.refreshed.length} refreshed` : "";
+    log(`  guard: ${guard.wired ? "hook already wired" : "hook wired"} — ${guardCreated}${guardRefreshed}`);
   }
 }
 

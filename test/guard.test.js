@@ -186,6 +186,30 @@ test("ensureGuardHook wires settings.json + guard.json + docs/solutions/, idempo
   assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
 });
 
+test("ensureGuardHook refreshes a stale generated solutions README (title marker), keeping it generated", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  // A stale generated README: right title, outdated body (no non-collable rule).
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "docs", "solutions", "README.md"), "# Solutions de référence — où l'IA dépose le code\nOLD\n");
+
+  const result = ensureGuardHook(dir);
+  assert.deepStrictEqual(result.refreshed, ["docs/solutions/README.md"]);
+  const text = fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8");
+  assert.match(text, /non-collable/);
+  assert.doesNotMatch(text, /OLD/);
+});
+
+test("ensureGuardHook never overwrites a customized solutions README (different title)", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
+  const custom = "# Mes notes perso\nPas généré par ai-learn.\n";
+  fs.writeFileSync(path.join(dir, "docs", "solutions", "README.md"), custom);
+
+  const result = ensureGuardHook(dir);
+  assert.deepStrictEqual(result.refreshed, []);
+  assert.strictEqual(fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8"), custom);
+});
+
 test("checkProject warns when guard.json exists but the hook is not wired", () => {
   const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["src/**"] }));
