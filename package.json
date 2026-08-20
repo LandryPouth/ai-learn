@@ -20,12 +20,28 @@
   "engines": {
     "node": ">=18"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LandryPouth/ai-learn.git"
+  },
+  "homepage": "https://github.com/LandryPouth/ai-learn",
+  "bugs": {
+    "url": "https://github.com/LandryPouth/ai-learn/issues"
+  },
   "keywords": [
     "learning",
+    "learning-path",
     "ai",
     "education",
+    "pedagogy",
+    "active-recall",
     "claude-code",
+    "cli",
     "evidence",
-    "checkpoint"
+    "checkpoint",
+    "skill"
   ]
 }

@@ -2,9 +2,13 @@
 
 **Evidence-based learning tracks.** `ai-learn` turns a learning path into a checked, shareable structure: every phase is proven by an executed checkpoint, tracked in a `progress.json` ledger, and cross-checked against reality — not by the word of an AI that could decide to skip the rule.
 
-The problem it answers is the same one Coding Flow answers for engineering work, applied to learning: *"the agent said the phase was done"* is worth nothing. Only the CLI can say `PROVEN` and mean it — it runs the checkpoint itself.
+[![CI](https://github.com/LandryPouth/ai-learn/actions/workflows/ci.yml/badge.svg)](https://github.com/LandryPouth/ai-learn/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
 
-> **Status : non publié.** Utilisé et affûté dans `tech-experiments` avant release. Pas encore sur GitHub ni npm.
+> Zero dependencies — Node stdlib only, tests run with `node --test`.
+
+The problem it answers is the same one Coding Flow answers for engineering work, applied to learning: *"the agent said the phase was done"* is worth nothing. Only the CLI can say `PROVEN` and mean it — it runs the checkpoint itself.
 
 ## What it gives you
 
@@ -15,36 +19,37 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 | `ai-learn check` | Scan une racine (ex. un monorepo) : croise chaque `progress.json` contre la réalité — phase `done` sans évidence = erreur |
 | `ai-learn status` | Vue lisible des phases et de leur état |
 | `ai-learn next` | La prochaine phase à faire (et alerte sur les phases `done` sans évidence) |
+| `ai-learn scan` | Analyse un projet déjà avancé : montre où tu en es et propose une suite d'approfondissement — jamais de reprise à zéro |
+| `ai-learn propose` | Propose des projets à construire quand tu ne sais pas quoi faire — tout est fait automatiquement, chaque étape sourcée |
+| `ai-learn docs` | Embarque les sources de doc (clone, URL, ou source fichier) — la vérité de référence des phases |
+| `ai-learn traps` | Extrait la **banque de pièges** (zones de friction) des docs embarquées, citée `fichier:ligne` — jamais inventée |
+| `ai-learn update` | Propage le protocole + la banque de pièges + le guard à tous les projets sous `--root` |
+| `ai-learn guard` | Hook PreToolUse qui bloque l'IA dans `src/**` (les fichiers que l'apprenant doit taper lui-même) ; `update`/`init` le câblent automatiquement |
 
-## Install / usage (local, sans release)
-
-**L'apprenant ne tape jamais de commande dans un terminal.** Il passe par
-Claude Code : 5 commandes `/…` lui suffisent (voir plus bas). L'install se fait
-une fois, par l'outil :
+## Install / usage
 
 ```bash
-bash scripts/install-claude.sh
+git clone https://github.com/LandryPouth/ai-learn.git
+cd ai-learn
+bash scripts/install-claude.sh   # rend `ai-learn` dispo partout + commandes Claude Code
 ```
 
-Elle rend `ai-learn` disponible partout (`~/.local/bin`) et installe les
-commandes Claude Code dans `~/.claude/commands/`. Recharge Claude Code après.
+**L'apprenant ne tape jamais de commande dans un terminal.** Il passe par Claude Code : les commandes `/…` lui suffisent. L'install se fait une fois, par l'outil. Recharge Claude Code après.
 
-### Les 4 commandes de l'apprenant
+### Les commandes de l'apprenant
 
 | Commande | Rôle |
 |---|---|
 | `/learn` | Crée un parcours d'apprentissage : doc solide + questions + plan + `progress.json` |
 | `/status` | Où j'en suis : phases et leur état |
 | `/next` | La prochaine phase à faire |
+| `/scan` | Analyse un projet déjà avancé, montre où tu en es, propose une suite d'approfondissement |
+| `/propose` | Je ne sais pas quoi faire : propose-moi des projets à construire (chaque étape sourcée) |
 | `/check` | Scanner : tout est-il cohérent et prouvé ? |
 
-Il n'y a pas de `/verify` : la preuve est **automatique**. En clôture de chaque
-phase, l'agent lance `ai-learn verify <id>` lui-même — il n'écrit jamais `done`
-à la main. Et `ai-learn check` refuse tout checkpoint écrit mais jamais prouvé :
-`verify` ne peut être skippé, même par omission.
+Il n'y a pas de `/verify` : la preuve est **automatique**. En clôture de chaque phase, l'agent lance `ai-learn verify <id>` lui-même — il n'écrit jamais `done` à la main. Et `ai-learn check` refuse tout checkpoint écrit mais jamais prouvé : `verify` ne peut être skippé, même par omission.
 
-Tout le reste est automatique : guard PreToolUse (bloque les écritures non
-prouvées), `.githooks/pre-push` (lance les tests avant chaque push).
+Tout le reste est automatique : guard PreToolUse (bloque les écritures non prouvées), `.githooks/pre-push` (lance les tests avant chaque push).
 
 ## La philosophie
 
@@ -52,7 +57,18 @@ prouvées), `.githooks/pre-push` (lance les tests avant chaque push).
 - **Le suivi est des données, pas de la prose.** `progress.json` est commité et inspectable ; `check` le lit et le compare aux fichiers.
 - **Le check est la ceinture de sécurité.** C'est lui qui rend visible un AGENTS.md qu'on « oublie » : une phase `done` sans évidence, un artefact manquant, un journal de prédictions vide → erreur ou warning, exit 1.
 - **Ce qu'il ne peut pas garantir : la cognition.** Le tool prouve les preuves visibles (tests, artefacts, journal) ; l'honnêteté de la prédiction reste humaine. Même contrat que Coding Flow : il prouve que les tests tournent, pas que l'agent a raisonné.
+- **L'apprenant tape le code — la frappe est protégée, pas le sens.** `ai-learn guard` bloque mécaniquement l'IA dans `src/**` (un hook PreToolUse, pas une consigne) : elle ne peut pas écrire la solution à la place de l'apprenant. Le code de révélation va dans `docs/solutions/` ; le checkpoint teste le code réellement tapé ; le débogage est mené par l'apprenant. L'échappatoire reste visible : un journal `Corrigé par : IA` est signalé par `check`. Comme pour la cognition, la frappe est garantie, pas l'attention : recopier mécaniquement reste possible — c'est la même limite, assumée.
 
-## Friction tool
+## Développement
 
-Toute friction rencontrée en utilisant `ai-learn` est notée dans [`docs/DOGFOODING.md`](docs/DOGFOODING.md) — jamais masquée.
+```bash
+npm test                 # suite complète (node --test, stdlib only)
+ai-learn check --root .  # croise le ledger contre la réalité
+```
+
+- Le projet est **dogfoodé** dans un vrai parcours d'apprentissage (Fastify) et développé avec **Coding Flow** (guard PreToolUse + validation `npm test` configurée dans `.coding-flow/config.json`).
+- Toute friction rencontrée en l'utilisant est notée dans [`docs/DOGFOODING.md`](docs/DOGFOODING.md) — jamais masquée.
+
+## License
+
+[MIT](LICENSE) © Landry Pouth
