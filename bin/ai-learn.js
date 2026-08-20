@@ -72,7 +72,7 @@ function main() {
       }
 
       if (!technology) {
-        fail("init requires --technology <name>, ex: ai-learn init --technology Fastify");
+        fail("init requires --technology <name>, ex: ai-learn init --technology Rust");
       }
 
       const docSource = docSourceRaw

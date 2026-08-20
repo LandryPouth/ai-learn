@@ -18,8 +18,8 @@ const { docSourceList } = require("./docs");
 
 const MAX_FILES = 500;
 
-// A callout line that signals a trap. Fastify-style docs mark their warnings
-// with `> ⚠ Warning:`, `> Security Consideration:`, or plain prose warnings
+// A callout line that signals a trap. Many docs mark their warnings with
+// `> ⚠ Warning:`, `> Security Consideration:`, or plain prose warnings
 // ("Do not…", "Never…"). We keep the set deliberately narrow so a routine
 // blockquote (a note, an example) is not mistaken for a trap.
 const WARNING_MARKERS = /(⚠|Warning:|WARNING|Security Consideration|Do not|\bNever\b|must not|\bImportant\b|\bCaution\b)/i;

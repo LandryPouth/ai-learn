@@ -23,386 +23,38 @@ const { progressPath, readProgress } = require("./progress");
 const { latestEvidenceForPhase } = require("./status");
 
 // ---------------------------------------------------------------------------
-// Per-stack concept banks. A concept is a marker the scanner proves is used by
-// grepping source lines; each carries a depth tier so the level estimate and
-// the direction filter have something structural to compare.
+// Stack packs — one file per language under bin/lib/stacks/, each exporting
+// `{ concepts, directions, recipes }`. The engine below never hardcodes a
+// language or a framework: it only knows how to load a pack by key and run
+// the same generic detection/filtering/level logic over whatever it finds.
+// Adding a new language means adding a new file in stacks/, not touching this
+// file. A concept is a marker the scanner proves is used by grepping source
+// lines; each carries a depth tier so the level estimate and the direction
+// filter have something structural to compare. `deepens` is the concept id a
+// direction would introduce — deliberately NOT present in the concept bank,
+// so it can never be "already used" and the filter only ever kills
+// directions whose target is already mastered. `requires` are concept ids
+// that must be present for the direction to be anchored in real code.
+// Recipes (from build-your-own-x) follow the same non-regression shape as
+// directions, but add a concrete step-by-step ladder with a checkpoint per
+// step. `generic.js` is the fallback for any language without a dedicated
+// pack: no concept bank (nothing verified to grep for), only the five
+// language-agnostic directions.
 // ---------------------------------------------------------------------------
 
-const C_CONCEPTS = [
-  {
-    id: "c-modules",
-    name: "Découpage modules (headers / .c multiples)",
-    tier: 1,
-    markers: [{ pattern: /\b#include\s+"[\w./-]+\.h"/, sample: '#include "entities.h"' }],
-  },
-  {
-    id: "c-memory",
-    name: "Allocation mémoire (malloc/calloc/realloc/free)",
-    tier: 2,
-    markers: [{ pattern: /\b(?:malloc|calloc|realloc|free)\s*\(/, sample: "malloc(sizeof(Node))" }],
-  },
-  {
-    id: "c-build",
-    name: "Build (Makefile/CMake)",
-    tier: 2,
-    scanFiles: ["Makefile", "CMakeLists.txt"],
-    markers: [{ pattern: /^(?:CC|CFLAGS|LDFLAGS|gcc|clang|cc)\b/m, sample: "CC=gcc" }],
-  },
-  {
-    id: "c-files",
-    name: "Entrées-sorties fichiers",
-    tier: 2,
-    markers: [{ pattern: /\b(?:fopen|fclose|fread|fwrite|fprintf|open|read|write|close)\s*\(/, sample: "fopen(path, \"r\")" }],
-  },
-  {
-    id: "c-struct-fn-ptr",
-    name: "struct + pointeurs de fonction",
-    tier: 3,
-    markers: [{ pattern: /\b\w+(?:\s*\(?\s*\*\s*\w+\s*\))\s*\(/, sample: "int (*cmp)(const void*, const void*)" }],
-  },
-  {
-    id: "c-parsing",
-    name: "Parsing texte (strtok/sscanf/strsep)",
-    tier: 3,
-    markers: [{ pattern: /\b(?:strtok|sscanf|strsep|strchr|strstr)\s*\(/, sample: "sscanf(line, \"%s %d\", buf, &n)" }],
-  },
-  {
-    id: "c-threads",
-    name: "Threads (pthread)",
-    tier: 4,
-    markers: [{ pattern: /\bpthread_(?:create|join|detach|mutex_lock|mutex_unlock|cond_wait)\s*\(/, sample: "pthread_create(&t, NULL, worker, arg)" }],
-  },
-  {
-    id: "c-sockets",
-    name: "Réseau (socket/bind/listen/accept)",
-    tier: 4,
-    markers: [{ pattern: /\b(?:socket|bind|listen|accept|connect|send|recv)\s*\(/, sample: "socket(AF_INET, SOCK_STREAM, 0)" }],
-  },
-  {
-    id: "c-signals",
-    name: "Signaux (signal/sigaction)",
-    tier: 4,
-    markers: [{ pattern: /\b(?:signal|sigaction|sigemptyset|kill)\s*\(/, sample: "sigaction(SIGINT, &sa, NULL)" }],
-  },
-];
+const EMPTY_STACK = { concepts: [], directions: [], recipes: [] };
 
-const JS_CONCEPTS = [
-  {
-    id: "js-modules",
-    name: "Modules (ESM/CJS)",
-    tier: 1,
-    markers: [
-      { pattern: /^\s*(?:import|export)\s+\S/, sample: 'import fastify from "fastify"' },
-      { pattern: /^\s*const\s+\w+\s*=\s*require\(/, sample: "const http = require('http')" },
-    ],
-  },
-  {
-    id: "js-routes",
-    name: "Routes / API",
-    tier: 2,
-    markers: [
-      { pattern: /\.(?:get|post|put|patch|delete|route)\s*\(\s*["'`]/, sample: 'app.get("/health", …)' },
-      { pattern: /\b(?:app|server|fastify)\.[A-Za-z]+\(/, sample: "fastify.register(…)" },
-    ],
-  },
-  {
-    id: "js-async",
-    name: "async/await",
-    tier: 2,
-    markers: [{ pattern: /\basync\b|\bawait\b/, sample: "async (request, reply) => …" }],
-  },
-  {
-    id: "js-tests",
-    name: "Tests (test runner)",
-    tier: 2,
-    markers: [{ pattern: /\b(?:describe|it|test)\s*\(/, sample: 'test("…", …)' }],
-  },
-  {
-    id: "js-schema-validation",
-    name: "Validation de schéma (JSON Schema / zod / joi)",
-    tier: 3,
-    markers: [{ pattern: /\b(?:schema|typebox|zod|joi|ajv)\b/i, sample: "schema: { body: … }" }],
-  },
-  {
-    id: "js-hooks",
-    name: "Hooks / middleware",
-    tier: 3,
-    // No standalone `next(`/`done()` marker: it appears in any Express
-    // middleware or plain Node callback, unrelated to a Fastify-style
-    // lifecycle — too generic to be evidence on its own.
-    markers: [{ pattern: /\.(?:addHook|use|beforeHandler|preHandler)\s*\(/, sample: 'server.addHook("onRequest", …)' }],
-  },
-  {
-    id: "js-workers",
-    name: "worker_threads / processus",
-    tier: 4,
-    markers: [{ pattern: /worker_threads|new\s+Worker|child_process|cluster\b/, sample: "new Worker(path)" }],
-  },
-];
-
-// No concepts for an unknown language — level comes from structure only.
-const GENERIC_CONCEPTS = [];
-
-const CONCEPTS_BY_STACK = { c: C_CONCEPTS, javascript: JS_CONCEPTS, generic: GENERIC_CONCEPTS };
-
-// ---------------------------------------------------------------------------
-// Per-stack deepening directions. `deepens` is the concept id a direction would
-// introduce — deliberately NOT present in the concept banks, so it can never be
-// "already used" and the filter only ever kills directions whose target is
-// already mastered. `requires` are concept ids that must be present for the
-// direction to be anchored in real code.
-// ---------------------------------------------------------------------------
-
-const DIRECTIONS = {
-  c: [
-    {
-      id: "c-concurrency",
-      title: "Concurrence réelle : mutex, cond vars, thread pool",
-      why: "Tu as déjà pthread_create — l'étape suivante est la synchronisation et les patterns de concurrence (pool, producteur-consommateur).",
-      anchor: "src/net.c (pthread_create détecté)",
-      tier: 5,
-      deepens: "c-thread-sync",
-      requires: ["c-threads"],
-      doc: "man pthread_mutex_init, pthread_cond_wait; The Linux Programming Interface chap. 30-31; CS:APP chap. 12",
-    },
-    {
-      id: "c-event-loop",
-      title: "Loop d'événements / epoll + I/O non-bloquante",
-      why: "Tu fais du socket bloquant (1 thread par connexion) — la montée en charge passe par epoll et l'I/O multiplexée.",
-      anchor: "src/net.c (socket/bind/listen détecté)",
-      tier: 5,
-      deepens: "c-epoll",
-      requires: ["c-sockets"],
-      doc: "man epoll_wait, man 7 epoll; TLPI chap. 63",
-    },
-    {
-      id: "c-memory-pools",
-      title: "Allocation maîtrisée : pools, arènes, valgrind, ASan",
-      why: "malloc est présent — on passe à l'allocation contrôlée et à la chasse aux fuites/UB systématique.",
-      anchor: "src/*.c (malloc détecté)",
-      tier: 4,
-      deepens: "c-memory-advanced",
-      requires: ["c-memory"],
-      doc: "valgrind --leak-check=full; -fsanitize=address,undefined; CS:APP chap. 9",
-    },
-    {
-      id: "c-arch",
-      title: "Architecture en couches : parser → moteur → I/O",
-      why: "Le découpage src/ + headers existe — on pousse la séparation des préoccupations et l'ABI interne.",
-      anchor: "src/ (découpage modules détecté)",
-      tier: 4,
-      deepens: "c-arch",
-      requires: ["c-build"],
-      doc: "D.L. Parnas, « On the Criteria To Be Used in Decomposing Systems into Modules »",
-    },
-  ],
-  javascript: [
-    {
-      id: "js-lifecycle",
-      title: "Fastify lifecycle & hooks (onRequest → preHandler → onSend)",
-      why: "Tes routes marchent — la profondeur suivante est l'ordre d'exécution du lifecycle et les hooks.",
-      anchor: "src/index.ts (routes détectées)",
-      tier: 4,
-      deepens: "js-lifecycle",
-      requires: ["js-routes"],
-      requiresFramework: "Fastify",
-      doc: "docs/sources/fastify-docs — Lifecycle; Hooks",
-      docUrl: "https://fastify.dev/docs/latest/Reference/Lifecycle/ ; https://fastify.dev/docs/latest/Reference/Hooks/",
-    },
-    {
-      id: "js-schema-first",
-      title: "JSON Schema + TypeBox : validation & sérialisation",
-      why: "Tu réponds en JSON brut — le passage à un schéma (TypeBox) valide, sérialise et documente.",
-      anchor: "src/index.ts (routes détectées)",
-      tier: 4,
-      deepens: "js-schema",
-      requires: ["js-routes"],
-      requiresFramework: "Fastify",
-      doc: "docs/sources/fastify-docs — Validation & Serialization; @sinclair/typebox",
-      docUrl: "https://fastify.dev/docs/latest/Reference/Validation-and-Serialization/",
-    },
-    {
-      id: "js-plugins",
-      title: "Plugins & encapsulation",
-      why: "Une seule app — on découpe en plugins Fastify (encapsulation, décorateurs, registre).",
-      anchor: "src/ (structure modules détectée)",
-      tier: 4,
-      deepens: "js-plugins",
-      requires: ["js-routes"],
-      requiresFramework: "Fastify",
-      doc: "docs/sources/fastify-docs — Plugins, Encapsulation",
-      docUrl: "https://fastify.dev/docs/latest/Reference/Plugins/ ; https://fastify.dev/docs/latest/Reference/Encapsulation/",
-    },
-    {
-      id: "js-workers",
-      title: "worker_threads : sortir le CPU-bound du loop",
-      why: "async/await est là — le calcul intensif reste bloquant, on le déporte sur worker_threads.",
-      anchor: "src/index.ts (async/await détecté)",
-      tier: 5,
-      deepens: "js-workers",
-      requires: ["js-async"],
-      doc: "node:worker_threads docs",
-    },
-  ],
-  generic: [
-    {
-      id: "g-perf",
-      title: "Profiling & performance",
-      why: "Le code est là — la suite mesure et optimise ce qui compte (hot paths, allocations).",
-      anchor: "code existant (hot paths)",
-      tier: 4,
-      deepens: "__generic__",
-      requires: [],
-      doc: "profiler de la stack + mesure avant optimisation",
-    },
-    {
-      id: "g-arch",
-      title: "Architecture & modularité",
-      why: "Le projet grossit — on découpe en couches/plugins et on formalise les interfaces internes.",
-      anchor: "structure de dossiers existante",
-      tier: 4,
-      deepens: "__generic__",
-      requires: [],
-      doc: "patterns d'architecture de la stack",
-    },
-    {
-      id: "g-tests",
-      title: "Durcissement des tests",
-      why: "La régression devient un coût — on couvre les cas limites et on automatise l'exécution.",
-      anchor: "tests existants ou à créer",
-      tier: 4,
-      deepens: "__generic__",
-      requires: [],
-      doc: "bonnes pratiques de test de la stack",
-    },
-    {
-      id: "g-tooling",
-      title: "CI & outillage",
-      why: "Le build manuel sature — on automatise lint, test, build, release.",
-      anchor: "scripts de build existants",
-      tier: 5,
-      deepens: "__generic__",
-      requires: [],
-      doc: "CI de la stack (GitHub Actions, Makefile…)",
-    },
-    {
-      id: "g-docs",
-      title: "Documentation & API publique",
-      why: "Le code est dense — on documente l'usage et le design pour le rendre transmissible.",
-      anchor: "README / doc existante",
-      tier: 4,
-      deepens: "__generic__",
-      requires: [],
-      doc: "comment écrire une doc d'usage utile",
-    },
-  ],
-};
-
-// ---------------------------------------------------------------------------
-// Deepening recipes (from build-your-own-x). Where a DIRECTIONS entry says
-// *why* to go deeper, a recipe says *how*: a short executable ladder, each step
-// with a checkpoint the learner can actually run. Same non-regression shape as
-// DIRECTIONS (`requires` are concept ids, `deepens` is a target that never sits
-// in a concept bank). Kept small and curated — only well-known, guidable
-// projects (git, http, redis, a tiny database), never an invented project.
-// ---------------------------------------------------------------------------
-
-const RECIPES = {
-  c: [
-    {
-      id: "c-http-server",
-      title: "Serveur HTTP from scratch (parser + keep-alive)",
-      why: "Tu sais socket/bind/listen — un serveur HTTP complet prouve la couche protocole sous tout framework.",
-      anchor: "src/net.c (socket détecté)",
-      tier: 5,
-      deepens: "c-http",
-      requires: ["c-sockets", "c-parsing"],
-      steps: [
-        { title: "Lire la requête (ligne de requête + headers)", checkpoint: "curl -v 127.0.0.1:8080/ répond 200 avec un body" },
-        { title: "Servir des fichiers + headers (Content-Length, Content-Type)", checkpoint: "curl -I montre un Content-Length exact" },
-        { title: "Keep-alive : plusieurs requêtes sur une connexion", checkpoint: "2 requêtes sur la même connexion TCP répondent toutes les deux" },
-      ],
-      doc: "man 2 socket/accept/read/write; RFC 9110",
-    },
-    {
-      id: "c-mini-git",
-      title: "Mini-git : objets, refs, commits",
-      why: "malloc/free + fichiers sont là — un format de sauvegarde versionné (objets hash-adressés) est la montée en profondeur naturelle.",
-      anchor: "src/ (malloc/fopen détectés)",
-      tier: 5,
-      deepens: "c-git-objects",
-      requires: ["c-memory", "c-files", "c-parsing"],
-      steps: [
-        { title: "Objets blob/tree + hash SHA-1", checkpoint: "./sgit cat-file -p <hash> affiche le contenu du blob" },
-        { title: "Refs + index (staging)", checkpoint: "./sgit add puis ./sgit ls-files listent le même fichier" },
-        { title: "Commits + graphe", checkpoint: "./sgit log affiche le graphe des commits" },
-        { title: "Packfile/delta (bonus)", checkpoint: "un 2e commit ne stocke que le delta" },
-      ],
-      doc: "git-scm.com/book (The Git Book)",
-    },
-    {
-      id: "c-database",
-      title: "Petite base : persistance paginée + index",
-      why: "Parsing + fichiers maîtrisés — un moteur de stockage persistant avec index est un classique de montée en profondeur.",
-      anchor: "src/main.c (sscanf/fopen détectés)",
-      tier: 5,
-      deepens: "c-sql-engine",
-      requires: ["c-memory", "c-files", "c-parsing"],
-      steps: [
-        { title: "Parser des commandes simples (CREATE/INSERT/SELECT)", checkpoint: "./db accepte une commande et répond ok" },
-        { title: "Stockage paginé dans un fichier", checkpoint: "redémarrer lit les données écrites (persistance)" },
-        { title: "Index par clé : requête sans scan complet", checkpoint: "SELECT … WHERE id= ne scanne pas tout le fichier (logs)" },
-      ],
-      doc: "SQLite file format; CS:APP chap. 9",
-    },
-  ],
-  javascript: [
-    {
-      id: "js-http-server",
-      title: "Serveur HTTP from scratch (node:http)",
-      why: "async/await est là — un serveur http brut montre la couche qu'un framework abstrait.",
-      anchor: "src/index.ts (async/await détecté)",
-      tier: 3,
-      deepens: "js-http",
-      requires: ["js-async"],
-      steps: [
-        { title: "Écouter + répondre 200", checkpoint: "curl -i 127.0.0.1:8080/ → 200" },
-        { title: "Routing + réponse JSON", checkpoint: "GET /items renvoie un JSON valide" },
-        { title: "Streaming/compression", checkpoint: "curl --compressed décompresse" },
-      ],
-      doc: "node:http docs",
-    },
-    {
-      id: "js-redis",
-      title: "Mini-redis : RESP, SET/GET, persistance",
-      why: "async + tests sont là — un serveur mémoire avec un protocole texte parsé et une persistance est un projet guidé classique.",
-      anchor: "test/ + async détectés",
-      tier: 4,
-      deepens: "js-redis",
-      requires: ["js-async", "js-tests"],
-      steps: [
-        { title: "Parseur RESP", checkpoint: "un test injecte *3\\r\\n$3\\r\\nSET… et reçoit +OK" },
-        { title: "SET/GET + expiration", checkpoint: "test EXPIRE → après N ms, GET renvoie null" },
-        { title: "Persistance (dump)", checkpoint: "redémarrer le serveur, les données sont là" },
-      ],
-      doc: "redis.io/topics/protocol",
-    },
-    {
-      id: "js-mini-git",
-      title: "Mini-git en JS : objets + commits",
-      why: "async + tests sont là — les objets hash-adressés en JS, avec tests, est une bonne profondeur.",
-      anchor: "test/ + async détectés",
-      tier: 4,
-      deepens: "js-git-objects",
-      requires: ["js-async", "js-tests"],
-      steps: [
-        { title: "Objets + SHA-1 (node:crypto)", checkpoint: "test cat-file affiche le blob" },
-        { title: "Refs + commits", checkpoint: "test log affiche le graphe" },
-      ],
-      doc: "git-scm.com/book (The Git Book)",
-    },
-  ],
-};
+function loadStack(key) {
+  try {
+    return require(`./stacks/${key}.js`);
+  } catch {
+    try {
+      return require("./stacks/generic.js");
+    } catch {
+      return EMPTY_STACK;
+    }
+  }
+}
 
 const LEVEL_LABELS = {
   1: "Débutant",
@@ -590,7 +242,6 @@ function gitState(dir) {
 // ---------------------------------------------------------------------------
 
 const FRAMEWORK_ALIASES = {
-  fastify: "Fastify",
   express: "Express",
   react: "React",
   "react-dom": "React",
@@ -601,7 +252,6 @@ const FRAMEWORK_ALIASES = {
   django: "Django",
   flask: "Flask",
   fastapi: "FastAPI",
-  express: "Express",
 };
 
 function stackKey(language) {
@@ -646,7 +296,7 @@ function detectStack(dir, files) {
   // Framework detection from package.json deps must run whenever package.json
   // exists, independently of who won the language race: a TypeScript project
   // (tsconfig.json sets language first) is still a package.json project, and
-  // its Fastify/Express/etc dependency must not go undetected just because
+  // its Express/React/etc dependency must not go undetected just because
   // TypeScript already claimed `language`.
   if (basenames.has("package.json")) {
     if (!language) {
@@ -785,23 +435,65 @@ function conceptFiles(concept, files, language) {
 
 // A single fortuitous line — a comment, a pasted tutorial snippet, an
 // unrelated callback — is not evidence of mastery. Requiring at least two
-// independent occurrences makes an accidental or copy-pasted one-off much
-// less likely to pass as "concept used" on its own.
+// occurrences makes an accidental one-off much less likely to pass on its
+// own. But raw count is not enough either: two `addHook(...)` calls pasted
+// together from a tutorial (different event names, same call) also produce
+// two occurrences with zero real understanding. Line/file proximity cannot
+// tell them apart from genuine code — a real socket/bind/listen sequence or
+// two function-pointer typedefs are legitimately adjacent lines too. What
+// *does* distinguish them: whether the evidence actually matched two
+// different substrings (malloc vs free, socket vs listen, addHook vs
+// preHandler) rather than the same call twice — see `evidenceIsDiverse`.
 const MIN_CONCEPT_EVIDENCE = 2;
 
+// True if the evidence isn't just the same call site duplicated: either it
+// spans two different files (definitely independent), or at least two
+// distinct substrings were matched (different operations of the concept, not
+// the identical function call repeated with only its arguments changing —
+// arguments aren't part of the match, so two `addHook("onRequest", …)` /
+// `addHook("onSend", …)` calls both match the literal text "addHook(").
+function evidenceIsDiverse(evidence) {
+  const files = new Set(evidence.map((entry) => entry.file));
+  if (files.size >= 2) {
+    return true;
+  }
+  const matches = new Set(evidence.map((entry) => entry.match));
+  return matches.size >= 2;
+}
+
+// Diversity is only meaningful for concepts whose marker enumerates distinct
+// *named operations* of an API (malloc vs free, socket vs listen, addHook vs
+// preHandler) — reusing the identical one there really is a weaker signal.
+// It is NOT applied by default: for a marker that's a grammatical pair for
+// one single feature (async/await both just mean "this code is async"), or
+// whose match text is an incidental prefix (`import f...` vs `import c...`,
+// which collide or differ by pure chance of which letter a module name starts
+// with), text-identity is not a meaningful proxy and produces false
+// negatives on completely ordinary code (two `async` handlers with no
+// `await`, several `import` lines). Opted in only where verified safe.
+const DIVERSE_EVIDENCE_CONCEPTS = new Set([
+  "c-memory",
+  "c-files",
+  "c-parsing",
+  "c-threads",
+  "c-sockets",
+  "c-signals",
+  "js-hooks",
+]);
+
+function globalPattern(pattern) {
+  return new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+}
+
 function detectConcepts(language, files) {
-  const bank = CONCEPTS_BY_STACK[stackKey(language)] || GENERIC_CONCEPTS;
+  const bank = loadStack(stackKey(language)).concepts;
   const used = [];
 
   for (const concept of bank) {
     const scannable = conceptFiles(concept, files, language);
     const evidence = [];
 
-    for (const file of scannable) {
-      if (evidence.length >= 5) {
-        break;
-      }
-
+    outer: for (const file of scannable) {
       const content = readScannable(file.abs);
       if (content === null) {
         continue;
@@ -810,22 +502,31 @@ function detectConcepts(language, files) {
       const lines = content.split("\n");
 
       for (let i = 0; i < lines.length; i += 1) {
-        if (evidence.length >= 5) {
-          break;
-        }
-
         const line = lines[i];
 
         for (const marker of concept.markers) {
-          if (marker.pattern.test(line)) {
-            evidence.push({ file: file.rel, line: i + 1, excerpt: line.trim().slice(0, 120) });
-            break;
+          // Collect every match on the line, not just the first — a line
+          // like `async function f() { await g(); }` legitimately contains
+          // two distinct signals (async, await), and stopping at the first
+          // would undercount real diversity that's actually present.
+          for (const match of line.matchAll(globalPattern(marker.pattern))) {
+            evidence.push({
+              file: file.rel,
+              line: i + 1,
+              excerpt: line.trim().slice(0, 120),
+              match: match[0].trim().toLowerCase(),
+            });
+            if (evidence.length >= 5) {
+              break outer;
+            }
           }
         }
       }
     }
 
-    if (evidence.length >= MIN_CONCEPT_EVIDENCE) {
+    const diverseEnough = !DIVERSE_EVIDENCE_CONCEPTS.has(concept.id) || evidenceIsDiverse(evidence);
+
+    if (evidence.length >= MIN_CONCEPT_EVIDENCE && diverseEnough) {
       used.push({ id: concept.id, name: concept.name, tier: concept.tier, evidence });
     }
   }
@@ -869,6 +570,16 @@ function estimateLevel({ usedConcepts, tests, git, size }) {
   // before the structural floor bumps at all. They only raise a low base,
   // never lower a high one — a repo already at concept tier 4 stays Avancé
   // even if it has no tests.
+  //
+  // `tests` and `git` are not actually independent: a single empty test file
+  // plus 50 commits are both just proxies for "some time has passed", and an
+  // AI-assisted workflow naturally produces dozens of small commits regardless
+  // of whether anything was understood — that pair co-occurs in nearly any
+  // repo that has existed for more than a few days. `taille` (real LOC
+  // written) is the one signal that actually tracks volume of work rather
+  // than elapsed time or commit habits, so it's required in the pair: the
+  // bump needs `taille` plus at least one of the other two, never `tests` +
+  // `git` alone.
   const bumps = [];
   if (tests.count >= 1) {
     bumps.push("tests");
@@ -879,7 +590,7 @@ function estimateLevel({ usedConcepts, tests, git, size }) {
   if (size.totalLoc >= 2000) {
     bumps.push("taille");
   }
-  const structuralTier = bumps.length >= 2 ? 2 : 0;
+  const structuralTier = bumps.includes("taille") && bumps.length >= 2 ? 2 : 0;
 
   const tier = Math.max(conceptTier, structuralTier);
 
@@ -917,12 +628,16 @@ function resolveDirectionDoc(direction, dir) {
 function suggestDirections({ language, usedConcepts, dir = null, frameworks = [] }) {
   // Directions say why to go deeper; recipes (build-your-own-x ladders) say how.
   // Both obey the same non-regression contract, so they share one filter.
-  const key = stackKey(language);
-  const bank = [...(DIRECTIONS[key] || DIRECTIONS.generic), ...(RECIPES[key] || [])];
+  const pack = loadStack(stackKey(language));
+  const bank = [...pack.directions, ...pack.recipes];
   const usedIds = new Set(usedConcepts.map((concept) => concept.id));
   const maxUsedTier = usedConcepts.reduce((max, concept) => Math.max(max, concept.tier), 0);
 
   const eligible = bank.filter((direction) => {
+    // `requiresFramework` is generic infrastructure, not tied to any specific
+    // framework: a stack pack can gate a direction on a detected dependency
+    // (see `frameworks`, populated by package.json deps) when its content
+    // only makes sense for that framework. No pack uses it today.
     if (direction.requiresFramework && !frameworks.includes(direction.requiresFramework)) {
       return false; // content is specific to a framework this project doesn't use
     }
@@ -1130,8 +845,6 @@ module.exports = {
   detectConcepts,
   estimateLevel,
   suggestDirections,
-  C_CONCEPTS,
-  JS_CONCEPTS,
-  DIRECTIONS,
-  RECIPES,
+  resolveDirectionDoc,
+  loadStack,
 };

@@ -28,7 +28,7 @@ const PROJECTS = [
     title: "Serveur HTTP from scratch (parser + keep-alive)",
     difficulty: 3,
     stack: ["c", "javascript", "python", "go", "rust"],
-    why: "La couche protocole que tous les frameworks cachent : on comprend enfin ce que fastify/express font pour nous.",
+    why: "La couche protocole que tous les frameworks web cachent : on comprend enfin ce qu'un framework fait pour nous.",
     stages: [
       { title: "Lire la requête (ligne de requête + headers)", checkpoint: "curl -v 127.0.0.1:8080/ répond 200 avec un body", resource: { name: "RFC 9110", ref: "https://www.rfc-editor.org/rfc/rfc9110" } },
       { title: "Servir des fichiers + headers (Content-Length, Content-Type)", checkpoint: "curl -I montre un Content-Length exact", resource: { name: "man 2 stat", ref: "https://man7.org/linux/man-pages/man2/stat.2.html" } },
@@ -119,13 +119,13 @@ const PROJECTS = [
     title: "API REST avec validation : routes, JSON Schema, erreurs",
     difficulty: 2,
     stack: ["javascript", "typescript"],
-    why: "Le pain quotidien du web : méthode + chemin → handler, entrée validée, erreurs propres. On comprend ce qu'un framework comme Fastify automatise — et pourquoi la validation change tout.",
+    why: "Le pain quotidien du web : méthode + chemin → handler, entrée validée, erreurs propres. On comprend ce qu'un framework web automatise — et pourquoi la validation change tout.",
     stages: [
-      { title: "Routes : méthode + chemin → handler", checkpoint: "curl -X POST /items répond 201 et crée la ressource", resource: { name: "Fastify routes", ref: "https://fastify.dev/docs/latest/Reference/Routes/" } },
+      { title: "Routes : méthode + chemin → handler", checkpoint: "curl -X POST /items répond 201 et crée la ressource", resource: { name: "RFC 9110 § méthodes", ref: "https://www.rfc-editor.org/rfc/rfc9110#section-9" } },
       { title: "Validation d'entrée (JSON Schema)", checkpoint: "POST /items avec un body invalide répond 400 avec les erreurs de schéma", resource: { name: "JSON Schema 2020-12", ref: "https://json-schema.org/draft/2020-12/json-schema-core.html" } },
-      { title: "Erreurs propres : 404 structuré, 5xx honnête", checkpoint: "une ressource inconnue répond 404 avec un corps JSON structuré", resource: { name: "Fastify errors", ref: "https://fastify.dev/docs/latest/Reference/Errors/" } },
+      { title: "Erreurs propres : 404 structuré, 5xx honnête", checkpoint: "une ressource inconnue répond 404 avec un corps JSON structuré", resource: { name: "RFC 9110 § codes de statut", ref: "https://www.rfc-editor.org/rfc/rfc9110#section-15" } },
     ],
-    doc: "fastify.dev/docs; json-schema.org; RFC 9110",
+    doc: "json-schema.org; RFC 9110",
   },
   {
     id: "frontend-reactive",
@@ -151,7 +151,7 @@ const PROJECTS = [
       { title: "Trames : décoder le texte (masquage client)", checkpoint: "le client envoie un message et reçoit son écho", resource: { name: "RFC 6455 §5 (trames)", ref: "https://www.rfc-editor.org/rfc/rfc6455#section-5" } },
       { title: "Broadcast + fermeture propre (close frame)", checkpoint: "le message de l'un des deux clients arrive chez l'autre", resource: { name: "RFC 6455 §7 (close)", ref: "https://www.rfc-editor.org/rfc/rfc6455#section-7" } },
     ],
-    doc: "RFC 6455; fastify.dev/docs/latest/Reference/WebSocket",
+    doc: "RFC 6455",
   },
 ];
 

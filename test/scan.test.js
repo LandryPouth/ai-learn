@@ -22,6 +22,7 @@ const {
   detectConcepts,
   estimateLevel,
   suggestDirections,
+  resolveDirectionDoc,
 } = require("../bin/lib/scan");
 
 const BIN = path.join(__dirname, "..", "bin", "ai-learn.js");
@@ -232,9 +233,26 @@ test("estimateLevel: a single cheap structural signal is not enough to bump the 
   assert.strictEqual(oneSignal.tier, 0);
   assert.strictEqual(oneSignal.label, "Débutant");
 
-  const twoSignals = estimateLevel({ usedConcepts: [], tests: { count: 1 }, git: { commits: 50 }, size: { totalLoc: 100 } });
+  const twoSignals = estimateLevel({ usedConcepts: [], tests: { count: 1 }, git: { commits: 50 }, size: { totalLoc: 2000 } });
   assert.strictEqual(twoSignals.tier, 2);
   assert.strictEqual(twoSignals.label, "Intermédiaire");
+});
+
+test("estimateLevel: tests + git alone never bump the level, however high git climbs — taille is required", () => {
+  // tests>=1 and git.commits>=50 co-occur trivially once a repo has existed
+  // for a while (a lone empty test file, an AI-assisted workflow's naturally
+  // high commit count) — neither proves any real understanding. Without a
+  // real LOC signal, this pair must not bump the level, no matter how high
+  // the commit count climbs.
+  const testsAndGitOnly = estimateLevel({ usedConcepts: [], tests: { count: 1 }, git: { commits: 5000 }, size: { totalLoc: 100 } });
+  assert.strictEqual(testsAndGitOnly.tier, 0);
+  assert.strictEqual(testsAndGitOnly.label, "Débutant");
+
+  const tailleWithGit = estimateLevel({ usedConcepts: [], tests: { count: 0 }, git: { commits: 50 }, size: { totalLoc: 2000 } });
+  assert.strictEqual(tailleWithGit.tier, 2);
+
+  const tailleWithTests = estimateLevel({ usedConcepts: [], tests: { count: 1 }, git: { commits: 0 }, size: { totalLoc: 2000 } });
+  assert.strictEqual(tailleWithTests.tier, 2);
 });
 
 test("gitState reports a real repo and a non-repo without throwing", () => {
@@ -299,10 +317,34 @@ test("a single fortuitous line is not enough to mark a concept used", () => {
   assert.ok(!report.concepts.used.some((c) => c.id === "c-memory"), "a single occurrence should not count as mastered");
 });
 
-test("js-hooks no longer fires on a bare next()/done() unrelated to Fastify hooks", () => {
+test("two identical calls pasted from a tutorial (same call, different args) are not enough — real code adjacency (socket/bind/listen) still is", () => {
   const dir = tmpDir();
-  // A plain Express-style middleware / Node callback — next() alone, twice,
-  // with no addHook/preHandler anywhere.
+  // Two .use() calls, exactly the shape of a pasted middleware example — same
+  // literal call, only the argument differs (the regex doesn't capture
+  // arguments, so both match the identical substring "use(").
+  writeFile(dir, "src/index.js", "app.use(logger);\napp.use(cors());\n");
+
+  const report = scanProject(dir);
+  assert.ok(
+    !report.concepts.used.some((c) => c.id === "js-hooks"),
+    "two occurrences of the identical call must not count as mastery on their own",
+  );
+});
+
+test("two different real hooks (use + on) are genuine diverse evidence, not a paste", () => {
+  const dir = tmpDir();
+  writeFile(dir, "src/index.js", 'app.use(logger);\nserver.on("error", (err) => console.error(err));\n');
+
+  const report = scanProject(dir);
+  assert.ok(
+    report.concepts.used.some((c) => c.id === "js-hooks"),
+    "two genuinely different hook calls should count as real usage",
+  );
+});
+
+test("js-hooks does not fire on a bare next()/done() unrelated to middleware registration", () => {
+  const dir = tmpDir();
+  // A plain callback — next() alone, twice, with no .use()/.on() anywhere.
   writeFile(
     dir,
     "src/index.js",
@@ -310,72 +352,37 @@ test("js-hooks no longer fires on a bare next()/done() unrelated to Fastify hook
   );
 
   const report = scanProject(dir);
-  assert.ok(!report.concepts.used.some((c) => c.id === "js-hooks"), "bare next() must not count as a Fastify hook");
+  assert.ok(!report.concepts.used.some((c) => c.id === "js-hooks"), "bare next() must not count as middleware usage");
 });
 
 test("detectStack finds a package.json framework even when tsconfig.json wins the language", () => {
   const dir = tmpDir();
   writeFile(dir, "tsconfig.json", "{}");
-  writeFile(dir, "package.json", JSON.stringify({ name: "demo", dependencies: { fastify: "^4.0.0" } }));
+  writeFile(dir, "package.json", JSON.stringify({ name: "demo", dependencies: { express: "^4.0.0" } }));
   writeFile(dir, "src/index.ts", "export {};\n");
 
   const report = scanProject(dir);
   assert.strictEqual(report.stack.language, "TypeScript");
-  assert.ok(report.stack.frameworks.includes("Fastify"), `expected Fastify in ${report.stack.frameworks}`);
+  assert.ok(report.stack.frameworks.includes("Express"), `expected Express in ${report.stack.frameworks}`);
 });
 
-test("Fastify-specific directions are gated on the detected framework", () => {
+test("resolveDirectionDoc falls back to docUrl when the local vendored doc is absent, cites it when present", () => {
+  // Generic mechanism test, independent of any stack pack's content: any
+  // direction citing a docs/sources/<name> path that doesn't exist on this
+  // project's disk must fall back to a public, always-resolvable docUrl —
+  // never a citation to a file that was never vendored.
+  const missing = resolveDirectionDoc({ doc: "docs/sources/some-docs — Reference", docUrl: "https://example.com/docs" }, tmpDir());
+  assert.strictEqual(missing, "https://example.com/docs");
+
   const dir = tmpDir();
-  // Same route/handler shape as a Fastify app, but no package.json → no
-  // framework detected. js-lifecycle/js-schema-first/js-plugins are Fastify
-  // content and must not be suggested without evidence the project uses it.
-  writeFile(
-    dir,
-    "src/index.js",
-    'app.get("/health", async (req, res) => res.send({ ok: true }));\napp.post("/echo", async (req, res) => res.send(req.body));\n',
-  );
+  writeFile(dir, "docs/sources/some-docs/Reference.md", "# Reference\n");
+  const present = resolveDirectionDoc({ doc: "docs/sources/some-docs — Reference", docUrl: "https://example.com/docs" }, dir);
+  assert.strictEqual(present, "docs/sources/some-docs — Reference");
 
-  const report = scanProject(dir);
-  const ids = report.suggestions.map((s) => s.id);
-  assert.ok(!ids.includes("js-lifecycle"), `js-lifecycle should be gated without a detected Fastify framework: ${ids}`);
-  assert.ok(!ids.includes("js-schema-first"), `js-schema-first should be gated: ${ids}`);
-  assert.ok(!ids.includes("js-plugins"), `js-plugins should be gated: ${ids}`);
-});
-
-test("Fastify directions appear when the framework is detected, citing a URL when the local doc source is absent", () => {
-  const dir = tmpDir();
-  writeFile(dir, "package.json", JSON.stringify({ name: "demo", dependencies: { fastify: "^4.0.0" } }));
-  writeFile(
-    dir,
-    "src/index.js",
-    'const server = require("fastify")();\nserver.get("/health", async (req, reply) => reply.send({ ok: true }));\nserver.post("/echo", async (req, reply) => reply.send(req.body));\n',
-  );
-
-  const report = scanProject(dir);
-  assert.ok(report.stack.frameworks.includes("Fastify"));
-
-  const lifecycle = report.suggestions.find((s) => s.id === "js-lifecycle");
-  assert.ok(lifecycle, `js-lifecycle should be suggested for a detected Fastify project: ${report.suggestions.map((s) => s.id)}`);
-  // No docs/sources/fastify-docs on disk → falls back to the public URL, never
-  // a citation that doesn't exist.
-  assert.doesNotMatch(lifecycle.doc, /^docs\/sources/);
-  assert.match(lifecycle.doc, /^https:\/\/fastify\.dev/);
-});
-
-test("Fastify directions cite the local vendored doc when it actually exists on disk", () => {
-  const dir = tmpDir();
-  writeFile(dir, "package.json", JSON.stringify({ name: "demo", dependencies: { fastify: "^4.0.0" } }));
-  writeFile(dir, "docs/sources/fastify-docs/Reference/Lifecycle.md", "# Lifecycle\n");
-  writeFile(
-    dir,
-    "src/index.js",
-    'const server = require("fastify")();\nserver.get("/health", async (req, reply) => reply.send({ ok: true }));\nserver.post("/echo", async (req, reply) => reply.send(req.body));\n',
-  );
-
-  const report = scanProject(dir);
-  const lifecycle = report.suggestions.find((s) => s.id === "js-lifecycle");
-  assert.ok(lifecycle);
-  assert.match(lifecycle.doc, /^docs\/sources\/fastify-docs/);
+  // No docUrl fallback declared → the (unresolvable) local citation is kept
+  // as-is rather than silently dropped.
+  const noFallback = resolveDirectionDoc({ doc: "docs/sources/some-docs — Reference" }, tmpDir());
+  assert.strictEqual(noFallback, "docs/sources/some-docs — Reference");
 });
 
 test("an unknown-language project yields no concepts and generic directions", () => {
