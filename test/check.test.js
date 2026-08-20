@@ -175,10 +175,16 @@ test("a generated source whose doc does not cite its origin is a warning", () =>
   assert.ok(entry.issues.warnings.some((w) => /does not cite its origin/.test(w.message)));
 });
 
+const SUBSTANTIAL_NOTES =
+  "Le backend roadmap distingue 4 étapes : comprendre le protocole HTTP, choisir un langage, " +
+  "apprendre les bases de données relationnelles et NoSQL, puis l'architecture (cache, files de " +
+  "messages, scalabilité horizontale). Chaque étape est détaillée avec les concepts clés à maîtriser " +
+  "avant de passer à la suivante, et des exemples concrets d'outils utilisés en production.";
+
 test("a generated source that cites its origin passes cleanly", () => {
   const progress = generatedProgress();
   const dir = tmpProject(progress);
-  writeFile(dir, "docs/sources/gen/backend.md", "# Notes\nSource : https://roadmap.sh/backend\n");
+  writeFile(dir, "docs/sources/gen/backend.md", `# Notes\n${SUBSTANTIAL_NOTES}\nSource : https://roadmap.sh/backend\n`);
   writeFile(dir, ".ai-learn/traps.json", "{}\n"); // friction bank present
 
   const entry = checkProject(dir);
@@ -189,12 +195,26 @@ test("a generated source that cites its origin passes cleanly", () => {
 test("origin citation matching is robust to scheme and trailing slash", () => {
   const progress = generatedProgress({ url: "https://roadmap.sh/backend/" });
   const dir = tmpProject(progress);
-  writeFile(dir, "docs/sources/gen/backend.md", "Source : roadmap.sh/backend\n"); // no scheme, no trailing slash
+  // no scheme, no trailing slash
+  writeFile(dir, "docs/sources/gen/backend.md", `${SUBSTANTIAL_NOTES}\nSource : roadmap.sh/backend\n`);
   writeFile(dir, ".ai-learn/traps.json", "{}\n"); // friction bank present
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
   assert.deepStrictEqual(entry.issues.warnings, []);
+});
+
+test("a generated source with only a trailing citation and no real content is a warning (degenerate case)", () => {
+  const progress = generatedProgress();
+  const dir = tmpProject(progress);
+  // The exact failure mode the content floor exists to catch: a citation
+  // stapled onto near-nothing (or, in the real risk case, onto a
+  // hallucinated file that happens to be short).
+  writeFile(dir, "docs/sources/gen/backend.md", "# Notes\nSource : https://roadmap.sh/backend\n");
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => /does not cite its origin/.test(w.message)));
 });
 
 function fileProgress(overrides = {}) {
@@ -234,7 +254,7 @@ test("a generated file source whose transcript cites the file passes cleanly", (
   const progress = fileProgress();
   const dir = tmpProject(progress);
   writeFile(dir, "docs/sources/livre/book.pdf", "%PDF-1.4 fake\n");
-  writeFile(dir, "docs/sources/livre/essentiel.md", "# Essentiel\nVoir book.pdf:page 12.\n");
+  writeFile(dir, "docs/sources/livre/essentiel.md", `# Essentiel\n${SUBSTANTIAL_NOTES}\nVoir book.pdf:page 12.\n`);
   writeFile(dir, ".ai-learn/traps.json", "{}\n"); // friction bank present
 
   const entry = checkProject(dir);

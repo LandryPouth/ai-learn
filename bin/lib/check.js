@@ -63,12 +63,34 @@ function checkProject(dir) {
   // The friction bank is derived from the local docs. Its absence is a warning,
   // not an error: a project can legitimately have zero traps — but if local
   // sources exist, the protocol should know whether any warning callouts live
-  // in them.
-  if (hasLocalSource && !fs.existsSync(path.join(dir, ".ai-learn", "traps.json"))) {
-    issues.warnings.push({
-      file: ".ai-learn/traps.json",
-      message: "local doc sources exist but no friction bank — run `ai-learn traps`",
-    });
+  // in them. And a bank that exists but flags `possibleMisses` means the
+  // extractor found warning-marker lines it could not parse (an admonition
+  // syntax it doesn't recognize) — "0 traps" there is not proof the doc is
+  // clean, so surface it rather than let it read as silence.
+  if (hasLocalSource) {
+    const trapsPath = path.join(dir, ".ai-learn", "traps.json");
+
+    if (!fs.existsSync(trapsPath)) {
+      issues.warnings.push({
+        file: ".ai-learn/traps.json",
+        message: "local doc sources exist but no friction bank — run `ai-learn traps`",
+      });
+    } else {
+      try {
+        const trapsData = JSON.parse(fs.readFileSync(trapsPath, "utf8"));
+
+        if (Number.isFinite(trapsData.possibleMisses) && trapsData.possibleMisses > 0) {
+          issues.warnings.push({
+            file: ".ai-learn/traps.json",
+            message:
+              `${trapsData.possibleMisses} warning-marker line(s) found outside any syntax the extractor ` +
+              "recognizes (blockquote, admonition :::, <div>) — extraction may be incomplete; check those docs manually",
+          });
+        }
+      } catch {
+        // unreadable/corrupt traps.json — not this check's job to fix
+      }
+    }
   }
 
   // The learner-file block ("blocage apprenant") is enforced by the `ai-learn
@@ -178,8 +200,12 @@ function checkProject(dir) {
 // local file (ex. a PDF book: the file is embedded whole, the AI distills only
 // what the plan needs into a .md). Same structural guards, mirroring the way
 // verify proves phases: the origin is the provenance, a non-empty .md must
-// exist (the recreation actually happened), and it must cite its origin —
-// otherwise it is an unverifiable invention.
+// exist (the recreation actually happened), and it must cite its origin with
+// real content around the citation — not just a trailing "Source: X" line
+// stapled onto an otherwise empty or hallucinated file. This is a presence +
+// minimum-substance check, not a truth check: it cannot tell a faithful
+// distillation from a hallucinated one that happens to cite its source
+// correctly. It only refuses the degenerate, cheap-to-fake case.
 function checkGeneratedSource(dirPath, source, issues) {
   const origin = source.url || source.file;
 
@@ -201,7 +227,10 @@ function checkGeneratedSource(dirPath, source, issues) {
   if (origin && !docCitesOrigin(dirPath, String(origin))) {
     issues.warnings.push({
       file: source.path,
-      message: `generated source "${source.name}" does not cite its origin — anti-hallucination: every claim must cite ${origin}`,
+      message:
+        `generated source "${source.name}" does not cite its origin with enough real content around it — ` +
+        `a bare "Source: ${origin}" line is not enough (this check verifies presence and minimum ` +
+        `substance, not that the content is accurate)`,
     });
   }
 }
@@ -235,8 +264,14 @@ function findTranscript(dirPath) {
   return null;
 }
 
-// Does any file in the generated source mention its origin URL? The AI may write
-// the URL with or without scheme/trailing slash, so compare normalized.
+// Does any file in the generated source mention its origin URL, with enough
+// content around the citation to not be the degenerate case of a hallucinated
+// (or empty) file with a citation stapled onto it? The AI may write the URL
+// with or without scheme/trailing slash, so compare normalized. Presence
+// check only — it cannot verify the surrounding content is *accurate*, only
+// that there is a non-trivial amount of it next to a real citation.
+const MIN_CONTENT_BEYOND_CITATION = 200;
+
 function docCitesOrigin(dirPath, url) {
   const needle = normalizeOrigin(url);
   let entries;
@@ -252,13 +287,26 @@ function docCitesOrigin(dirPath, url) {
       continue;
     }
 
+    let content;
+
     try {
-      const content = fs.readFileSync(path.join(dirPath, entry.name), "utf8");
-      if (content.includes(needle)) {
-        return true;
-      }
+      content = fs.readFileSync(path.join(dirPath, entry.name), "utf8");
     } catch {
-      // unreadable file — skip
+      continue; // unreadable file — skip
+    }
+
+    if (!content.includes(needle)) {
+      continue;
+    }
+
+    const withoutCitationLines = content
+      .split("\n")
+      .filter((line) => !line.includes(needle))
+      .join("\n")
+      .trim();
+
+    if (withoutCitationLines.length >= MIN_CONTENT_BEYOND_CITATION) {
+      return true;
     }
   }
 

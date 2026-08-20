@@ -43,7 +43,7 @@ function trapsProject() {
 test("extractTrapsFromSource captures the warning callout with its citation", () => {
   const dir = trapsProject();
 
-  const traps = extractTrapsFromSource("fastify-docs", path.join(dir, "docs", "sources", "fastify-docs"));
+  const { traps } = extractTrapsFromSource("fastify-docs", path.join(dir, "docs", "sources", "fastify-docs"));
 
   assert.strictEqual(traps.length, 1);
   assert.strictEqual(traps[0].source, "fastify-docs");
@@ -97,7 +97,9 @@ test("a missing source is skipped and a doc without traps yields an empty bank",
     phases: [],
   });
 
-  assert.deepStrictEqual(extractTrapsFromSource("missing", path.join(dir, "docs", "sources", "missing")), []);
+  const missing = extractTrapsFromSource("missing", path.join(dir, "docs", "sources", "missing"));
+  assert.deepStrictEqual(missing.traps, []);
+  assert.strictEqual(missing.possibleMisses, 0);
 
   const result = regenerateTraps(dir);
   assert.strictEqual(result.traps.length, 0);
@@ -142,6 +144,123 @@ test("checkProject warns when local sources exist but no friction bank", () => {
   assert.ok(entry.issues.warnings.some((w) => /friction bank/.test(w.message)));
 });
 
+test("extractFromFile recognizes Docusaurus/VitePress fenced admonitions", () => {
+  const dir = tmpProject({
+    version: 1,
+    project: "demo",
+    technology: "X",
+    docSource: { type: "local", sources: [{ name: "modern-docs", mode: "local", path: "docs/sources/modern-docs" }] },
+    phases: [],
+  });
+  writeFile(
+    dir,
+    "docs/sources/modern-docs/guide.md",
+    "# Guide\n\n## Setup\n\n:::warning\nDo not commit your API key to git.\n:::\n\n:::tip\nUse a .env file instead.\n:::\n",
+  );
+
+  const { traps } = extractTrapsFromSource("modern-docs", path.join(dir, "docs", "sources", "modern-docs"));
+
+  assert.strictEqual(traps.length, 1); // :::tip is not a warning type — not a trap
+  assert.strictEqual(traps[0].section, "Setup");
+  assert.match(traps[0].text, /Do not commit your API key/);
+});
+
+test("extractFromFile recognizes an HTML admonition div", () => {
+  const dir = tmpProject({
+    version: 1,
+    project: "demo",
+    technology: "X",
+    docSource: { type: "local", sources: [{ name: "html-docs", mode: "local", path: "docs/sources/html-docs" }] },
+    phases: [],
+  });
+  writeFile(
+    dir,
+    "docs/sources/html-docs/guide.md",
+    '# Guide\n\n<div class="admonition warning">\nNever expose this endpoint publicly.\n</div>\n',
+  );
+
+  const { traps } = extractTrapsFromSource("html-docs", path.join(dir, "docs", "sources", "html-docs"));
+
+  assert.strictEqual(traps.length, 1);
+  assert.match(traps[0].text, /Never expose this endpoint publicly/);
+});
+
+test("a warning-marker line outside any recognized syntax is counted as a possible miss, not silently dropped", () => {
+  const dir = tmpProject({
+    version: 1,
+    project: "demo",
+    technology: "X",
+    docSource: { type: "local", sources: [{ name: "sphinx-docs", mode: "local", path: "docs/sources/sphinx-docs" }] },
+    phases: [],
+  });
+  // A label-style admonition ("Important: …") written as plain prose, outside
+  // any recognized block syntax (Sphinx's `.. warning::` directive would
+  // render the same way once converted to Markdown) — a real miss.
+  writeFile(dir, "docs/sources/sphinx-docs/guide.md", "# Guide\n\nImportant: read this before deploying.\n");
+
+  const { traps, possibleMisses } = extractTrapsFromSource("sphinx-docs", path.join(dir, "docs", "sources", "sphinx-docs"));
+  assert.strictEqual(traps.length, 0);
+  assert.strictEqual(possibleMisses, 1);
+
+  const result = regenerateTraps(dir);
+  assert.strictEqual(result.traps.length, 0);
+  assert.strictEqual(result.possibleMisses, 1);
+
+  const data = JSON.parse(fs.readFileSync(path.join(dir, ".ai-learn", "traps.json"), "utf8"));
+  assert.strictEqual(data.possibleMisses, 1);
+
+  const md = fs.readFileSync(path.join(dir, "docs", "plans", "pièges.md"), "utf8");
+  assert.match(md, /extraction est peut-être incomplète/);
+});
+
+test("possible-miss detection ignores ordinary prose using warning-ish words, not just the label form", () => {
+  const dir = tmpProject({
+    version: 1,
+    project: "demo",
+    technology: "X",
+    docSource: { type: "local", sources: [{ name: "prose-docs", mode: "local", path: "docs/sources/prose-docs" }] },
+    phases: [],
+  });
+  // Real-world noise sources: "important" used as an ordinary adjective, a
+  // "## Emit Warnings" heading, a package literally named `process-warning`,
+  // an imperative sentence that happens to start with "Do not" without being
+  // an admonition. None of these should count as a possible miss — only a
+  // label-style marker at the start of a line should.
+  writeFile(
+    dir,
+    "docs/sources/prose-docs/guide.md",
+    [
+      "# Guide",
+      "",
+      "## Emit Warnings",
+      "",
+      "Benchmarking is important if you want to measure how a change affects performance.",
+      "Do not forget to require the utility in every file you need it in.",
+      "const warning = require('process-warning')()",
+      "",
+    ].join("\n"),
+  );
+
+  const { traps, possibleMisses } = extractTrapsFromSource("prose-docs", path.join(dir, "docs", "sources", "prose-docs"));
+  assert.strictEqual(traps.length, 0);
+  assert.strictEqual(possibleMisses, 0, "ordinary prose must not be flagged as a possible extraction miss");
+});
+
+test("checkProject warns when the friction bank has possible extraction misses", () => {
+  const dir = tmpProject({
+    version: 1,
+    project: "demo",
+    technology: "X",
+    docSource: { type: "local", sources: [{ name: "sphinx-docs", mode: "local", path: "docs/sources/sphinx-docs" }] },
+    phases: [],
+  });
+  writeFile(dir, "docs/sources/sphinx-docs/guide.md", "# Guide\n\nImportant: read this before deploying.\n");
+  regenerateTraps(dir);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.warnings.some((w) => /possible|incomplete/i.test(w.message) && /traps\.json/.test(w.file)));
+});
+
 test("traps extraction ignores a non-md origin file but reads the transcript", () => {
   const dir = tmpProject({
     version: 1,
@@ -156,7 +275,7 @@ test("traps extraction ignores a non-md origin file but reads the transcript", (
   writeFile(dir, "docs/sources/livre/book.pdf", "%PDF-1.4 fake\n");
   writeFile(dir, "docs/sources/livre/essentiel.md", "# Essentiel\n\n> ⚠ Warning:\n> Do not mix callbacks and async hooks.\n");
 
-  const traps = extractTrapsFromSource("livre", path.join(dir, "docs", "sources", "livre"));
+  const { traps } = extractTrapsFromSource("livre", path.join(dir, "docs", "sources", "livre"));
 
   assert.strictEqual(traps.length, 1);
   assert.strictEqual(traps[0].file, "essentiel.md");

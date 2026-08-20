@@ -127,10 +127,10 @@ const JS_CONCEPTS = [
     id: "js-hooks",
     name: "Hooks / middleware",
     tier: 3,
-    markers: [
-      { pattern: /\.(?:addHook|use|beforeHandler|preHandler)\s*\(/, sample: 'server.addHook("onRequest", …)' },
-      { pattern: /\b(?:next\(|done\(\))/, sample: "next()" },
-    ],
+    // No standalone `next(`/`done()` marker: it appears in any Express
+    // middleware or plain Node callback, unrelated to a Fastify-style
+    // lifecycle — too generic to be evidence on its own.
+    markers: [{ pattern: /\.(?:addHook|use|beforeHandler|preHandler)\s*\(/, sample: 'server.addHook("onRequest", …)' }],
   },
   {
     id: "js-workers",
@@ -205,7 +205,9 @@ const DIRECTIONS = {
       tier: 4,
       deepens: "js-lifecycle",
       requires: ["js-routes"],
+      requiresFramework: "Fastify",
       doc: "docs/sources/fastify-docs — Lifecycle; Hooks",
+      docUrl: "https://fastify.dev/docs/latest/Reference/Lifecycle/ ; https://fastify.dev/docs/latest/Reference/Hooks/",
     },
     {
       id: "js-schema-first",
@@ -215,7 +217,9 @@ const DIRECTIONS = {
       tier: 4,
       deepens: "js-schema",
       requires: ["js-routes"],
+      requiresFramework: "Fastify",
       doc: "docs/sources/fastify-docs — Validation & Serialization; @sinclair/typebox",
+      docUrl: "https://fastify.dev/docs/latest/Reference/Validation-and-Serialization/",
     },
     {
       id: "js-plugins",
@@ -225,7 +229,9 @@ const DIRECTIONS = {
       tier: 4,
       deepens: "js-plugins",
       requires: ["js-routes"],
+      requiresFramework: "Fastify",
       doc: "docs/sources/fastify-docs — Plugins, Encapsulation",
+      docUrl: "https://fastify.dev/docs/latest/Reference/Plugins/ ; https://fastify.dev/docs/latest/Reference/Encapsulation/",
     },
     {
       id: "js-workers",
@@ -637,8 +643,15 @@ function detectStack(dir, files) {
   checkManifest("pyproject.toml", "Python", null);
   checkManifest("requirements.txt", "Python", null);
 
-  if (basenames.has("package.json") && !language) {
-    language = "JavaScript";
+  // Framework detection from package.json deps must run whenever package.json
+  // exists, independently of who won the language race: a TypeScript project
+  // (tsconfig.json sets language first) is still a package.json project, and
+  // its Fastify/Express/etc dependency must not go undetected just because
+  // TypeScript already claimed `language`.
+  if (basenames.has("package.json")) {
+    if (!language) {
+      language = "JavaScript";
+    }
     manifests.push("package.json");
 
     const pkg = JSON.parse(
@@ -770,6 +783,12 @@ function conceptFiles(concept, files, language) {
   return files.filter((file) => exts.has(file.ext) && !file.binary);
 }
 
+// A single fortuitous line — a comment, a pasted tutorial snippet, an
+// unrelated callback — is not evidence of mastery. Requiring at least two
+// independent occurrences makes an accidental or copy-pasted one-off much
+// less likely to pass as "concept used" on its own.
+const MIN_CONCEPT_EVIDENCE = 2;
+
 function detectConcepts(language, files) {
   const bank = CONCEPTS_BY_STACK[stackKey(language)] || GENERIC_CONCEPTS;
   const used = [];
@@ -777,7 +796,6 @@ function detectConcepts(language, files) {
   for (const concept of bank) {
     const scannable = conceptFiles(concept, files, language);
     const evidence = [];
-    let matched = false;
 
     for (const file of scannable) {
       if (evidence.length >= 5) {
@@ -792,23 +810,22 @@ function detectConcepts(language, files) {
       const lines = content.split("\n");
 
       for (let i = 0; i < lines.length; i += 1) {
+        if (evidence.length >= 5) {
+          break;
+        }
+
         const line = lines[i];
 
         for (const marker of concept.markers) {
           if (marker.pattern.test(line)) {
             evidence.push({ file: file.rel, line: i + 1, excerpt: line.trim().slice(0, 120) });
-            matched = true;
             break;
           }
-        }
-
-        if (matched && evidence.length) {
-          break;
         }
       }
     }
 
-    if (matched) {
+    if (evidence.length >= MIN_CONCEPT_EVIDENCE) {
       used.push({ id: concept.id, name: concept.name, tier: concept.tier, evidence });
     }
   }
@@ -845,25 +862,24 @@ function readScannable(abs) {
 function estimateLevel({ usedConcepts, tests, git, size }) {
   const conceptTier = usedConcepts.reduce((max, concept) => Math.max(max, concept.tier), 0);
 
-  // Structural signals alone can never claim more than level 3: without concept
-  // evidence there is no way to tell a deep codebase from a broad one. They only
-  // raise a low base, never lower a high one — a repo already at concept tier 4
-  // stays Avancé even if it has no tests.
-  let structuralTier = 0;
+  // Structural signals alone can never claim more than level 2: without concept
+  // evidence there is no way to tell a deep codebase from a broad one, and a
+  // single cheap proxy (just commit count, say) is too weak a basis on its own
+  // — quantity is not quality. At least two independent signals must agree
+  // before the structural floor bumps at all. They only raise a low base,
+  // never lower a high one — a repo already at concept tier 4 stays Avancé
+  // even if it has no tests.
   const bumps = [];
   if (tests.count >= 1) {
     bumps.push("tests");
-    structuralTier = Math.max(structuralTier, 2);
   }
   if (git.commits !== null && git.commits >= 50) {
     bumps.push("git");
-    structuralTier = Math.max(structuralTier, 2);
   }
   if (size.totalLoc >= 2000) {
     bumps.push("taille");
-    structuralTier = Math.max(structuralTier, 2);
   }
-  structuralTier = Math.min(structuralTier, 3);
+  const structuralTier = bumps.length >= 2 ? 2 : 0;
 
   const tier = Math.max(conceptTier, structuralTier);
 
@@ -871,12 +887,34 @@ function estimateLevel({ usedConcepts, tests, git, size }) {
   const rationale =
     top.length > 0
       ? `${usedConcepts.length} concept(s) mobilisé(s), dont ${top.join(", ")}.`
-      : `Peu de marqueurs de concepts détectés — niveau estimé sur la structure (${bumps.join(", ") || "taille, git, tests"}).`;
+      : structuralTier > 0
+        ? `Peu de marqueurs de concepts détectés — niveau estimé sur la structure (${bumps.join(", ")}).`
+        : `Peu de marqueurs de concepts détectés, et pas assez de signaux structurels convergents (${bumps.join(", ") || "aucun"}) pour estimer un niveau au-delà du débutant.`;
 
-  return { tier, label: LEVEL_LABELS[tier] || "Inconnu", rationale };
+  return { tier, label: LEVEL_LABELS[tier] || "Débutant", rationale };
 }
 
-function suggestDirections({ language, usedConcepts }) {
+// A direction's `doc` may cite a local vendored path (`docs/sources/<name>`).
+// That path only exists once the learner ran `ai-learn docs add` for it — if
+// the project never added the source, the citation is a promise, not a fact.
+// Fall back to the direction's `docUrl` (a public, always-resolvable
+// reference) when the local path is absent, same "never an unverifiable
+// citation" contract as `propose.js`.
+function resolveDirectionDoc(direction, dir) {
+  const localMatch = direction.doc && direction.doc.match(/^docs\/sources\/[^\s—]+/);
+
+  if (localMatch && dir) {
+    const localPath = path.resolve(dir, localMatch[0]);
+
+    if (!fs.existsSync(localPath)) {
+      return direction.docUrl || direction.doc;
+    }
+  }
+
+  return direction.doc;
+}
+
+function suggestDirections({ language, usedConcepts, dir = null, frameworks = [] }) {
   // Directions say why to go deeper; recipes (build-your-own-x ladders) say how.
   // Both obey the same non-regression contract, so they share one filter.
   const key = stackKey(language);
@@ -885,6 +923,9 @@ function suggestDirections({ language, usedConcepts }) {
   const maxUsedTier = usedConcepts.reduce((max, concept) => Math.max(max, concept.tier), 0);
 
   const eligible = bank.filter((direction) => {
+    if (direction.requiresFramework && !frameworks.includes(direction.requiresFramework)) {
+      return false; // content is specific to a framework this project doesn't use
+    }
     if (!direction.requires.every((id) => usedIds.has(id))) {
       return false; // not anchored in real code
     }
@@ -903,7 +944,7 @@ function suggestDirections({ language, usedConcepts }) {
     return aNext - bNext || b.tier - a.tier || (a.id < b.id ? -1 : 1);
   });
 
-  return eligible.slice(0, 5);
+  return eligible.slice(0, 5).map((direction) => ({ ...direction, doc: resolveDirectionDoc(direction, dir) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -919,7 +960,7 @@ function scanProject(dir) {
   const tests = detectTests(walked.files);
   const concepts = detectConcepts(stack.language, walked.files);
   const level = estimateLevel({ usedConcepts: concepts.used, tests, git, size: walked });
-  const suggestions = suggestDirections({ language: stack.language, usedConcepts: concepts.used });
+  const suggestions = suggestDirections({ language: stack.language, usedConcepts: concepts.used, dir: abs, frameworks: stack.frameworks });
 
   let learning = null;
 
