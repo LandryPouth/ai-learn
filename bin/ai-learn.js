@@ -130,7 +130,7 @@ function main() {
       const validateFile = getFlagValue("--validate", null);
 
       if (validateFile) {
-        validateCommand({ file: validateFile });
+        validateCommand({ file: validateFile, dir });
       } else {
         proposeCommand({ dir, stack, level, limit });
       }
@@ -179,7 +179,7 @@ Usage:
   ai-learn status [--dir <dir>]
   ai-learn next [--dir <dir>]
   ai-learn scan [--dir <dir>]
-  ai-learn propose [--dir <dir>] [--stack <c|javascript|python|go>] [--level <1-5>] [--limit <n>]
+  ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
   ai-learn check [--root <dir>]

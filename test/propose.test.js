@@ -46,9 +46,11 @@ test("the project bank is internally consistent: every stage is backed by a reso
   }
 });
 
-test("stageResource accepts a {name, ref} object or a bare string, rejects empty", () => {
+test("stageResource accepts a {name, ref} object or a bare URL string, rejects empty", () => {
   assert.strictEqual(stageResource({ resource: { name: "RFC 9110", ref: "https://rfc-editor.org/rfc/rfc9110" } }), "https://rfc-editor.org/rfc/rfc9110");
-  assert.strictEqual(stageResource({ resource: "man 2 pipe" }), "man 2 pipe");
+  assert.strictEqual(stageResource({ resource: "https://man7.org/linux/man-pages/man2/pipe.2.html" }), "https://man7.org/linux/man-pages/man2/pipe.2.html");
+  // Sans dir, une ref non-URL ne peut pas être vérifiée (existence locale inconnue).
+  assert.strictEqual(stageResource({ resource: "man 2 pipe" }), null);
   assert.strictEqual(stageResource({ resource: { name: "x", ref: "   " } }), null);
   assert.strictEqual(stageResource({ resource: null }), null);
   assert.strictEqual(stageResource(undefined), null);
@@ -78,6 +80,46 @@ test("validateProject accepts an invented project with every stage sourced", () 
 
   assert.strictEqual(result.ok, true);
   assert.deepStrictEqual(result.missing, []);
+});
+
+test("validateProject rejects a plausible URL without a scheme", () => {
+  // `redis.io/topics/protocol-v99` reads like a citation but has no http(s)
+  // scheme — a bare string that cannot be checked is not a sourced stage.
+  const result = validateProject({
+    title: "Mini-Redis",
+    stages: [{ title: "RESP", checkpoint: "x", resource: { name: "Redis protocol", ref: "redis.io/topics/protocol-v99" } }],
+  });
+
+  assert.strictEqual(result.ok, false);
+  assert.ok(result.missing.some((m) => /URL http/.test(m.reason)));
+});
+
+test("stageResource accepts an existing local path under dir, rejects a missing one", () => {
+  const dir = tmpDir();
+  writeFile(dir, "docs/sources/rfc/index.md", "# RFC 9110\n");
+
+  assert.strictEqual(stageResource({ resource: { ref: "docs/sources/rfc/index.md" } }, dir), "docs/sources/rfc/index.md");
+  assert.strictEqual(stageResource({ resource: { ref: "docs/sources/rfc/missing.md" } }, dir), null);
+  // Absolute paths and ../ escapes are not sourced local refs.
+  assert.strictEqual(stageResource({ resource: { ref: "/etc/passwd" } }, dir), null);
+  assert.strictEqual(stageResource({ resource: { ref: "../outside.md" } }, dir), null);
+});
+
+test("validateProject uses the dir for local refs: a present file passes, an absent one is refused", () => {
+  const dir = tmpDir();
+  writeFile(dir, "docs/sources/rfc/index.md", "# RFC 9110\n");
+
+  const ok = validateProject(
+    { title: "X", stages: [{ title: "S", checkpoint: "x", resource: { ref: "docs/sources/rfc/index.md" } }] },
+    dir,
+  );
+  assert.strictEqual(ok.ok, true);
+
+  const bad = validateProject(
+    { title: "X", stages: [{ title: "S", checkpoint: "x", resource: { ref: "docs/sources/rfc/missing.md" } }] },
+    dir,
+  );
+  assert.strictEqual(bad.ok, false);
 });
 
 test("proposeCommand prints the shortlist and writes proposals.json (no progress.json needed)", () => {
@@ -113,6 +155,17 @@ test("proposeCommand filters by stack and level", () => {
   capture(() => proposeCommand({ dir: none, stack: "nonexistent" }));
   const empty = JSON.parse(fs.readFileSync(path.join(none, ".ai-learn", "proposals.json"), "utf8"));
   assert.deepStrictEqual(empty.projects, []);
+});
+
+test("the bank serves the web/API persona: JS projects include a REST API and a WebSocket", () => {
+  const dir = tmpDir();
+  capture(() => proposeCommand({ dir, stack: "javascript", limit: 10 }));
+
+  const report = JSON.parse(fs.readFileSync(path.join(dir, ".ai-learn", "proposals.json"), "utf8"));
+  const ids = report.projects.map((p) => p.id);
+  assert.ok(ids.includes("rest-api"), `expected rest-api among ${ids.join(", ")}`);
+  assert.ok(ids.includes("websocket"), `expected websocket among ${ids.join(", ")}`);
+  assert.ok(report.projects.every((p) => p.stack.includes("javascript")));
 });
 
 test("propose --validate refuses an unsourced invented project via CLI (exit 1)", () => {

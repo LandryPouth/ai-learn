@@ -82,6 +82,34 @@ test("Bash writing into a learner file via redirection or tee is denied; read-on
   );
 });
 
+test("Bash in-place editors and one-liner writers are denied; their read-only twins are allowed", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  // In-place editors rewrite their file operands.
+  for (const cmd of [
+    `sed -i 's/x/y/' src/index.ts`,
+    `sed -ibak 's/x/y/' src/index.ts`, // attached suffix (macOS style)
+    `perl -i -pe 's/x/y/' src/index.ts`,
+    `python3 -c "open('src/x.ts','w').write('x')"`,
+    `python3 -c "Path('src/x.ts').write_text('x')"`,
+    `node -e "require('fs').writeFileSync('src/x.ts','x')"`,
+    `node --eval "require('fs').appendFileSync('src/x.ts','x')"`,
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command: cmd }), dir).decision, "deny", cmd);
+  }
+
+  // Read-only twins of the same commands must pass.
+  for (const cmd of [
+    `sed 's/x/y/' src/index.ts`, // no -i: writes to stdout
+    `sed -n 'p' src/index.ts`,
+    `python3 -c "open('src/x.ts').read()"`, // no write mode
+    `node -e "require('fs').readFileSync('src/x.ts','utf8')"`,
+    `grep -rn "writeFileSync(" src/`, // a grep for the pattern is not a write
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command: cmd }), dir).decision, "allow", cmd);
+  }
+});
+
 test("loadGuardConfig defaults to src/** and reads a custom learnerFiles list", () => {
   const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
 

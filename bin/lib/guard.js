@@ -8,9 +8,13 @@
 // learner reads it and re-types it.
 //
 // Why a hook and not a line in AGENTS.md: a protocol written as prose can be
-// skipped. A permission block cannot — the write never happens. This is the same
-// escalation the tool already uses for `verify` (executed proof over declared
-// proof), applied to "the learner did their part".
+// skipped. A tool-call block cannot. For Write/Edit/MultiEdit/NotebookEdit the
+// write never happens — that part is a wall. For Bash the guard is a hedge, not
+// a wall: it recognises the common ways a shell command writes (redirection,
+// tee, cp/mv/ln/install, sed -i / perl -i, python -c / node -e one-liners) and
+// fail-opens on anything it cannot identify. This is the same escalation the
+// tool already uses for `verify` (executed proof over declared proof), applied
+// to "the learner did their part".
 //
 // Fail-open by design, like any guard that must not break a session: empty stdin,
 // unparseable input, an unknown tool, or a missing config ⇒ allow. Only a clearly
@@ -137,10 +141,40 @@ function toRelative(root, filePath) {
   return rel.startsWith("../") ? null : rel;
 }
 
-// The destinations a shell command would WRITE to. Conservative and fail-open: a
-// target we fail to recognise is simply not checked. The primary guarantee is the
-// Write/Edit block; shell detection is defense-in-depth so redirection is not a
-// way around the policy.
+// Write calls inside interpreted one-liners (`python -c`, `node -e`): the path
+// is a quoted argument to a known write function, anywhere in the script. Only
+// applied when the invocation is actually a one-liner, so a bare `grep` for such
+// a call is never denied.
+const PYTHON_WRITE_RE = /(?:open\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"](?:w|a))|(?:Path\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.write_(?:text|bytes)\s*\()/gi;
+const NODE_WRITE_RE = /(?:writeFileSync|writeFile|appendFileSync|appendFile|copyFileSync|copyFile)\s*\(\s*['"`]([^'"`]+)['"`]/g;
+
+function execOneLinerWrites(command, tokens) {
+  const writes = [];
+  const isPyScript = tokens.some((t) => /^python\d*(\.\d+)*$/.test(t)) && tokens.includes("-c");
+  const isNodeScript = tokens.some((t) => /^node$/.test(t)) && (tokens.includes("-e") || tokens.includes("--eval"));
+
+  const collect = (re) => {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(command)) !== null) {
+      writes.push(m[1] || m[2]);
+    }
+  };
+
+  if (isPyScript) {
+    collect(PYTHON_WRITE_RE);
+  }
+  if (isNodeScript) {
+    collect(NODE_WRITE_RE);
+  }
+  return writes.filter(Boolean);
+}
+
+// The destinations a shell command would WRITE to. Defense-in-depth, not a wall:
+// it catches the common escapes (redirection, tee, cp/mv/ln/install, sed -i /
+// perl -i, python -c / node -e one-liners) and fail-opens on anything else. The
+// primary guarantee is the Write/Edit block; shell detection only stops the
+// obvious ways around it.
 function shellWriteTargets(command) {
   const targets = [];
   const tokens = command.split(/\s+/);
@@ -190,9 +224,31 @@ function shellWriteTargets(command) {
       if (destination) {
         targets.push(destination);
       }
+      continue;
+    }
+
+    // In-place editors: `sed -i` / `perl -i` rewrite their file operands in
+    // place. Every non-flag operand after the in-place flag is a file that gets
+    // rewritten. Over-collecting the expression (e.g. `s/a/b/`) is harmless —
+    // it can never match a learnerFiles pattern like `src/**`.
+    if (token === "sed" || token === "perl") {
+      let inPlace = false;
+
+      for (let j = i + 1; j < tokens.length; j++) {
+        const t = tokens[j];
+        if (t.startsWith("-i")) {
+          inPlace = true;
+          continue;
+        }
+        if (inPlace && !t.startsWith("-")) {
+          targets.push(stripQuotes(t));
+        }
+      }
+      continue;
     }
   }
 
+  targets.push(...execOneLinerWrites(command, tokens));
   return targets.filter(Boolean);
 }
 
@@ -345,6 +401,12 @@ dans son éditeur.
   (tsconfig, package.json, docker-compose.yml, migrations, scripts).
 - **L'apprenant écrit seul** : \`src/**\` (et tout chemin listé dans
   \`.ai-learn/guard.json\` → \`learnerFiles\`).
+- **La référence est non-collable** : \`docs/solutions/<brique>.md\` est écrit
+  **avec des trous** à compléter (\`[...]\`, lignes incomplètes, commentaires à
+  finir). Un Cmd+A aveugle produit un code qui échoue au checkpoint — l'apprenant
+  doit retaper et compléter pour que ça passe. C'est le second garde-fou, après
+  le guard : le guard prouve « pas l'IA », les trous forcent « l'apprenant a
+  refait ».
 - **Debug** : mené par l'apprenant — test rouge, checkpoint qui échoue, stack
   trace → l'apprenant lit, diagnostique, corrige. L'IA guide, ne touche pas aux
   fichiers.

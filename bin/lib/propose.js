@@ -6,11 +6,13 @@
 // et un checkpoint vérifiable par étape.
 //
 // La garantie « assez de ressources fiables pour bâtir le plan d'apprentissage »
-// est structurelle : chaque étape est adossée à une ressource vérifiable (URL,
-// RFC, man page, livre, source locale docs/sources/). Un projet dont une étape
-// n'a pas de ressource est refusé — même contrat anti-hallucination que
-// `docs add --regen`. Le tool ne peut pas vérifier le réseau, mais il exige
-// qu'aucune étape ne s'appuie sur du vide.
+// est structurelle : chaque étape est adossée à une ressource vérifiable (URL
+// http(s), RFC, man page, livre, source locale docs/sources/). Un projet dont
+// une étape n'a pas de ressource est refusé — même contrat que `docs add --regen`
+// du côté forme. Le tool vérifie la forme et l'existence locale, pas le réseau :
+// une URL plausible mais fausse passe ici, le vrai contrôle réseau se fait au
+// moment du plan (`ai-learn docs add` pour chaque ressource). On ne bâtit pas un
+// plan sur du vide, mais on ne prétend pas confirmer le réseau.
 
 const fs = require("fs");
 const path = require("path");
@@ -112,36 +114,100 @@ const PROJECTS = [
     ],
     doc: "man 7 namespaces; man 7 cgroups",
   },
+  {
+    id: "rest-api",
+    title: "API REST avec validation : routes, JSON Schema, erreurs",
+    difficulty: 2,
+    stack: ["javascript", "typescript"],
+    why: "Le pain quotidien du web : méthode + chemin → handler, entrée validée, erreurs propres. On comprend ce qu'un framework comme Fastify automatise — et pourquoi la validation change tout.",
+    stages: [
+      { title: "Routes : méthode + chemin → handler", checkpoint: "curl -X POST /items répond 201 et crée la ressource", resource: { name: "Fastify routes", ref: "https://fastify.dev/docs/latest/Reference/Routes/" } },
+      { title: "Validation d'entrée (JSON Schema)", checkpoint: "POST /items avec un body invalide répond 400 avec les erreurs de schéma", resource: { name: "JSON Schema 2020-12", ref: "https://json-schema.org/draft/2020-12/json-schema-core.html" } },
+      { title: "Erreurs propres : 404 structuré, 5xx honnête", checkpoint: "une ressource inconnue répond 404 avec un corps JSON structuré", resource: { name: "Fastify errors", ref: "https://fastify.dev/docs/latest/Reference/Errors/" } },
+    ],
+    doc: "fastify.dev/docs; json-schema.org; RFC 9110",
+  },
+  {
+    id: "frontend-reactive",
+    title: "Mini-framework réactif : rendu, state, diff",
+    difficulty: 4,
+    stack: ["javascript", "typescript"],
+    why: "État → DOM : un mini framework réactif montre ce que Vue/React cachent — réactivité, rendu, et le diff qui évite de tout re-render.",
+    stages: [
+      { title: "Rendu : state → DOM (vnode)", checkpoint: "changer le state re-rend la vue avec les nouvelles valeurs", resource: { name: "Build your own React", ref: "https://pomb.us/build-your-own-react/" } },
+      { title: "Réactivité : effets + subscribers", checkpoint: "muter le state déclenche le rendu, sans re-render manuel", resource: { name: "Vue reactivity in depth", ref: "https://vuejs.org/guide/extras/reactivity-in-depth.html" } },
+      { title: "Commit : ne muter que ce qui change", checkpoint: "un seul nœud change → seul ce nœud est touché dans le DOM", resource: { name: "React render & commit", ref: "https://react.dev/learn/render-and-commit" } },
+    ],
+    doc: "pomb.us; vuejs.org/guide/extras/reactivity-in-depth; react.dev/learn",
+  },
+  {
+    id: "websocket",
+    title: "Chat temps réel : serveur WebSocket (RFC 6455)",
+    difficulty: 4,
+    stack: ["javascript", "typescript", "python", "go"],
+    why: "Le passage du HTTP au full-duplex : handshake, trames masquées, fermeture propre. Un serveur WebSocket from scratch relie protocole et web en un projet court.",
+    stages: [
+      { title: "Handshake : HTTP → 101 (Sec-WebSocket-Key)", checkpoint: "un client ws:// se connecte et reçoit un 101 Switching Protocols", resource: { name: "RFC 6455 §4 (handshake)", ref: "https://www.rfc-editor.org/rfc/rfc6455#section-4" } },
+      { title: "Trames : décoder le texte (masquage client)", checkpoint: "le client envoie un message et reçoit son écho", resource: { name: "RFC 6455 §5 (trames)", ref: "https://www.rfc-editor.org/rfc/rfc6455#section-5" } },
+      { title: "Broadcast + fermeture propre (close frame)", checkpoint: "le message de l'un des deux clients arrive chez l'autre", resource: { name: "RFC 6455 §7 (close)", ref: "https://www.rfc-editor.org/rfc/rfc6455#section-7" } },
+    ],
+    doc: "RFC 6455; fastify.dev/docs/latest/Reference/WebSocket",
+  },
 ];
 
 // Fraction des étapes adossées à une ressource (la garantie « assez de
 // ressources »). Un projet à 100 % a de quoi citer chaque phase du plan.
-function stageCoverage(project) {
+function stageCoverage(project, dir) {
   const stages = project.stages || [];
-  const backed = stages.filter((stage) => stageResource(stage)).length;
+  const backed = stages.filter((stage) => stageResource(stage, dir)).length;
   return stages.length > 0 ? backed / stages.length : 0;
 }
 
-// La ressource d'une étape : `{name, ref}` ou une chaîne directe (URL, RFC,
-// man page, chemin docs/sources/…). Le ref non vide est le contrat minimum —
-// on ne vérifie pas le réseau, mais on refuse l'étape sans ressource.
-function stageResource(stage) {
-  if (!stage) {
+// La ressource d'une étape : `{name, ref}` ou une chaîne directe. Contrat de
+// **forme + existence**, pas le réseau : un ref `http(s)://` est accepté (on ne
+// vérifie pas que l'URL répond — c'est fait plus tard par `docs add` au plan) ;
+// un ref non-URL doit être un chemin local qui existe sur disque sous le projet
+// (`dir`), sinon l'étape est non sourcée.
+function stageResource(stage, dir) {
+  let ref = null;
+
+  if (stage) {
+    if (typeof stage.resource === "string") {
+      ref = stage.resource;
+    } else if (stage.resource && typeof stage.resource.ref === "string") {
+      ref = stage.resource.ref;
+    }
+  }
+
+  if (!ref || !ref.trim()) {
     return null;
   }
-  if (typeof stage.resource === "string") {
-    return stage.resource.trim() ? stage.resource : null;
+  ref = ref.trim();
+
+  // URL avec schéma explicite → forme valide. Une URL plausible mais fausse
+  // passe ici : le réseau est hors de portée, assumé.
+  if (/^https?:\/\//i.test(ref)) {
+    return ref;
   }
-  return stage.resource && typeof stage.resource.ref === "string" && stage.resource.ref.trim()
-    ? stage.resource.ref
-    : null;
+
+  // Ref locale → doit exister sur disque sous le projet, sinon on ne peut pas
+  // la vérifier et l'étape est non sourcée. Un chemin absolu est rejeté (hors
+  // du projet), comme un `../` qui en sortirait.
+  if (dir) {
+    const rel = path.normalize(ref);
+    if (!path.isAbsolute(rel) && !rel.startsWith("..") && fs.existsSync(path.resolve(dir, rel))) {
+      return ref;
+    }
+  }
+
+  return null;
 }
 
 // Valide un projet inventé (par l'IA ou l'apprenant). Retourne
 // `{ ok, missing: [{ stage, reason }] }`. Un projet sans étapes, ou avec une
-// étape sans ressource vérifiable, est refusé : on ne construit pas un plan
-// d'apprentissage sur du non sourcé.
-function validateProject(project) {
+// étape sans ressource vérifiable (URL http(s) ou chemin local existant), est
+// refusé : on ne construit pas un plan d'apprentissage sur du non sourcé.
+function validateProject(project, dir) {
   const missing = [];
   const stages = Array.isArray(project && project.stages) ? project.stages : [];
 
@@ -150,10 +216,10 @@ function validateProject(project) {
   }
 
   for (const stage of stages) {
-    if (!stageResource(stage)) {
+    if (!stageResource(stage, dir)) {
       missing.push({
         stage: (stage && stage.title) || "(étape sans titre)",
-        reason: "aucune ressource vérifiable — on ne bâtit pas un plan sur une étape non sourcée (URL, RFC, man, livre ou docs/sources/…)",
+        reason: "aucune ressource vérifiable — il faut une URL http(s) ou un chemin local qui existe (RFC, man, livre, docs/sources/…)",
       });
     }
   }
@@ -161,7 +227,7 @@ function validateProject(project) {
   return { ok: missing.length === 0, missing };
 }
 
-function printProposals(projects) {
+function printProposals(projects, dir) {
   if (projects.length === 0) {
     return;
   }
@@ -174,7 +240,7 @@ function printProposals(projects) {
     for (const stage of project.stages) {
       log(`       • ${stage.title}`);
       log(`           checkpoint : ${stage.checkpoint}`);
-      log(`           ressource  : ${stageResource(stage)}`);
+      log(`           ressource  : ${stageResource(stage, dir)}`);
     }
 
     log(`     Doc   : ${project.doc}`);
@@ -190,7 +256,7 @@ function proposeCommand({ dir, stack = null, level = null, limit = 5 }) {
 
   // Seuls les projets à 100 % couverts passent : une étape sans ressource
   // ne peut pas produire de plan sourcé.
-  const complete = filtered.filter((project) => stageCoverage(project) === 1);
+  const complete = filtered.filter((project) => stageCoverage(project, dir) === 1);
 
   complete.sort((a, b) => a.difficulty - b.difficulty || (a.id < b.id ? -1 : 1));
   const picked = complete.slice(0, limit);
@@ -200,7 +266,7 @@ function proposeCommand({ dir, stack = null, level = null, limit = 5 }) {
   if (picked.length === 0) {
     log("  (aucun projet ne correspond à ces critères)");
   } else {
-    printProposals(picked);
+    printProposals(picked, dir);
   }
 
   log("");
@@ -218,8 +284,8 @@ function proposeCommand({ dir, stack = null, level = null, limit = 5 }) {
 }
 
 // `ai-learn propose --validate <file.json>` — refuse un projet inventé dont une
-// étape n'a pas de ressource vérifiable (anti-hallucination).
-function validateCommand({ file }) {
+// étape n'a pas de ressource vérifiable (forme + existence locale, pas le réseau).
+function validateCommand({ file, dir }) {
   let project;
 
   try {
@@ -228,10 +294,11 @@ function validateCommand({ file }) {
     fail(`cannot read --validate file: ${error.message}`);
   }
 
-  const result = validateProject(project);
+  const result = validateProject(project, dir);
 
   if (result.ok) {
-    log(`✓ Projet valide : ${project.stages.length} étape(s), chacune adossée à une ressource vérifiable.`);
+    log(`✓ Projet valide : ${project.stages.length} étape(s), chacune adossée à une ressource (URL http(s) ou chemin local existant).`);
+    log("  Le réseau n'est pas confirmé ici — le vrai contrôle se fera au plan : `ai-learn docs add` pour chaque ressource.");
     log("  L'IA peut maintenant en faire un plan : phases réelles + docs add pour chaque ressource.");
     return;
   }

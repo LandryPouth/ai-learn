@@ -33,6 +33,7 @@ test("update refreshes a generated AGENTS.md with the current template", () => {
   assert.match(agents, /Banque de pièges/);
   assert.match(agents, /Note \/10/);
   assert.match(agents, /L'apprenant tape le code/); // the learner-file block section
+  assert.match(agents, /non-collable/); // the gap-reveal rule (Cmd+A paste fails the checkpoint)
   assert.match(agents, /Fastify/); // {{technology}} replaced
   assert.doesNotMatch(agents, /OLD PROTOCOL/);
 
