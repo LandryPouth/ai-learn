@@ -29,6 +29,30 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `medium` — `docs add` un fichier (livre PDF) plante en `ENOTDIR`
+- **Repo** : ai-learn (dogfooding du tool lui-même)
+- **Surface** : docs
+- **Problème** : `ai-learn docs add <nom> <chemin>/livre.pdf` traite toute source
+  locale comme un dossier : `copyTree` fait un `readdirSync` sur le fichier →
+  `ENOTDIR: not a directory` → crash (« ai-learn bug »). Apprendre depuis un
+  livre PDF, cas central pour un outil d'apprentissage, était impossible.
+- **Workaround** : aucun (le fichier ne pouvait pas être embarqué ; fallback
+  `--online` URL seule, sans lecture locale du PDF).
+- **Résolution** : `docs add` détecte une source **fichier** et l'embarque entière
+  comme origine vérifiée (`{ mode: "local", file, src, generated: true }`) ; l'IA
+  en distille **l'essentiel** dans `docs/sources/<nom>/essentiel.md` citant les
+  pages — `check` exige un `.md` non vide qui cite le fichier (même contrat
+  anti-hallucination que `--regen`, origine locale au lieu d'URL). `docs update`
+  re-copie le fichier. La banque de pièges ignore le fichier non-markdown et
+  extrait de `essentiel.md`.
+
+### `medium` — `docs add` avale le `--dir` global comme source
+- **Repo** : ai-learn (dogfooding du tool lui-même)
+- **Surface** : docs
+- **Problème** : `ai-learn docs add <name> --dir <dir>` fait fuir `<dir>` dans le parsing positionnel du sous-commande : `<dir>` devient la « source ». Avec un preset (`docs add developer-roadmap --dir …`), ça a copié `docs/sources/…` dans lui-même en boucle jusqu'à `ENAMETOOLONG`.
+- **Workaround** : lancer `docs add` depuis le dossier projet, sans `--dir`.
+- **Résolution** : `docsCommand` strip les `--dir` / `--dir=<val>` de ses args avant tout parsing (`stripDir`). Le preset nu (`docs add developer-roadmap`) est aussi géré : le nom seul vaut pour le preset.
+
 ### `high` — Phase « faite » sans aucune preuve possible
 - **Repo** : fastify-traducteur-api (tech-experiments)
 - **Surface** : concept (suivi de progression)

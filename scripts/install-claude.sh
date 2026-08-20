@@ -5,8 +5,8 @@
 #
 # Ce qu'il fait :
 #   1. rend `ai-learn` disponible partout (lien dans ~/.local/bin)
-#   2. installe les commandes Claude Code (/learn /status /next /check — la
-#      preuve est automatique, pas de /verify) dans ~/.claude/commands/,
+#   2. installe les commandes Claude Code (/learn /status /next /docs /check —
+#      la preuve est automatique, pas de /verify) dans ~/.claude/commands/,
 #      disponibles dans TOUS les projets.
 #
 # Usage : bash scripts/install-claude.sh

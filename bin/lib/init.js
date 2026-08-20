@@ -10,6 +10,7 @@ const fs = require("fs");
 const path = require("path");
 const { log, writeJson, mkdirp, normalizePortable } = require("./util");
 const { progressPath } = require("./progress");
+const { ensureGuardHook } = require("./guard");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
 
@@ -82,6 +83,14 @@ function scaffold({ dir, project, technology, docSource, phases }) {
     fs.writeFileSync(rulesFile, rulesContent);
     created.push(normalizePortable(path.relative(abs, rulesFile)));
     log("  note    AGENTS.md existe déjà — protocole écrit dans docs/plans/mode-apprentissage.md");
+  }
+
+  // The learner-file block: the AI must never write the learner's solution code.
+  // Wired mechanically (PreToolUse hook) so it cannot be skipped like prose can.
+  const guard = ensureGuardHook(abs);
+
+  for (const file of guard.created) {
+    created.push(file);
   }
 
   return { dir: abs, created };

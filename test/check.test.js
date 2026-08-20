@@ -79,6 +79,20 @@ test("a declared local doc source that vanished is a warning", () => {
   assert.ok(entry.issues.warnings.some((w) => /declared doc source does not exist/.test(w.message)));
 });
 
+test("local doc sources without a friction bank is a warning", () => {
+  const progress = sampleProgress();
+  progress.docSource = {
+    type: "local",
+    sources: [{ name: "fastify-docs", mode: "local", path: "docs/sources/fastify-docs" }],
+  };
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/fastify-docs/Reference/Routes.md", "# Routes\n");
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.warnings.some((w) => /friction bank/.test(w.message)));
+});
+
 test("missing predictions in the journal is a warning", () => {
   const progress = sampleProgress();
   progress.phases[0].predictionsRequired = 2;
@@ -120,6 +134,113 @@ test("a non-file checkpoint (inline command) is not flagged", () => {
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
+});
+
+function generatedProgress(overrides = {}) {
+  const progress = sampleProgress();
+  progress.docSource = {
+    type: "local",
+    sources: [
+      { name: "gen", mode: "local", path: "docs/sources/gen", generated: true, url: "https://roadmap.sh/backend", ...overrides },
+    ],
+  };
+  return progress;
+}
+
+test("a generated source without an origin is an error", () => {
+  const progress = generatedProgress({ url: undefined });
+  const dir = tmpProject(progress);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /has no origin/.test(e.message)));
+});
+
+test("an empty generated source (recreation never happened) is an error", () => {
+  const progress = generatedProgress();
+  const dir = tmpProject(progress);
+  // scaffold exists (docs add --regen created it) but the AI never filled it
+  fs.mkdirSync(path.join(dir, "docs", "sources", "gen"), { recursive: true });
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /is empty.*must recreate it locally/.test(e.message)));
+});
+
+test("a generated source whose doc does not cite its origin is a warning", () => {
+  const progress = generatedProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/gen/backend.md", "# Notes\nTranscrit sans origine.\n");
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => /does not cite its origin/.test(w.message)));
+});
+
+test("a generated source that cites its origin passes cleanly", () => {
+  const progress = generatedProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/gen/backend.md", "# Notes\nSource : https://roadmap.sh/backend\n");
+  writeFile(dir, ".ai-learn/traps.json", "{}\n"); // friction bank present
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.deepStrictEqual(entry.issues.warnings, []);
+});
+
+test("origin citation matching is robust to scheme and trailing slash", () => {
+  const progress = generatedProgress({ url: "https://roadmap.sh/backend/" });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/gen/backend.md", "Source : roadmap.sh/backend\n"); // no scheme, no trailing slash
+  writeFile(dir, ".ai-learn/traps.json", "{}\n"); // friction bank present
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.deepStrictEqual(entry.issues.warnings, []);
+});
+
+function fileProgress(overrides = {}) {
+  const progress = sampleProgress();
+  progress.docSource = {
+    type: "local",
+    sources: [
+      { name: "livre", mode: "local", path: "docs/sources/livre", file: "book.pdf", src: "/origin/book.pdf", generated: true, ...overrides },
+    ],
+  };
+  return progress;
+}
+
+test("a generated file source with only the origin file (no transcript) is an error", () => {
+  const progress = fileProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/livre/book.pdf", "%PDF-1.4 fake\n");
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.errors.some((e) => /is empty.*must recreate it locally/.test(e.message)));
+});
+
+test("a generated file source whose transcript does not cite the file is a warning", () => {
+  const progress = fileProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/livre/book.pdf", "%PDF-1.4 fake\n");
+  writeFile(dir, "docs/sources/livre/essentiel.md", "# Essentiel\nSans citation de page.\n");
+
+  const entry = checkProject(dir);
+
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => /does not cite its origin/.test(w.message)));
+});
+
+test("a generated file source whose transcript cites the file passes cleanly", () => {
+  const progress = fileProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/livre/book.pdf", "%PDF-1.4 fake\n");
+  writeFile(dir, "docs/sources/livre/essentiel.md", "# Essentiel\nVoir book.pdf:page 12.\n");
+  writeFile(dir, ".ai-learn/traps.json", "{}\n"); // friction bank present
+
+  const entry = checkProject(dir);
+
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.deepStrictEqual(entry.issues.warnings, []);
 });
 
 test("checkCommand scans every learning project under a root", () => {

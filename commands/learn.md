@@ -75,6 +75,10 @@ ai-learn init \
 ⚠ Le JSON des phases est long — construis-le proprement (un objet par phase, avec
 les 5 champs) et vérifie-le avant d'appeler la commande.
 
+`init` câble aussi le **blocage apprenant** (`ai-learn guard`) : l'IA ne pourra
+pas écrire dans `src/` (fichiers solution). L'apprenant tape le code ; le code de
+révélation ira dans `docs/solutions/`.
+
 ## 6. Vérifier l'installation
 
 ```bash

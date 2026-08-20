@@ -11,6 +11,7 @@ const path = require("path");
 const { log, findLearningProjects } = require("./util");
 const { readProgress, validateProgress, runsDir, progressPath } = require("./progress");
 const { latestEvidenceForPhase } = require("./status");
+const { docSourceList } = require("./docs");
 
 function checkProject(dir) {
   const issues = { errors: [], warnings: [] };
@@ -29,17 +30,58 @@ function checkProject(dir) {
     (issue.level === "error" ? issues.errors : issues.warnings).push(issue);
   }
 
-  // A doc source the ledger declares should exist. A local path that vanished is
-  // worth knowing — the plan's citations point at it.
-  if (config.docSource && config.docSource.type === "local") {
-    const expanded = config.docSource.value.replace(/^~/, process.env.HOME || "");
+  // Doc sources the ledger declares should exist. A local source that vanished
+  // is worth knowing — the plan's citations point at it. A *generated* source is
+  // stricter: it was not cloned, the AI had to recreate it locally from a
+  // verified origin, so check demands provenance, a non-empty doc, and that the
+  // doc cites its origin — otherwise it is an unverifiable invention. Handles
+  // both the new `docSource.sources[]` shape and the legacy single-source shape.
+  let hasLocalSource = false;
 
-    if (!fs.existsSync(expanded)) {
+  for (const source of docSourceList(config.docSource)) {
+    if (source.mode !== "local" || !source.path) {
+      continue; // remote sources are URLs — nothing local to check
+    }
+
+    hasLocalSource = true;
+    const expanded = source.path.replace(/^~/, process.env.HOME || "");
+    const resolved = path.isAbsolute(expanded) ? expanded : path.join(dir, expanded);
+
+    if (source.generated) {
+      checkGeneratedSource(resolved, source, issues);
+      continue;
+    }
+
+    if (!fs.existsSync(resolved)) {
       issues.warnings.push({
         file: "progress.json",
-        message: `declared doc source does not exist: ${config.docSource.value}`,
+        message: `declared doc source does not exist: ${source.path} (${source.name})`,
       });
     }
+  }
+
+  // The friction bank is derived from the local docs. Its absence is a warning,
+  // not an error: a project can legitimately have zero traps — but if local
+  // sources exist, the protocol should know whether any warning callouts live
+  // in them.
+  if (hasLocalSource && !fs.existsSync(path.join(dir, ".ai-learn", "traps.json"))) {
+    issues.warnings.push({
+      file: ".ai-learn/traps.json",
+      message: "local doc sources exist but no friction bank — run `ai-learn traps`",
+    });
+  }
+
+  // The learner-file block ("blocage apprenant") is enforced by the `ai-learn
+  // guard` PreToolUse hook. If the policy (.ai-learn/guard.json) exists but the
+  // hook is not wired into .claude/settings.json, the block is configured yet
+  // inactive — exactly the silent skip this check exists to surface. Guarded
+  // only when the policy file exists, so older projects stay quiet.
+  if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json")) && !guardHookWired(dir)) {
+    issues.warnings.push({
+      file: ".claude/settings.json",
+      message: "guard policy exists (.ai-learn/guard.json) but the `ai-learn guard` hook is not wired — " +
+        "the learner-file block is inactive. Run `ai-learn update --root <dir>`.",
+    });
   }
 
   // Prediction journal: phases that require predictions must have a journal, and
@@ -62,6 +104,20 @@ function checkProject(dir) {
       file: "docs/plans/predictions.md",
       message: `${journalCount}/${required} recorded predictions; ${required - journalCount} missing`,
     });
+  }
+
+  // The visible escape hatch: a correction the AI typed because the learner was
+  // genuinely stuck. Legitimate, but worth surfacing so it never becomes the
+  // default — the learner-file block exists to prevent exactly that drift.
+  if (journalExists) {
+    const iaTyped = countIATypedCorrections(journalPath);
+
+    if (iaTyped > 0) {
+      issues.warnings.push({
+        file: "docs/plans/predictions.md",
+        message: `${iaTyped} correction(s) marked "Corrigé par : IA" — the learner-file block was bypassed for those bricks (visible escape hatch)`,
+      });
+    }
   }
 
   for (const phase of config.phases || []) {
@@ -117,11 +173,139 @@ function checkProject(dir) {
   return { dir, config, issues };
 }
 
+// A `generated` source was never cloned — the AI had to recreate the doc
+// locally from a verified origin. The origin is either a URL (`--regen`) or a
+// local file (ex. a PDF book: the file is embedded whole, the AI distills only
+// what the plan needs into a .md). Same structural guards, mirroring the way
+// verify proves phases: the origin is the provenance, a non-empty .md must
+// exist (the recreation actually happened), and it must cite its origin —
+// otherwise it is an unverifiable invention.
+function checkGeneratedSource(dirPath, source, issues) {
+  const origin = source.url || source.file;
+
+  if (!origin) {
+    issues.errors.push({
+      file: "progress.json",
+      message: `generated source "${source.name}" has no origin — nothing to verify it against`,
+    });
+  }
+
+  if (!findTranscript(dirPath)) {
+    issues.errors.push({
+      file: "progress.json",
+      message: `generated source "${source.name}" is empty — no essential .md yet; the AI must recreate it locally from its verified origin (${origin || "no origin recorded"})`,
+    });
+    return;
+  }
+
+  if (origin && !docCitesOrigin(dirPath, String(origin))) {
+    issues.warnings.push({
+      file: source.path,
+      message: `generated source "${source.name}" does not cite its origin — anti-hallucination: every claim must cite ${origin}`,
+    });
+  }
+}
+
+// The first non-empty markdown file in a generated source directory. A
+// generated source is only "recreated" once the AI has written a real
+// transcript — the origin file itself (a PDF, say) does not count.
+function findTranscript(dirPath) {
+  let entries;
+
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".md") {
+      continue;
+    }
+
+    try {
+      if (fs.statSync(path.join(dirPath, entry.name)).size > 0) {
+        return path.join(dirPath, entry.name);
+      }
+    } catch {
+      // unreadable file — skip
+    }
+  }
+
+  return null;
+}
+
+// Does any file in the generated source mention its origin URL? The AI may write
+// the URL with or without scheme/trailing slash, so compare normalized.
+function docCitesOrigin(dirPath, url) {
+  const needle = normalizeOrigin(url);
+  let entries;
+
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name.startsWith(".")) {
+      continue;
+    }
+
+    try {
+      const content = fs.readFileSync(path.join(dirPath, entry.name), "utf8");
+      if (content.includes(needle)) {
+        return true;
+      }
+    } catch {
+      // unreadable file — skip
+    }
+  }
+
+  return false;
+}
+
+function normalizeOrigin(url) {
+  return String(url).replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
 // Evidence journal format: one `### Phase <N> — prédiction <k>/<total>` heading per
 // recorded prediction. Structural count only — honesty is the learner's.
 function countJournalEntries(journalPath) {
   const content = fs.readFileSync(journalPath, "utf8");
   return (content.match(/^###\s+Phase\s+\d+\s+—\s+prédiction/i) || []).length;
+}
+
+// Corrections the learner explicitly handed to the AI ("Corrigé par : IA").
+// Structural count only; a legitimate stuck-learner exception, not a proof.
+function countIATypedCorrections(journalPath) {
+  const content = fs.readFileSync(journalPath, "utf8");
+  return (content.match(/^-\s*Corrigé par\s*:\s*IA\b/gim) || []).length;
+}
+
+// Is the `ai-learn guard` PreToolUse hook wired into the project's
+// .claude/settings.json? The block is only real when the hook is installed.
+function guardHookWired(dir) {
+  const settingsPath = path.join(dir, ".claude", "settings.json");
+  let settings = null;
+
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    }
+  } catch {
+    return false;
+  }
+
+  const preToolUse =
+    settings && settings.hooks && Array.isArray(settings.hooks.PreToolUse) ? settings.hooks.PreToolUse : [];
+
+  return preToolUse.some(
+    (entry) =>
+      entry &&
+      Array.isArray(entry.hooks) &&
+      entry.hooks.some((h) => h && typeof h.command === "string" && /ai-learn(\.js)? guard/.test(h.command)),
+  );
 }
 
 function normalizeRelative(dir, value) {
@@ -173,6 +357,27 @@ function printProjectReport(entry) {
   for (const warning of issues.warnings) {
     log(`  ⚠ ${warning.file ? `${warning.file}: ` : ""}${warning.message}`);
   }
+
+  // The learner-file block, when active, reports how many AI writes it has
+  // refused so far — the reassurance that the block is real, not decorative.
+  if (fs.existsSync(path.join(entry.dir, ".ai-learn", "guard.json"))) {
+    const blocks = countGuardBlocks(entry.dir);
+    const wired = guardHookWired(entry.dir);
+    log(`  guard: ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers solution` : "configuré mais hook non câblé"}`);
+  }
+}
+
+function countGuardBlocks(dir) {
+  const logPath = path.join(dir, ".ai-learn", "guard.log");
+
+  try {
+    if (!fs.existsSync(logPath)) {
+      return 0;
+    }
+    return fs.readFileSync(logPath, "utf8").split("\n").filter(Boolean).length;
+  } catch {
+    return 0;
+  }
 }
 
 function checkCommand({ root }) {
@@ -208,4 +413,4 @@ function checkCommand({ root }) {
   }
 }
 
-module.exports = { checkCommand, checkProject, countJournalEntries };
+module.exports = { checkCommand, checkProject, countJournalEntries, countIATypedCorrections, guardHookWired };
