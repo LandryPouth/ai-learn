@@ -14,6 +14,7 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 | `ai-learn verify <phase>` | Exécute le checkpoint de la phase, capture la sortie verbatim, écrit l'évidence, marque `done` **seulement si ça passe vraiment** |
 | `ai-learn check` | Scan une racine (ex. un monorepo) : croise chaque `progress.json` contre la réalité — phase `done` sans évidence = erreur |
 | `ai-learn status` | Vue lisible des phases et de leur état |
+| `ai-learn next` | La prochaine phase à faire (et alerte sur les phases `done` sans évidence) |
 
 ## Install / usage (local, sans release)
 

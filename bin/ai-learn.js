@@ -96,6 +96,12 @@ function main() {
       break;
     }
 
+    case "next": {
+      const { nextCommand } = require("./lib/next");
+      nextCommand({ dir });
+      break;
+    }
+
     case "verify": {
       const { verifyCommand } = require("./lib/verify");
       const phaseId = Number.parseInt(commandArgs.find((arg) => !arg.startsWith("--")) || "", 10);
@@ -122,12 +128,14 @@ function main() {
 Usage:
   ai-learn init --technology <name> [--project <name>] [--doc-source <path|url>] [--phases '<json>']
   ai-learn status [--dir <dir>]
+  ai-learn next [--dir <dir>]
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
   ai-learn check [--root <dir>]
 
 Commands:
   init     Scaffold a learning project (progress.json, docs/plans/, checkpoint/, predictions journal)
   status   Show phases and their state in the current project
+  next     Show the next phase to work on (and warn on unproven "done" phases)
   verify   Run a phase checkpoint, record executed evidence, mark it done on success
   check    Cross-check progress against reality across learning projects under a root
 
