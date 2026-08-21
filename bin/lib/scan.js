@@ -462,15 +462,23 @@ function evidenceIsDiverse(evidence) {
 }
 
 // Diversity is only meaningful for concepts whose marker enumerates distinct
-// *named operations* of an API (malloc vs free, socket vs listen, addHook vs
-// preHandler) — reusing the identical one there really is a weaker signal.
-// It is NOT applied by default: for a marker that's a grammatical pair for
-// one single feature (async/await both just mean "this code is async"), or
-// whose match text is an incidental prefix (`import f...` vs `import c...`,
-// which collide or differ by pure chance of which letter a module name starts
-// with), text-identity is not a meaningful proxy and produces false
-// negatives on completely ordinary code (two `async` handlers with no
-// `await`, several `import` lines). Opted in only where verified safe.
+// *named operations* of an API (malloc vs free, socket vs listen) — reusing
+// the identical one there really is a weaker signal. It is NOT applied by
+// default: for a marker that's a grammatical pair for one single feature
+// (async/await both just mean "this code is async"), whose match text is an
+// incidental prefix (`import f...` vs `import c...`, which collide or differ
+// by pure chance of which letter a module name starts with), or that has
+// only one possible alternative at all (`.use(` alone — there's no second
+// distinct operation to require), text-identity is not a meaningful proxy
+// and produces false negatives on completely ordinary code (two `async`
+// handlers with no `await`, several `import` lines, two `.use()` calls
+// registering two different real middlewares). `js-hooks` used to be here
+// when its marker also matched `.on(` — removed alongside `.on(` itself
+// (see stacks/javascript.js): grouping two matched substrings from two
+// *different* concepts (middleware registration vs. an unrelated
+// EventEmitter listener) as "diverse evidence of one concept" let
+// `process.on("SIGTERM", …)` alone count as "middleware mastered". Opted in
+// only where verified safe.
 const DIVERSE_EVIDENCE_CONCEPTS = new Set([
   "c-memory",
   "c-files",
@@ -478,7 +486,6 @@ const DIVERSE_EVIDENCE_CONCEPTS = new Set([
   "c-threads",
   "c-sockets",
   "c-signals",
-  "js-hooks",
 ]);
 
 function globalPattern(pattern) {

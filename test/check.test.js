@@ -93,6 +93,44 @@ test("local doc sources without a friction bank is a warning", () => {
   assert.ok(entry.issues.warnings.some((w) => /friction bank/.test(w.message)));
 });
 
+test("a docs/solutions reveal with no hole marker is a warning (copy-pasteable as-is)", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(
+    dir,
+    "docs/solutions/routes.md",
+    "# Routes\n\n```js\napp.get('/health', (req, reply) => reply.send({ ok: true }));\n```\n",
+  );
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.warnings.some((w) => /docs\/solutions\/routes\.md/.test(w.file) && /hole marker/.test(w.message)));
+});
+
+test("a docs/solutions reveal with a hole marker passes cleanly, README.md is never flagged", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(
+    dir,
+    "docs/solutions/routes.md",
+    "# Routes\n\n```js\napp.get('/health', (req, reply) => reply.send({ [...] }));\n```\n",
+  );
+  writeFile(dir, "docs/solutions/README.md", "# Solutions de référence — où l'IA dépose le code\n\nComplete text, no holes needed here.\n");
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.warnings.some((w) => /docs\/solutions/.test(w.file)));
+});
+
+test("hole markers: ellipsis, TODO and a trailing truncated line all count; a fenced code block with no gap does not", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "docs/solutions/a.md", "# A\n\n```js\nconst x = 1; // …\n```\n");
+  writeFile(dir, "docs/solutions/b.md", "# B\n\n```js\n// TODO: complète le handler\n```\n");
+  writeFile(dir, "docs/solutions/c.md", "# C\n\n```js\nconst payload = {\n  status: ...\n```\n");
+  writeFile(dir, "docs/solutions/d.md", "# D\n\n```js\nconst x = 1;\nconsole.log(x);\n```\n");
+
+  const entry = checkProject(dir);
+  const flagged = entry.issues.warnings.filter((w) => /docs\/solutions/.test(w.file)).map((w) => w.file);
+
+  assert.deepStrictEqual(flagged, ["docs/solutions/d.md"]);
+});
+
 test("missing predictions in the journal is a warning", () => {
   const progress = sampleProgress();
   progress.phases[0].predictionsRequired = 2;

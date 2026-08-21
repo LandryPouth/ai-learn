@@ -2,10 +2,10 @@
 
 // JavaScript/TypeScript stack pack for `ai-learn scan`. Deliberately
 // framework-neutral: markers and samples name Node core APIs or idioms shared
-// across Express/Koa/Fastify/hapi/etc. (app.use, app.get, async/await), never
-// one specific framework's branded vocabulary or its docs — a project using
-// any of them, or none, gets the same concept bank. See bin/lib/scan.js for
-// the shape these three arrays must follow.
+// across common web frameworks (app.use, app.get, async/await), never one
+// specific framework's branded vocabulary or its docs — a project using any
+// of them, or none, gets the same concept bank. See bin/lib/scan.js for the
+// shape these three arrays must follow.
 
 const concepts = [
   {
@@ -46,12 +46,15 @@ const concepts = [
   },
   {
     id: "js-hooks",
-    name: "Middleware / hooks (use/on)",
+    name: "Middleware (use)",
     tier: 3,
     // No standalone `next(`/`done()` marker: it appears in any plain Node
     // callback, unrelated to middleware — too generic to be evidence on its
-    // own.
-    markers: [{ pattern: /\.(?:use|on)\s*\(/, sample: "app.use(logger)" }],
+    // own. No `.on(` either: EventEmitter listeners (`process.on("SIGTERM",
+    // …)`, a stream's `.on("data", …)`) are unrelated to middleware
+    // registration — grouping them here previously let an ordinary shutdown
+    // handler count as "middleware mastered".
+    markers: [{ pattern: /\.use\s*\(/, sample: "app.use(logger)" }],
   },
   {
     id: "js-workers",

@@ -317,34 +317,51 @@ test("a single fortuitous line is not enough to mark a concept used", () => {
   assert.ok(!report.concepts.used.some((c) => c.id === "c-memory"), "a single occurrence should not count as mastered");
 });
 
-test("two identical calls pasted from a tutorial (same call, different args) are not enough — real code adjacency (socket/bind/listen) still is", () => {
+test("two identical calls pasted from a tutorial (same underlying function, different args) are not enough — real code adjacency (socket/bind/listen) still is", () => {
   const dir = tmpDir();
-  // Two .use() calls, exactly the shape of a pasted middleware example — same
-  // literal call, only the argument differs (the regex doesn't capture
-  // arguments, so both match the identical substring "use(").
-  writeFile(dir, "src/index.js", "app.use(logger);\napp.use(cors());\n");
+  // Two malloc() calls with different arguments, exactly the shape of a
+  // pasted memory-management example — same literal call, only the argument
+  // differs (the regex doesn't capture arguments, so both match the
+  // identical substring "malloc(").
+  writeFile(dir, "src/index.c", "int main(void) {\n  char *a = malloc(64);\n  char *b = malloc(128);\n  return 0;\n}\n");
 
   const report = scanProject(dir);
   assert.ok(
-    !report.concepts.used.some((c) => c.id === "js-hooks"),
+    !report.concepts.used.some((c) => c.id === "c-memory"),
     "two occurrences of the identical call must not count as mastery on their own",
   );
 });
 
-test("two different real hooks (use + on) are genuine diverse evidence, not a paste", () => {
+test("js-hooks has no diversity defense once collapsed to a single marker — two .use() calls count, even from one paste", () => {
   const dir = tmpDir();
-  writeFile(dir, "src/index.js", 'app.use(logger);\nserver.on("error", (err) => console.error(err));\n');
+  // js-hooks matches only `.use(` (see stacks/javascript.js) — there is no
+  // second distinct operation to require diversity against, so it is not in
+  // DIVERSE_EVIDENCE_CONCEPTS and falls back to plain count>=2, same accepted
+  // limitation as js-async/js-modules.
+  writeFile(dir, "src/index.js", "app.use(logger);\napp.use(cors());\n");
 
   const report = scanProject(dir);
-  assert.ok(
-    report.concepts.used.some((c) => c.id === "js-hooks"),
-    "two genuinely different hook calls should count as real usage",
+  assert.ok(report.concepts.used.some((c) => c.id === "js-hooks"), "two .use() calls should count as middleware usage");
+});
+
+test("js-hooks does not fire on process.on()/EventEmitter listeners — unrelated to middleware registration", () => {
+  const dir = tmpDir();
+  // .on( used to be grouped into this concept's marker, letting an ordinary
+  // shutdown handler or stream listener count as "middleware mastered" with
+  // zero real understanding of middleware. It no longer matches at all.
+  writeFile(
+    dir,
+    "src/index.js",
+    'process.on("SIGTERM", () => process.exit(0));\nprocess.on("SIGINT", () => process.exit(0));\n',
   );
+
+  const report = scanProject(dir);
+  assert.ok(!report.concepts.used.some((c) => c.id === "js-hooks"), "process.on() must not count as middleware usage");
 });
 
 test("js-hooks does not fire on a bare next()/done() unrelated to middleware registration", () => {
   const dir = tmpDir();
-  // A plain callback — next() alone, twice, with no .use()/.on() anywhere.
+  // A plain callback — next() alone, twice, with no .use() anywhere.
   writeFile(
     dir,
     "src/index.js",

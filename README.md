@@ -66,7 +66,7 @@ npm test                 # suite complète (node --test, stdlib only)
 ai-learn check --root .  # croise le ledger contre la réalité
 ```
 
-- Le projet est **dogfoodé** dans un vrai parcours d'apprentissage (Fastify) et développé avec **Coding Flow** (guard PreToolUse + validation `npm test` configurée dans `.coding-flow/config.json`).
+- Le projet est **dogfoodé** dans un vrai parcours d'apprentissage (une API web) et développé avec **Coding Flow** (guard PreToolUse + validation `npm test` configurée dans `.coding-flow/config.json`).
 - Toute friction rencontrée en l'utilisant est notée dans [`docs/DOGFOODING.md`](docs/DOGFOODING.md) — jamais masquée.
 
 ## License

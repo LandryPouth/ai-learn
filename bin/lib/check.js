@@ -13,6 +13,13 @@ const { readProgress, validateProgress, runsDir, progressPath } = require("./pro
 const { latestEvidenceForPhase } = require("./status");
 const { docSourceList } = require("./docs");
 
+// Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
+// a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
+// a line that trails off with "...". Anchored loosely on purpose — this is a
+// presence check for *some* hole-shaped marker, not a judge of whether the
+// hole is well-placed.
+const HOLE_MARKER_RE = /\[\s*\.\.\.\s*\]|…|\bTODO\b|à (?:compl[ée]ter|finir)|\.\.\.\s*$/im;
+
 function checkProject(dir) {
   const issues = { errors: [], warnings: [] };
   const { config, exists } = readProgress(dir);
@@ -104,6 +111,38 @@ function checkProject(dir) {
       message: "guard policy exists (.ai-learn/guard.json) but the `ai-learn guard` hook is not wired — " +
         "the learner-file block is inactive. Run `ai-learn update --root <dir>`.",
     });
+  }
+
+  // The guard blocks the AI from writing `src/**`, but the reveal it deposits
+  // in docs/solutions/ is meant to be "non-collable" — written with holes
+  // ([...], an incomplete line, a comment to finish) so a blind Cmd+A cannot
+  // pass the checkpoint (see templates/AGENTS-apprentissage.md and the
+  // SOLUTIONS_README in guard.js). That rule lived only as prose: nothing
+  // checked it was actually followed. This is the same structural, not
+  // semantic, guarantee as checkGeneratedSource below — it cannot tell a
+  // thoughtfully-holed reveal from a lazily-holed one, it only catches the
+  // degenerate case of zero hole markers anywhere in the file (a fully
+  // complete, copy-pasteable solution).
+  const solutionsDir = path.join(dir, "docs", "solutions");
+
+  if (fs.existsSync(solutionsDir)) {
+    for (const entry of fs.readdirSync(solutionsDir)) {
+      if (entry === "README.md" || !entry.endsWith(".md")) {
+        continue; // README.md is the generated index, not a reveal
+      }
+
+      const filePath = path.join(solutionsDir, entry);
+      const content = fs.readFileSync(filePath, "utf8");
+
+      if (!HOLE_MARKER_RE.test(content)) {
+        issues.warnings.push({
+          file: `docs/solutions/${entry}`,
+          message:
+            "no hole marker found ([...], …, TODO, or a truncated line) — this reveal may be copy-pasteable " +
+            "as-is, defeating the \"non-collable\" guarantee. Rewrite it with real gaps to complete.",
+        });
+      }
+    }
   }
 
   // Prediction journal: phases that require predictions must have a journal, and
