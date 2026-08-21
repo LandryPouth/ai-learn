@@ -40,6 +40,25 @@ test("init scaffolds the expected structure", () => {
   assert.strictEqual(progress.project, "demo");
   assert.strictEqual(progress.technology, "Fastify");
   assert.deepStrictEqual(progress.phases, []);
+
+  // The friction journal ships with every project — the AI's channel to log
+  // unexpected tool behavior for the maintainer.
+  const dogfoodPath = path.join(dir, ".ai-learn", "dogfood.md");
+  assert.ok(fs.existsSync(dogfoodPath));
+  assert.match(fs.readFileSync(dogfoodPath, "utf8"), /Journal de friction/);
+  assert.ok(created.includes(".ai-learn/dogfood.md"));
+});
+
+test("init never overwrites an existing dogfood journal", () => {
+  const dir = tmpDir();
+  scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [] });
+
+  const dogfoodPath = path.join(dir, ".ai-learn", "dogfood.md");
+  fs.writeFileSync(dogfoodPath, "### low — déjà noté\n- Surface : next\n");
+
+  scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [] });
+
+  assert.strictEqual(fs.readFileSync(dogfoodPath, "utf8"), "### low — déjà noté\n- Surface : next\n");
 });
 
 test("init writes the given phases and keeps existing files", () => {

@@ -370,6 +370,14 @@ function countIATypedCorrections(journalPath) {
   return (content.match(/^-\s*Corrigé par\s*:\s*IA\b/gim) || []).length;
 }
 
+// Friction journal entries: one `### <severity> — <title>` heading per entry,
+// same convention as docs/DOGFOODING.md. Purely informational — see
+// printProjectReport: zero entries is a legitimate outcome, never flagged.
+function countDogfoodEntries(dogfoodPath) {
+  const content = fs.readFileSync(dogfoodPath, "utf8");
+  return (content.match(/^###\s+(?:low|medium|high)\s+—/gim) || []).length;
+}
+
 // Is the `ai-learn guard` PreToolUse hook wired into the project's
 // .claude/settings.json? The block is only real when the hook is installed.
 function guardHookWired(dir) {
@@ -452,6 +460,14 @@ function printProjectReport(entry) {
     const wired = guardHookWired(entry.dir);
     log(`  guard: ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers solution` : "configuré mais hook non câblé"}`);
   }
+
+  // Purely informational: zero entries is a legitimate outcome (no friction
+  // encountered), never a warning — see countDogfoodEntries.
+  const dogfoodPath = path.join(entry.dir, ".ai-learn", "dogfood.md");
+
+  if (fs.existsSync(dogfoodPath)) {
+    log(`  dogfood: ${countDogfoodEntries(dogfoodPath)} entrée(s) de friction consignée(s)`);
+  }
 }
 
 function countGuardBlocks(dir) {
@@ -500,4 +516,11 @@ function checkCommand({ root }) {
   }
 }
 
-module.exports = { checkCommand, checkProject, countJournalEntries, countIATypedCorrections, guardHookWired };
+module.exports = {
+  checkCommand,
+  checkProject,
+  countJournalEntries,
+  countIATypedCorrections,
+  countDogfoodEntries,
+  guardHookWired,
+};

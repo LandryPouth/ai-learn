@@ -93,6 +93,18 @@ function scaffold({ dir, project, technology, docSource, phases }) {
     created.push(file);
   }
 
+  // The friction journal: the AI logs unexpected tool behavior here as it
+  // happens, so it can be sent to the maintainer on request (see
+  // docs/DOGFOODING.md). Never overwritten — an existing file may already
+  // carry entries.
+  const dogfoodFile = path.join(abs, ".ai-learn", "dogfood.md");
+
+  if (!fs.existsSync(dogfoodFile)) {
+    fs.mkdirSync(path.dirname(dogfoodFile), { recursive: true });
+    fs.writeFileSync(dogfoodFile, fs.readFileSync(templatePath("dogfood.md"), "utf8"));
+    created.push(normalizePortable(path.relative(abs, dogfoodFile)));
+  }
+
   return { dir: abs, created };
 }
 

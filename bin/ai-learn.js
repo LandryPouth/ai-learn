@@ -52,6 +52,11 @@ const { log, fail, UsageError } = require("./lib/util");
 const { resolveDir } = require("./lib/context");
 
 function main() {
+  if (command === "version" || args.includes("--version") || args.includes("-v")) {
+    log(require("../package.json").version);
+    return;
+  }
+
   const dir = resolveDir(getFlagValue("--dir"));
 
   switch (command) {
@@ -175,6 +180,7 @@ function main() {
       log(`ai-learn — evidence-based learning tracks
 
 Usage:
+  ai-learn version | --version | -v
   ai-learn init --technology <name> [--project <name>] [--doc-source <path|url>] [--phases '<json>']
   ai-learn status [--dir <dir>]
   ai-learn next [--dir <dir>]

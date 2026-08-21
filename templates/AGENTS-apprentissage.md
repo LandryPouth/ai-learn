@@ -60,6 +60,20 @@ Les docs embarquées (`docs/sources/`) contiennent des encadrés d'avertissement
 - **Avant chaque prédiction**, pour la section lue de la phase : l'IA **consulte la banque** (`docs/plans/pièges.md`) et **sonde précisément ces zones** dans le compte d'écarts, le feedback 3 points et les questions de complétion.
 - Les pièges sont **extraits, jamais inventés** : si un piège de la section lue n'est pas dans la banque, l'IA le signale (la banque se régénère avec `ai-learn traps`) — rien d'approximatif.
 
+## Journal de friction — `ai-learn` lui-même
+
+Distinct de la banque de pièges ci-dessus (qui porte sur la techno apprise) :
+dès que **l'outil `ai-learn`** se comporte de façon inattendue — erreur,
+message confus, checkpoint qui semble se tromper, commande qui échoue sans
+raison claire — l'IA l'enregistre **immédiatement** dans `.ai-learn/dogfood.md`
+(format dans le fichier), **avant** de contourner ou d'improviser une
+solution de repli. Une ligne honnête, pas un rapport de bug exhaustif.
+
+Ce fichier n'est jamais transmis automatiquement : l'apprenant l'envoie au
+mainteneur uniquement si on le lui demande. `ai-learn check` n'y applique
+aucune règle bloquante — zéro friction est un résultat légitime, pas une
+anomalie à combler.
+
 ## Commandes
 
 | Commande | Rôle |

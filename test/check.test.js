@@ -5,7 +5,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 
-const { checkProject, checkCommand } = require("../bin/lib/check");
+const { checkProject, checkCommand, countDogfoodEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
 const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
 const { findLearningProjects } = require("../bin/lib/util");
@@ -35,6 +35,22 @@ test("a done phase with a green evidence passes", () => {
   const dir = tmpProject(progress);
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.deepStrictEqual(entry.issues.warnings, []);
+});
+
+test("the friction journal is counted but never gates check", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(
+    dir,
+    ".ai-learn/dogfood.md",
+    "### low — message confus\n- Surface : next\n- Problème : pas clair\n- Workaround : aucun\n- Version de l'outil : 0.1.0\n\n" +
+      "### medium — checkpoint lent\n- Surface : verify\n- Problème : timeout\n- Workaround : relancé\n- Version de l'outil : 0.1.0\n",
+  );
+
+  assert.strictEqual(countDogfoodEntries(path.join(dir, ".ai-learn", "dogfood.md")), 2);
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
