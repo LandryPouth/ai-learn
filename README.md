@@ -51,6 +51,24 @@ Il n'y a pas de `/verify` : la preuve est **automatique**. En clôture de chaque
 
 Tout le reste est automatique : guard PreToolUse (bloque les écritures non prouvées), `.githooks/pre-push` (lance les tests avant chaque push).
 
+### Autres agents IA
+
+`ai-learn` est un CLI Node zéro dépendance : `ai-learn init/status/next/verify/check/...` tourne dans n'importe quel terminal, et `AGENTS.md` (écrit par `init`) est déjà lu nativement par Codex, Gemini CLI, OpenCode et Antigravity — le protocole pédagogique fonctionne sans rien installer de plus.
+
+Pour les commandes `/…` dédiées :
+
+```bash
+ai-learn install            # liste les plateformes supportées + statut du garde-fou
+ai-learn install claude     # ai-learn sur PATH + commandes /… (équivalent à scripts/install-claude.sh)
+ai-learn install codex      # commandes en prompts Codex (~/.codex/prompts/)
+```
+
+| Plateforme | Commandes `/…` | Garde-fou `src/**` |
+|---|---|---|
+| Claude Code | ✓ | **mécanique** — hook `PreToolUse`, l'écriture n'a jamais lieu |
+| Codex CLI | ✓ | **dégradé** — Codex n'a pas de hook pré-écriture ; seuls `AGENTS.md` et les trous non-collables de `docs/solutions/` protègent `src/**` |
+| Gemini CLI, OpenCode, Antigravity | usage manuel via `ai-learn <commande>` (`AGENTS.md` déjà lu nativement) | pas encore câblé |
+
 ## La philosophie
 
 - **La preuve est exécutée, pas déclarée.** `verify` lance le checkpoint lui-même. « L'agent a dit que les tests passaient » ne vaut rien.

@@ -175,6 +175,14 @@ function main() {
       break;
     }
 
+    case "install": {
+      const { installCommand } = require("./lib/install");
+      const platform = commandArgs.find((arg) => !arg.startsWith("--")) || null;
+      const home = getFlagValue("--home", null);
+      installCommand({ platform, ...(home ? { home } : {}) });
+      break;
+    }
+
     case "help":
     default:
       log(`ai-learn — evidence-based learning tracks
@@ -194,6 +202,7 @@ Usage:
   ai-learn traps [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>]
+  ai-learn install [claude|codex] [--home <dir>]
 
 Commands:
   init     Scaffold a learning project (progress.json, docs/plans/, checkpoint/, predictions journal)
@@ -217,6 +226,10 @@ Commands:
            the learner types that code, the AI cannot
   update   Propagate the protocol template + traps bank to every learning project
            under --root (non-destructive: only generated AGENTS.md is overwritten)
+  install  Install the 7 slash commands (and, for claude, the ai-learn
+           binary on PATH) for a platform: claude (mechanical guard) or
+           codex (commands only — no pre-write hook available there).
+           No argument lists supported platforms and their guard status.
 
 Every verdict is executed proof: verify runs the checkpoint itself and only
 "done" means the evidence says so — not the word of an agent.`);
