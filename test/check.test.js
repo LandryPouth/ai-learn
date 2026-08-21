@@ -41,6 +41,22 @@ test("a done phase with a green evidence passes", () => {
   assert.deepStrictEqual(entry.issues.warnings, []);
 });
 
+test("check auto-writes a dogfood entry when the claude/codex guard isn't wired, deduplicated across runs", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["src/**"] }));
+  writeFile(dir, ".ai-learn/dogfood.md", "# Journal de friction\n\n## Entrées\n\n<!-- Nouvelle entrée en haut, sous cette ligne. -->\n");
+
+  checkProject(dir);
+  const afterFirst = fs.readFileSync(path.join(dir, ".ai-learn", "dogfood.md"), "utf8");
+  assert.match(afterFirst, /<!-- auto:claude-code:hook-guard:/);
+  assert.match(afterFirst, /<!-- auto:codex:config:/);
+  assert.match(afterFirst, /écrite automatiquement par `ai-learn check`, pas par l'agent/);
+
+  checkProject(dir); // second run: must not duplicate the same finding
+  const afterSecond = fs.readFileSync(path.join(dir, ".ai-learn", "dogfood.md"), "utf8");
+  assert.strictEqual(afterSecond, afterFirst);
+});
+
 test("a guard policy without a wired codex profile is a warning, not an error", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["src/**"] }));

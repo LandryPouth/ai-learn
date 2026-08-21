@@ -13,6 +13,7 @@ const { readProgress, validateProgress, runsDir, progressPath } = require("./pro
 const { latestEvidenceForPhase } = require("./status");
 const { docSourceList } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
+const { appendAutoEntry } = require("./dogfood");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -112,6 +113,14 @@ function checkProject(dir) {
       message: "guard policy exists (.ai-learn/guard.json) but the `ai-learn guard` hook is not wired — " +
         "the learner-file block is inactive. Run `ai-learn update --root <dir>`.",
     });
+    // Mechanical, not agent-authored: check writes the finding itself the
+    // moment it's detected — see bin/lib/dogfood.js.
+    appendAutoEntry(dir, {
+      platform: "claude-code",
+      surface: "hook-guard",
+      expected: "le hook PreToolUse ai-learn guard aurait dû être câblé dans .claude/settings.json par init/update",
+      problem: "guard.json existe mais aucun hook PreToolUse pointant vers ai-learn.js guard n'est présent dans .claude/settings.json",
+    });
   }
 
   // Codex's mechanical guard (a .codex/config.toml permissions profile, see
@@ -122,6 +131,12 @@ function checkProject(dir) {
       file: ".codex/config.toml",
       message: "guard policy exists (.ai-learn/guard.json) but no ai-learn permissions profile in " +
         ".codex/config.toml — Codex's sandbox-level block is inactive. Run `ai-learn update --root <dir>`.",
+    });
+    appendAutoEntry(dir, {
+      platform: "codex",
+      surface: "config",
+      expected: "le profil de permissions ai-learn-guard aurait dû être câblé dans .codex/config.toml par init/update",
+      problem: "guard.json existe mais .codex/config.toml ne porte pas le marqueur ai-learn (absent, ou fichier personnalisé jamais rafraîchi)",
     });
   }
 
