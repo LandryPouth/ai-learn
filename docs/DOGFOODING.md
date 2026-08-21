@@ -14,6 +14,23 @@ Cette phrase est un défaut plus important que n'importe quelle fonctionnalité 
 
 Il faut aussi noter, c'est facile à rater : les fois où un check s'est déclenché et **avait raison**. Un journal de friction qui ne collecte que des plaintes finira par te faire supprimer des checks qui font leur travail.
 
+## Deux niveaux
+
+Ce fichier-ci est le journal **agrégé côté mainteneur** (ce dépôt, dogfoodé
+par toi). Il existe un second niveau : chaque projet scaffoldé par
+`ai-learn init` embarque son propre `.ai-learn/dogfood.md`
+(`templates/dogfood.md`), rempli **automatiquement par l'agent IA** de
+l'apprenant dès que l'outil se comporte de façon inattendue (protocole dans
+`templates/AGENTS-apprentissage.md`).
+
+Ce fichier par projet n'est **jamais envoyé automatiquement** — cohérent avec
+le fonctionnement offline-first de l'outil, aucun appel réseau caché. Un
+apprenant l'envoie seulement quand on le lui demande explicitement. À
+réception, trier les entrées et les faire remonter ici, dans les Entrées
+ci-dessous, avec la **Résolution** appliquée une fois corrigée dans l'outil —
+le champ que le fichier par projet n'a pas, faute de visibilité sur le code
+source côté apprenant.
+
 ## Comment enregistrer une entrée
 
 Une ligne par incident, la plus récente en premier. Court ; la valeur est dans le volume et l'honnêteté, pas dans la prose.

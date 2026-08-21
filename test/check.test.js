@@ -5,7 +5,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 
-const { checkProject, checkCommand } = require("../bin/lib/check");
+const { checkProject, checkCommand, countDogfoodEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
 const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
 const { findLearningProjects } = require("../bin/lib/util");
@@ -35,6 +35,47 @@ test("a done phase with a green evidence passes", () => {
   const dir = tmpProject(progress);
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.deepStrictEqual(entry.issues.warnings, []);
+});
+
+test("check auto-writes a dogfood entry when the claude/codex guard isn't wired, deduplicated across runs", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["src/**"] }));
+  writeFile(dir, ".ai-learn/dogfood.md", "# Journal de friction\n\n## Entrées\n\n<!-- Nouvelle entrée en haut, sous cette ligne. -->\n");
+
+  checkProject(dir);
+  const afterFirst = fs.readFileSync(path.join(dir, ".ai-learn", "dogfood.md"), "utf8");
+  assert.match(afterFirst, /<!-- auto:claude-code:hook-guard:/);
+  assert.match(afterFirst, /<!-- auto:codex:config:/);
+  assert.match(afterFirst, /écrite automatiquement par `ai-learn check`, pas par l'agent/);
+
+  checkProject(dir); // second run: must not duplicate the same finding
+  const afterSecond = fs.readFileSync(path.join(dir, ".ai-learn", "dogfood.md"), "utf8");
+  assert.strictEqual(afterSecond, afterFirst);
+});
+
+test("a guard policy without a wired codex profile is a warning, not an error", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["src/**"] }));
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => /ai-learn permissions profile/.test(w.message)));
+});
+
+test("the friction journal is counted but never gates check", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(
+    dir,
+    ".ai-learn/dogfood.md",
+    "### low — message confus\n- Surface : next\n- Problème : pas clair\n- Workaround : aucun\n- Version de l'outil : 0.1.0\n\n" +
+      "### medium — checkpoint lent\n- Surface : verify\n- Problème : timeout\n- Workaround : relancé\n- Version de l'outil : 0.1.0\n",
+  );
+
+  assert.strictEqual(countDogfoodEntries(path.join(dir, ".ai-learn", "dogfood.md")), 2);
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);

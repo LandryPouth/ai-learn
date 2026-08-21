@@ -97,6 +97,36 @@ test("update wires the learner-file guard (hook, policy, solutions dir)", () => 
   assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
 });
 
+test("update backfills the friction journal into a project that predates it", () => {
+  const dir = tmpProject(project());
+
+  capture(() => updateCommand({ root: dir }));
+
+  const dogfoodPath = path.join(dir, ".ai-learn", "dogfood.md");
+  assert.ok(fs.existsSync(dogfoodPath));
+  assert.match(fs.readFileSync(dogfoodPath, "utf8"), /Journal de friction/);
+});
+
+test("update never overwrites an existing dogfood journal with real entries", () => {
+  const dir = tmpProject(project());
+  const dogfoodPath = writeFile(dir, ".ai-learn/dogfood.md", "### medium — déjà noté\n- Surface : verify\n");
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.strictEqual(fs.readFileSync(dogfoodPath, "utf8"), "### medium — déjà noté\n- Surface : verify\n");
+});
+
+test("update refreshes a pristine (entry-less) dogfood journal when the template evolves", () => {
+  const dir = tmpProject(project());
+  const dogfoodPath = writeFile(dir, ".ai-learn/dogfood.md", "# Journal de friction — `ai-learn`\n(vieille version, aucune entrée)\n");
+
+  capture(() => updateCommand({ root: dir }));
+
+  const content = fs.readFileSync(dogfoodPath, "utf8");
+  assert.match(content, /Plateforme :/);
+  assert.match(content, /Attendu vs réel/);
+});
+
 test("update walks a root and refreshes every learning project", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-root-"));
 

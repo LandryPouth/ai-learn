@@ -23,6 +23,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { renderConfig: renderCodexConfig, MARKER: CODEX_MARKER } = require("./platforms/codex-guard");
 
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 const DEFAULT_LEARNER_FILES = ["src/**"];
@@ -436,6 +437,10 @@ function ensureGuardHook(dir) {
     created.push(normalizePortable(path.relative(dir, guardJsonPath)));
   }
 
+  const learnerFiles = loadGuardConfig(dir).learnerFiles;
+  const codexResult = ensureCodexGuard(dir, learnerFiles);
+  created.push(...codexResult.created);
+
   // guard.json is learner-customizable (learnerFiles) — never overwritten here.
   // The solutions README is pure generated content (its title is the marker).
   const readmeText = fs.existsSync(solutionsReadme) ? fs.readFileSync(solutionsReadme, "utf8") : null;
@@ -482,12 +487,39 @@ function ensureGuardHook(dir) {
     created.push(normalizePortable(path.relative(dir, settingsPath)));
   }
 
-  return { created, refreshed, wired: alreadyWired };
+  return { created, refreshed, wired: alreadyWired, codex: codexResult };
+}
+
+// Codex CLI's mechanical guard: a `.codex/config.toml` permissions profile
+// (see platforms/codex-guard.js). Generated content is recognized by its
+// marker comment, exactly like the solutions README and AGENTS.md — refreshed
+// when it drifts from the current template, never touched if the learner (or
+// a pre-existing project) wrote their own `.codex/config.toml` without it.
+function ensureCodexGuard(dir, learnerFiles) {
+  const configPath = path.join(dir, ".codex", "config.toml");
+  const content = renderCodexConfig(learnerFiles);
+  const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : null;
+  const isGenerated = existing === null || existing.startsWith(CODEX_MARKER);
+
+  if (!isGenerated) {
+    return { created: [], refreshed: [], skipped: true };
+  }
+
+  if (existing === content) {
+    return { created: [], refreshed: [], skipped: false };
+  }
+
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, content);
+  const rel = normalizePortable(path.relative(dir, configPath));
+
+  return existing === null ? { created: [rel], refreshed: [], skipped: false } : { created: [], refreshed: [rel], skipped: false };
 }
 
 module.exports = {
   guardCommand,
   ensureGuardHook,
+  ensureCodexGuard,
   decide,
   loadGuardConfig,
   matchesLearnerPath,

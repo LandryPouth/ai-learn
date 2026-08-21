@@ -1,6 +1,6 @@
 {
   "name": "@landry_pouth/ai-learn",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Evidence-based learning tracks for AI-assisted learners: init, status, verify and check a learning path with executed proof — not the agent's word.",
   "license": "MIT",
   "author": "Landry Pouth",

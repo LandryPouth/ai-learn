@@ -51,6 +51,30 @@ Il n'y a pas de `/verify` : la preuve est **automatique**. En clôture de chaque
 
 Tout le reste est automatique : guard PreToolUse (bloque les écritures non prouvées), `.githooks/pre-push` (lance les tests avant chaque push).
 
+### Autres agents IA
+
+`ai-learn` est un CLI Node zéro dépendance : `ai-learn init/status/next/verify/check/...` tourne dans n'importe quel terminal (Linux, macOS, **Windows/PowerShell testé**), et `AGENTS.md` (écrit par `init`) est déjà lu nativement par Codex, Gemini CLI, OpenCode et Antigravity — le protocole pédagogique fonctionne sans rien installer de plus.
+
+Pour les commandes `/…` dédiées :
+
+```bash
+ai-learn install            # liste les plateformes supportées + statut du garde-fou
+ai-learn install claude     # ai-learn sur PATH + commandes /… (~/.claude/commands/)
+ai-learn install codex      # commandes en prompts Codex (~/.codex/prompts/)
+ai-learn install gemini     # commandes en /ai-learn:<nom> (~/.gemini/commands/ai-learn/)
+ai-learn install opencode   # commandes en /ai-learn/<nom> (~/.config/opencode/command/ai-learn/)
+```
+
+| Plateforme | Commandes `/…` | Garde-fou `src/**` |
+|---|---|---|
+| Claude Code | ✓ | **mécanique** — hook `PreToolUse`, l'écriture n'a jamais lieu |
+| Codex CLI | ✓ (format vérifié contre la doc embarquée du paquet) | **mécanique** — profil de permissions bac à sable OS (`.codex/config.toml`, câblé par `init`/`update`) ; vérifié avec `codex sandbox` (bloque écriture shell **et** Python dans `src/**`, sans toucher au reste du workspace), **pas encore vérifié en session interactive réelle** (pas d'abonnement Codex) ; nécessite que le projet soit « trusted » côté Codex (approbation ponctuelle, comportement normal de leur modèle de sécurité) |
+| Gemini CLI | ✓ (syntaxe TOML validée avec un parseur strict ; **découverte réelle par `gemini` non vérifiée**, pas de moyen non-interactif trouvé pour le confirmer sans appel modèle) | non câblé — un hook `BeforeTool` existe (confirmé dans la doc embarquée du paquet installé), mais le nom exact du champ `tool_input` pour un chemin de fichier n'a pas pu être confirmé sans casser un vrai hook silencieusement inopérant ; `AGENTS.md` + trous non-collables seuls protègent `src/**` |
+| OpenCode | ✓ (**découverte confirmée en conditions réelles** : `opencode debug config` après `ai-learn install opencode` résout les 7 commandes, test automatisé dans `test/integration-opencode.test.js`, auto-skip si `opencode` absent) | non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; `AGENTS.md` + trous non-collables seuls |
+| Antigravity | usage manuel via `ai-learn <commande>` (`AGENTS.md` déjà lu nativement) | pas encore câblé — a un système de hooks (`hooks.json`, `before-tool-execution`) plus riche que les autres sur le papier, jamais testé faute d'installation locale |
+
+Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la création de lien symbolique est refusée par l'OS (`EPERM`) — `ai-learn` bascule alors automatiquement sur une copie de fichier, testé en conditions réelles (PowerShell + Node natif Windows).
+
 ## La philosophie
 
 - **La preuve est exécutée, pas déclarée.** `verify` lance le checkpoint lui-même. « L'agent a dit que les tests passaient » ne vaut rien.
