@@ -88,6 +88,42 @@ test("init writes the given phases and keeps existing files", () => {
   assert.strictEqual(readJson(path.join(dir, "progress.json"), null).phases.length, 1);
 });
 
+test("init never touches any real home directory when --platform is omitted", () => {
+  // scaffold() must be a pure function of its explicit inputs — no ambient
+  // env-var detection inside it (that belongs to the CLI entry point only).
+  // Otherwise every test calling scaffold() would silently install real
+  // commands into the machine's actual ~/.claude, ~/.codex, etc.
+  const dir = tmpDir();
+  const { created, platform } = scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [] });
+
+  assert.strictEqual(platform, null);
+  assert.ok(!created.some((f) => f.includes(".codex/prompts") || f.includes(".gemini/commands")));
+});
+
+test("init installs the given platform's slash commands into an isolated home", () => {
+  const dir = tmpDir();
+  const home = tmpDir();
+  const original = process.env.HOME;
+  process.env.HOME = home;
+
+  try {
+    const { platform } = scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "codex" });
+    assert.strictEqual(platform, "codex");
+    assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
+  } finally {
+    process.env.HOME = original;
+  }
+});
+
+test("init warns but still scaffolds the project on an unknown platform", () => {
+  const dir = tmpDir();
+  const { created, platform } = scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "nope" });
+
+  assert.strictEqual(platform, "nope");
+  assert.ok(fs.existsSync(path.join(dir, "progress.json")));
+  assert.ok(created.includes("progress.json"));
+});
+
 test("init keeps an existing AGENTS.md and writes the protocol to docs/plans/ instead", () => {
   const dir = tmpDir();
   fs.writeFileSync(path.join(dir, "AGENTS.md"), "# repo rules");

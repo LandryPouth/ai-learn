@@ -14,10 +14,12 @@
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { log, findLearningProjects } = require("./util");
 const { readProgress } = require("./progress");
 const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
+const { PLATFORMS, INSTALLERS } = require("./install");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
 
@@ -90,12 +92,45 @@ function syncProtocol(dir, config) {
   return { file: "AGENTS.md", action: "created" };
 }
 
-function updateCommand({ root }) {
+// A learner who continues an existing project on a *different* platform than
+// the one it was `init`ed on (Claude Code → Codex, say) has the per-project
+// mechanical guards already in place (ensureGuardHook wires both
+// unconditionally, regardless of platform) but not that new platform's
+// global /… commands — those are only ever installed on request. Passing
+// --platform here (the calling agent knows its own identity, same as
+// `init`) self-heals that: idempotent, safe to run every session. Never
+// guessed — an unrecognized platform string is a warning, not a failure.
+function ensurePlatformCommands(platform) {
+  if (!platform) {
+    return null;
+  }
+
+  if (!PLATFORMS[platform]) {
+    log(`  ⚠ plateforme "${platform}" inconnue — commandes /… non installées (voir \`ai-learn install\`)`);
+    return null;
+  }
+
+  try {
+    const result = INSTALLERS[platform]({ home: os.homedir() });
+    return { platform, created: result.created.length };
+  } catch (error) {
+    log(`  ⚠ installation des commandes ${platform} a échoué : ${error.message}`);
+    return null;
+  }
+}
+
+function updateCommand({ root, platform }) {
   const projects = findLearningProjects(root);
 
   if (projects.length === 0) {
     log(`No learning projects (no progress.json) under ${root}.`);
     return;
+  }
+
+  const platformResult = ensurePlatformCommands(platform);
+
+  if (platformResult) {
+    log(`Platform ${platformResult.platform}: commandes /… synchronisées (${platformResult.created} fichier(s) créé/rafraîchi).`);
   }
 
   log(`Updating ${projects.length} learning project(s) under ${root}:`);

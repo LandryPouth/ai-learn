@@ -116,6 +116,33 @@ test("update never overwrites an existing dogfood journal with real entries", ()
   assert.strictEqual(fs.readFileSync(dogfoodPath, "utf8"), "### medium — déjà noté\n- Surface : verify\n");
 });
 
+test("update --platform installs that platform's slash commands into an isolated home", () => {
+  const dir = tmpProject(project());
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-platform-"));
+  const original = process.env.HOME;
+  process.env.HOME = home;
+
+  try {
+    capture(() => updateCommand({ root: dir, platform: "codex" }));
+    assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
+  } finally {
+    process.env.HOME = original;
+  }
+});
+
+test("update without --platform never touches any home directory (backward compatible)", () => {
+  const dir = tmpProject(project());
+  const output = capture(() => updateCommand({ root: dir }));
+  assert.doesNotMatch(output, /commandes \/… synchronisées/);
+});
+
+test("update warns on an unknown --platform but still syncs the project", () => {
+  const dir = tmpProject(project());
+  const output = capture(() => updateCommand({ root: dir, platform: "nope" }));
+  assert.match(output, /plateforme "nope" inconnue/);
+  assert.match(output, /protocol: AGENTS.md/);
+});
+
 test("update refreshes a pristine (entry-less) dogfood journal when the template evolves", () => {
   const dir = tmpProject(project());
   const dogfoodPath = writeFile(dir, ".ai-learn/dogfood.md", "# Journal de friction — `ai-learn`\n(vieille version, aucune entrée)\n");
