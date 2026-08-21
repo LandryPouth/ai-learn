@@ -47,6 +47,13 @@ test("init scaffolds the expected structure", () => {
   assert.ok(fs.existsSync(dogfoodPath));
   assert.match(fs.readFileSync(dogfoodPath, "utf8"), /Journal de friction/);
   assert.ok(created.includes(".ai-learn/dogfood.md"));
+
+  // Codex's mechanical guard: a sandbox permissions profile denying writes to
+  // src/** (see bin/lib/platforms/codex-guard.js), wired alongside Claude's.
+  const codexConfigPath = path.join(dir, ".codex", "config.toml");
+  assert.ok(fs.existsSync(codexConfigPath));
+  assert.match(fs.readFileSync(codexConfigPath, "utf8"), /"src\/\*\*" = "deny"/);
+  assert.ok(created.includes(".codex/config.toml"));
 });
 
 test("init never overwrites an existing dogfood journal", () => {

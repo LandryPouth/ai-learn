@@ -26,7 +26,9 @@ Une entrée par incident, la plus récente en premier. Court ; l'IA l'écrit
 
 ```md
 ### <low|medium|high> — <titre court>
-- Surface : <init|status|next|verify|check|scan|propose|docs|traps|guard|progress.json>
+- Plateforme : <claude-code|codex|gemini-cli|opencode|antigravity|cli-nu|autre>
+- Surface : <commande|hook-guard|skill|config|init|status|next|verify|check|scan|propose|docs|traps|progress.json>
+- Attendu vs réel : <ce qui aurait dû se charger/se déclencher automatiquement, et ce que l'IA a dû faire à la place>
 - Problème : <ce qui s'est réellement passé, en une phrase>
 - Workaround : <ce qui a permis d'avancer ; "aucun, bloqué" est une réponse valide>
 - Version de l'outil : <sortie de `ai-learn --version`>
@@ -34,6 +36,15 @@ Une entrée par incident, la plus récente en premier. Court ; l'IA l'écrit
 
 Sévérité : `low` (agace) · `medium` (coûte du temps) · `high` (aucun
 contournement légitime, ou verdict faux).
+
+**Cas à toujours logger, même s'il se résout tout seul** : une commande `/…`,
+un hook (guard), un skill ou une config (`.codex/config.toml`,
+`.claude/settings.json`, `.gemini/commands/`, `.opencode/command/…`) qui
+aurait dû se charger ou s'activer automatiquement mais ne l'a pas fait, au
+point que l'IA a dû lire un fichier `.md` ou la doc source pour comprendre
+quoi faire à la main. Ce cas pointe précisément vers un bug d'intégration
+plateforme — le champ **Attendu vs réel** doit nommer le mécanisme qui a
+manqué, pas juste dire « ça n'a pas marché ».
 
 ## Entrées
 

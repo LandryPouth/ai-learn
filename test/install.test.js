@@ -8,7 +8,7 @@ const path = require("path");
 
 const { parseCommandFile, listCommandFiles } = require("../bin/lib/platforms/commands");
 const { renderCommand } = require("../bin/lib/platforms/codex");
-const { installCommand } = require("../bin/lib/install");
+const { installCommand, linkOrCopy } = require("../bin/lib/install");
 const { capture } = require("./helpers");
 
 const COMMANDS_DIR = path.join(__dirname, "..", "commands");
@@ -88,4 +88,41 @@ test("install with no platform lists available platforms without writing anythin
 test("install refuses an unknown platform", () => {
   const home = tmpHome();
   assert.throws(() => installCommand({ platform: "nope", home }), /unknown platform "nope"/);
+});
+
+test("linkOrCopy falls back to a real copy when symlinks are refused (Windows without Developer Mode)", () => {
+  const home = tmpHome();
+  const src = path.join(home, "source.txt");
+  const dest = path.join(home, "dest.txt");
+  fs.writeFileSync(src, "content");
+
+  const original = fs.symlinkSync;
+  fs.symlinkSync = () => {
+    const error = new Error("operation not permitted");
+    error.code = "EPERM";
+    throw error;
+  };
+
+  try {
+    linkOrCopy(src, dest);
+  } finally {
+    fs.symlinkSync = original;
+  }
+
+  assert.ok(!fs.lstatSync(dest).isSymbolicLink());
+  assert.strictEqual(fs.readFileSync(dest, "utf8"), "content");
+});
+
+test("linkOrCopy re-throws errors unrelated to symlink permissions", () => {
+  const home = tmpHome();
+  const original = fs.symlinkSync;
+  fs.symlinkSync = () => {
+    throw new Error("disk full");
+  };
+
+  try {
+    assert.throws(() => linkOrCopy(path.join(home, "a"), path.join(home, "b")), /disk full/);
+  } finally {
+    fs.symlinkSync = original;
+  }
 });

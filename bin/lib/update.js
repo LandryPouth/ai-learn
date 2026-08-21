@@ -21,18 +21,39 @@ const { ensureGuardHook } = require("./guard");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
 
-// Backfill the friction journal into a project that predates it. Never
-// overwritten — mirrors ensureGuardHook's non-destructive stance on files a
-// learner may already have populated. Returns "created" or "kept".
+// One `### <severity> — <title>` heading per recorded entry — same marker
+// check.js's countDogfoodEntries uses. Duplicated locally rather than
+// imported: check.js pulls in progress/status/docs, too heavy to require here
+// for one regex.
+function hasDogfoodEntries(content) {
+  return /^###\s+(?:low|medium|high)\s+—/im.test(content);
+}
+
+// Backfill the friction journal into a project that predates it, and refresh
+// it when the template evolves — but only while it is still pristine (no
+// entries yet). Once an agent has logged real friction, the file is never
+// touched again, same non-destructive stance as ensureGuardHook. Returns
+// "created", "refreshed", or "kept".
 function syncDogfood(dir) {
   const dogfoodFile = path.join(dir, ".ai-learn", "dogfood.md");
+  const template = fs.readFileSync(path.join(TEMPLATES_DIR, "dogfood.md"), "utf8");
 
   if (fs.existsSync(dogfoodFile)) {
-    return "kept";
+    const existing = fs.readFileSync(dogfoodFile, "utf8");
+
+    if (hasDogfoodEntries(existing)) {
+      return "kept";
+    }
+    if (existing === template) {
+      return "kept";
+    }
+
+    fs.writeFileSync(dogfoodFile, template);
+    return "refreshed";
   }
 
   fs.mkdirSync(path.dirname(dogfoodFile), { recursive: true });
-  fs.writeFileSync(dogfoodFile, fs.readFileSync(path.join(TEMPLATES_DIR, "dogfood.md"), "utf8"));
+  fs.writeFileSync(dogfoodFile, template);
   return "created";
 }
 
@@ -98,7 +119,8 @@ function updateCommand({ root }) {
     log(`  friction bank: ${traps.length} trap(s)`);
     const guardCreated = `${guard.created.length} file(s) created`;
     const guardRefreshed = guard.refreshed.length > 0 ? `, ${guard.refreshed.length} refreshed` : "";
-    log(`  guard: ${guard.wired ? "hook already wired" : "hook wired"} — ${guardCreated}${guardRefreshed}`);
+    log(`  guard (claude): ${guard.wired ? "hook already wired" : "hook wired"} — ${guardCreated}${guardRefreshed}`);
+    log(`  guard (codex): ${guard.codex.skipped ? "customized .codex/config.toml — not touched" : ".codex/config.toml up to date"}`);
     log(`  dogfood journal: .ai-learn/dogfood.md ${dogfood}`);
   }
 }

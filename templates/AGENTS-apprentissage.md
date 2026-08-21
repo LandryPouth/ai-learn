@@ -69,6 +69,16 @@ raison claire — l'IA l'enregistre **immédiatement** dans `.ai-learn/dogfood.m
 (format dans le fichier), **avant** de contourner ou d'improviser une
 solution de repli. Une ligne honnête, pas un rapport de bug exhaustif.
 
+**Cas à toujours logger, sur toute plateforme (Claude Code, Codex, Gemini CLI,
+OpenCode, Antigravity, CLI nu)** : si une commande `/…`, le hook/garde-fou, un
+skill ou un fichier de config attendu ne se charge pas ou ne se déclenche pas
+automatiquement, et que l'IA doit lire un `.md` ou la doc source pour
+comprendre quoi faire à la main — l'écrire dans `.ai-learn/dogfood.md` en
+nommant précisément la plateforme et le mécanisme qui a manqué (`Attendu vs
+réel`), pas seulement le contournement trouvé. C'est ce détail-là qui permet
+au mainteneur de réparer l'intégration plateforme en cause, une fois le
+fichier envoyé sur demande.
+
 Ce fichier n'est jamais transmis automatiquement : l'apprenant l'envoie au
 mainteneur uniquement si on le lui demande. `ai-learn check` n'y applique
 aucune règle bloquante — zéro friction est un résultat légitime, pas une

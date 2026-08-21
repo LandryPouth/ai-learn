@@ -41,6 +41,15 @@ test("a done phase with a green evidence passes", () => {
   assert.deepStrictEqual(entry.issues.warnings, []);
 });
 
+test("a guard policy without a wired codex profile is a warning, not an error", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["src/**"] }));
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => /ai-learn permissions profile/.test(w.message)));
+});
+
 test("the friction journal is counted but never gates check", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(

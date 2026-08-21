@@ -53,21 +53,27 @@ Tout le reste est automatique : guard PreToolUse (bloque les écritures non prou
 
 ### Autres agents IA
 
-`ai-learn` est un CLI Node zéro dépendance : `ai-learn init/status/next/verify/check/...` tourne dans n'importe quel terminal, et `AGENTS.md` (écrit par `init`) est déjà lu nativement par Codex, Gemini CLI, OpenCode et Antigravity — le protocole pédagogique fonctionne sans rien installer de plus.
+`ai-learn` est un CLI Node zéro dépendance : `ai-learn init/status/next/verify/check/...` tourne dans n'importe quel terminal (Linux, macOS, **Windows/PowerShell testé**), et `AGENTS.md` (écrit par `init`) est déjà lu nativement par Codex, Gemini CLI, OpenCode et Antigravity — le protocole pédagogique fonctionne sans rien installer de plus.
 
 Pour les commandes `/…` dédiées :
 
 ```bash
 ai-learn install            # liste les plateformes supportées + statut du garde-fou
-ai-learn install claude     # ai-learn sur PATH + commandes /… (équivalent à scripts/install-claude.sh)
+ai-learn install claude     # ai-learn sur PATH + commandes /… (~/.claude/commands/)
 ai-learn install codex      # commandes en prompts Codex (~/.codex/prompts/)
+ai-learn install gemini     # commandes en /ai-learn:<nom> (~/.gemini/commands/ai-learn/)
+ai-learn install opencode   # commandes en /ai-learn/<nom> (~/.config/opencode/command/ai-learn/)
 ```
 
 | Plateforme | Commandes `/…` | Garde-fou `src/**` |
 |---|---|---|
 | Claude Code | ✓ | **mécanique** — hook `PreToolUse`, l'écriture n'a jamais lieu |
-| Codex CLI | ✓ | **dégradé** — Codex n'a pas de hook pré-écriture ; seuls `AGENTS.md` et les trous non-collables de `docs/solutions/` protègent `src/**` |
-| Gemini CLI, OpenCode, Antigravity | usage manuel via `ai-learn <commande>` (`AGENTS.md` déjà lu nativement) | pas encore câblé |
+| Codex CLI | ✓ | **mécanique** — profil de permissions bac à sable OS (`.codex/config.toml`, câblé par `init`/`update`) ; vérifié avec `codex sandbox` (bloque écriture shell **et** Python dans `src/**`, sans toucher au reste du workspace), **pas encore vérifié en session interactive réelle** ; nécessite que le projet soit « trusted » côté Codex (approbation ponctuelle, comportement normal de leur modèle de sécurité) |
+| Gemini CLI | ✓ | non câblé — un hook `BeforeTool` existe (confirmé dans la doc embarquée du paquet installé), mais le nom exact du champ `tool_input` pour un chemin de fichier n'a pas pu être confirmé sans casser un vrai hook silencieusement inopérant ; `AGENTS.md` + trous non-collables seuls protègent `src/**` |
+| OpenCode | ✓ | non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; `AGENTS.md` + trous non-collables seuls |
+| Antigravity | usage manuel via `ai-learn <commande>` (`AGENTS.md` déjà lu nativement) | pas encore câblé — a un système de hooks (`hooks.json`, `before-tool-execution`) plus riche que les autres sur le papier, jamais testé faute d'installation locale |
+
+Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la création de lien symbolique est refusée par l'OS (`EPERM`) — `ai-learn` bascule alors automatiquement sur une copie de fichier, testé en conditions réelles (PowerShell + Node natif Windows).
 
 ## La philosophie
 

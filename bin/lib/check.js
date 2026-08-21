@@ -12,6 +12,7 @@ const { log, findLearningProjects } = require("./util");
 const { readProgress, validateProgress, runsDir, progressPath } = require("./progress");
 const { latestEvidenceForPhase } = require("./status");
 const { docSourceList } = require("./docs");
+const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -110,6 +111,17 @@ function checkProject(dir) {
       file: ".claude/settings.json",
       message: "guard policy exists (.ai-learn/guard.json) but the `ai-learn guard` hook is not wired — " +
         "the learner-file block is inactive. Run `ai-learn update --root <dir>`.",
+    });
+  }
+
+  // Codex's mechanical guard (a .codex/config.toml permissions profile, see
+  // bin/lib/platforms/codex-guard.js) is a separate wiring from the Claude
+  // hook above — a project can have one without the other.
+  if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json")) && !codexGuardWired(dir)) {
+    issues.warnings.push({
+      file: ".codex/config.toml",
+      message: "guard policy exists (.ai-learn/guard.json) but no ai-learn permissions profile in " +
+        ".codex/config.toml — Codex's sandbox-level block is inactive. Run `ai-learn update --root <dir>`.",
     });
   }
 
@@ -403,6 +415,19 @@ function guardHookWired(dir) {
   );
 }
 
+// Is Codex's mechanical guard (a .codex/config.toml permissions profile)
+// wired for this project? Only true for a file ai-learn generated itself —
+// see ensureCodexGuard's marker convention in guard.js.
+function codexGuardWired(dir) {
+  const configPath = path.join(dir, ".codex", "config.toml");
+
+  try {
+    return fs.readFileSync(configPath, "utf8").startsWith(CODEX_GUARD_MARKER);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeRelative(dir, value) {
   return path.relative(dir, path.resolve(dir, value)).replace(/\\/g, "/");
 }
@@ -458,7 +483,8 @@ function printProjectReport(entry) {
   if (fs.existsSync(path.join(entry.dir, ".ai-learn", "guard.json"))) {
     const blocks = countGuardBlocks(entry.dir);
     const wired = guardHookWired(entry.dir);
-    log(`  guard: ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers solution` : "configuré mais hook non câblé"}`);
+    log(`  guard (claude): ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers solution` : "configuré mais hook non câblé"}`);
+    log(`  guard (codex): ${codexGuardWired(entry.dir) ? "actif (bac à sable OS)" : "configuré mais profil non câblé"}`);
   }
 
   // Purely informational: zero entries is a legitimate outcome (no friction
@@ -523,4 +549,5 @@ module.exports = {
   countIATypedCorrections,
   countDogfoodEntries,
   guardHookWired,
+  codexGuardWired,
 };
