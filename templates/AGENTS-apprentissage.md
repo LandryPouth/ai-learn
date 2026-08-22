@@ -100,7 +100,24 @@ anomalie à combler.
 | `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé |
 | `ai-learn guard` | Hook interne (PreToolUse) : refuse à l'IA toute écriture dans les fichiers solution (`src/**`) — câblé automatiquement par `init`/`update` |
 | `ai-learn traps` | Régénère la banque de pièges depuis les docs embarquées (zones de friction, citées fichier:ligne) |
-| `ai-learn update` | Propage le protocole + la banque de pièges à tous les projets installés sous `--root` |
+| `ai-learn update [--platform <claude\|codex\|gemini\|opencode>]` | Propage le protocole + la banque de pièges à tous les projets installés sous `--root` ; `--platform` (re)installe aussi les commandes `/…` de **ta** plateforme si besoin |
+| `ai-learn upgrade` | Met à jour l'outil `ai-learn` lui-même vers la dernière version (pas les projets — `update` s'en charge séparément) |
+
+## Reprise sur une autre plateforme
+
+Si tu reprends ce projet sur une plateforme différente de celle où il a été
+créé (ex. démarré sur Claude Code, repris sur Codex) : **rien à faire de
+particulier, ce n'est pas une consigne à suivre**. Chaque `ai-learn <commande>`
+vérifie et répare ça tout seul, avant même de s'exécuter — mécanique, pas une
+étape que l'IA pourrait oublier. Sur Claude Code c'est automatique (signal
+détecté). Sur Codex/Gemini/OpenCode, passer `--platform <la-tienne>` à
+n'importe quelle commande (`ai-learn next --platform codex`, pas besoin d'un
+appel séparé) déclenche la même réparation — tu connais ta plateforme,
+inutile de la deviner. Sans ce flag sur ces plateformes-là, rien ne casse :
+`ai-learn <commande>` fonctionne toujours, seules les commandes `/…` restent
+absentes jusqu'à ce que `--platform` soit passé une fois. Le garde-fou
+(`src/**`) n'est de toute façon jamais concerné par ce changement : il est
+câblé pour toutes les plateformes dès `init`, indépendamment de celle utilisée.
 
 ## Règle d'or
 

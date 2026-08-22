@@ -154,4 +154,4 @@ function installCommand({ platform, home = os.homedir() }) {
   log(`\nGarde-fou (blocage src/**) : ${PLATFORMS[platform].guard}`);
 }
 
-module.exports = { installCommand, PLATFORMS, linkOrCopy };
+module.exports = { installCommand, PLATFORMS, INSTALLERS, linkOrCopy };

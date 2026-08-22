@@ -69,8 +69,17 @@ ai-learn init \
   --technology "<techno>" \
   --project "<nom-du-projet>" \
   --doc-source "<chemin-ou-url-de-la-doc>" \
-  --phases '<JSON des phases>'
+  --phases '<JSON des phases>' \
+  --platform <claude|codex|gemini|opencode>
 ```
+
+`--platform` : indique **la plateforme sur laquelle tu tournes toi-même** (tu la
+connais, inutile de la deviner) — `init` installe alors immédiatement les
+commandes `/…` pour cette plateforme, sans étape manuelle séparée pour
+l'apprenant. Si tu ne sais vraiment pas laquelle tu es, omets le flag :
+`init` détecte Claude Code (seul signal vérifié), sinon les commandes `/…`
+ne sont pas posées automatiquement — l'apprenant peut toujours lancer
+`ai-learn install <plateforme>` lui-même plus tard.
 
 ⚠ Le JSON des phases est long — construis-le proprement (un objet par phase, avec
 les 5 champs) et vérifie-le avant d'appeler la commande.

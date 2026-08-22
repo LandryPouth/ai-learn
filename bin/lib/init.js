@@ -11,6 +11,8 @@ const path = require("path");
 const { log, writeJson, mkdirp, normalizePortable } = require("./util");
 const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
+const { PLATFORMS, INSTALLERS } = require("./install");
+const os = require("os");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
 
@@ -28,7 +30,7 @@ function defaultProgress({ project, technology, docSource, phases }) {
   };
 }
 
-function scaffold({ dir, project, technology, docSource, phases }) {
+function scaffold({ dir, project, technology, docSource, phases, platform }) {
   const abs = path.resolve(dir);
   const created = [];
 
@@ -105,7 +107,24 @@ function scaffold({ dir, project, technology, docSource, phases }) {
     created.push(normalizePortable(path.relative(abs, dogfoodFile)));
   }
 
-  return { dir: abs, created };
+  // Slash commands: `platform` is resolved by the caller (the CLI entry
+  // point), never guessed in here — scaffold() stays a pure function of its
+  // explicit inputs, so calling it in tests never has the side effect of
+  // touching a real ~/.claude, ~/.codex, etc. based on ambient env vars. The
+  // agent invoking init knows which platform it runs on (its own identity)
+  // and should pass --platform explicitly — see commands/learn.md.
+  if (platform && PLATFORMS[platform]) {
+    try {
+      const result = INSTALLERS[platform]({ home: os.homedir() });
+      log(`  platform ${platform}: commandes /… installées (${result.created.length} fichier(s))`);
+    } catch (error) {
+      log(`  note    installation des commandes ${platform} a échoué : ${error.message}`);
+    }
+  } else if (platform) {
+    log(`  note    plateforme "${platform}" inconnue — commandes /… non installées (voir \`ai-learn install\`)`);
+  }
+
+  return { dir: abs, created, platform: platform || null };
 }
 
 module.exports = { scaffold };

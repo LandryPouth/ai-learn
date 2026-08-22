@@ -59,6 +59,16 @@ function main() {
 
   const dir = resolveDir(getFlagValue("--dir"));
 
+  // Mechanical platform self-heal, on every command but the hot-path guard
+  // hook: a learner resuming on a different platform than it was `init`ed on
+  // never depends on an agent remembering a documented step — see
+  // lib/platforms/ensure.js for the honest limits (Claude Code auto-detects;
+  // others need --platform).
+  if (command !== "guard") {
+    const { ensurePlatformCommands } = require("./lib/platforms/ensure");
+    ensurePlatformCommands(getFlagValue("--platform", null));
+  }
+
   switch (command) {
     case "init": {
       const { scaffold } = require("./lib/init");
@@ -85,8 +95,10 @@ function main() {
           ? { type: "remote", value: docSourceRaw }
           : { type: "local", value: docSourceRaw }
         : null;
+      const { detectPlatform } = require("./lib/platforms/detect");
+      const platform = getFlagValue("--platform", null) || detectPlatform();
 
-      const { created } = scaffold({ dir, project, technology, docSource, phases });
+      const { created } = scaffold({ dir, project, technology, docSource, phases, platform });
       log(`Initialized learning project "${project}" in ${dir}`);
 
       for (const file of created) {
@@ -171,7 +183,14 @@ function main() {
 
     case "update": {
       const { updateCommand } = require("./lib/update");
-      updateCommand({ root: resolveDir(getFlagValue("--root")) });
+      const platform = getFlagValue("--platform", null);
+      updateCommand({ root: resolveDir(getFlagValue("--root")), platform });
+      break;
+    }
+
+    case "upgrade": {
+      const { upgradeCommand } = require("./lib/upgrade");
+      upgradeCommand();
       break;
     }
 
@@ -190,6 +209,7 @@ function main() {
 Usage:
   ai-learn version | --version | -v
   ai-learn init --technology <name> [--project <name>] [--doc-source <path|url>] [--phases '<json>']
+             [--platform <claude|codex|gemini|opencode>]
   ai-learn status [--dir <dir>]
   ai-learn next [--dir <dir>]
   ai-learn scan [--dir <dir>]
@@ -201,11 +221,22 @@ Usage:
              docs presets: build-your-own-x, developer-roadmap
   ai-learn traps [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
-  ai-learn update [--root <dir>]
-  ai-learn install [claude|codex] [--home <dir>]
+  ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode>]
+  ai-learn upgrade
+  ai-learn install [claude|codex|gemini|opencode] [--home <dir>]
+
+--platform is accepted by EVERY command (not just init/update): before
+dispatch, ai-learn mechanically installs that platform's /… commands if
+missing — a learner resuming on a different platform than the project was
+init'ed on self-heals on its very next command, no separate step to
+remember. Claude Code also self-heals with no flag at all (CLAUDECODE=1,
+the one verified auto-detect signal) — see bin/lib/platforms/ensure.js.
 
 Commands:
-  init     Scaffold a learning project (progress.json, docs/plans/, checkpoint/, predictions journal)
+  init     Scaffold a learning project (progress.json, docs/plans/, checkpoint/, predictions journal).
+           --platform installs that platform's /… commands immediately (the agent knows its own
+           identity — pass it explicitly; falls back to detecting Claude Code only, the sole
+           verified signal — see bin/lib/platforms/detect.js)
   status   Show phases and their state in the current project
   next     Show the next phase to work on (and warn on unproven "done" phases)
   scan     Analyze an existing project: where you are + deepening directions (non-regression)
@@ -226,6 +257,9 @@ Commands:
            the learner types that code, the AI cannot
   update   Propagate the protocol template + traps bank to every learning project
            under --root (non-destructive: only generated AGENTS.md is overwritten)
+  upgrade  Update the ai-learn tool itself to the latest version (npm reinstall from
+           GitHub). Refuses to run on a dev checkout (git clone) — use git pull there.
+           Does not touch already-scaffolded projects; run update --root for that
   install  Install the 7 slash commands (and, for claude, the ai-learn
            binary on PATH) for a platform: claude (mechanical guard) or
            codex (commands only — no pre-write hook available there).
