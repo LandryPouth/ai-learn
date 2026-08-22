@@ -33,6 +33,11 @@ ai-learn scan
    `suggestion.doc` (ex. `docs/sources/<nom>-docs — Reference`) si
    elle existe dans le projet, sinon la doc officielle en ligne.
 
+   Une `suggestion` avec `mandatory: true` (ex. `g-arch` une fois qu'un
+   fichier dépasse le seuil mesuré) **doit** devenir une phase — ce n'est
+   plus une proposition parmi d'autres à l'appréciation de l'IA, contrairement
+   aux directions ordinaires. Le rapport humain la marque `⚠ OBLIGATOIRE`.
+
 5. **Matérialiser le parcours** :
    - **Aucun `progress.json`** → `ai-learn init --phases '<json>' --technology <stack>`
      dans le même dossier (init est non-destructif).

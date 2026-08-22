@@ -5,9 +5,16 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 
+const os = require("os");
+const { spawnSync } = require("child_process");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, runsDir } = require("../bin/lib/progress");
+const { readGitTracks } = require("../bin/lib/tracks/git");
 const { capture, sampleProgress, tmpProject } = require("./helpers");
+
+function tmpHome() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-verify-home-"));
+}
 
 beforeEach(() => {
   process.exitCode = 0;
@@ -43,6 +50,112 @@ test("verify fails on a failing checkpoint and does not mark the phase done", ()
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
   assert.strictEqual(process.exitCode, 1);
+});
+
+test("verify with a passing stressCheckpoint marks done once both checkpoints pass", () => {
+  const progress = sampleProgress();
+  progress.phases[0].stressCheckpoint = 'node -e "process.exit(0)"';
+  const dir = tmpProject(progress);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Stress: node -e "process\.exit\(0\)"/);
+  assert.match(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.ok, true);
+  assert.strictEqual(evidence.results.length, 2);
+  assert.strictEqual(process.exitCode, 0);
+});
+
+test("verify with a failing stressCheckpoint does NOT mark done, even though the base checkpoint passed", () => {
+  const progress = sampleProgress();
+  progress.phases[0].stressCheckpoint = 'node -e "process.exit(7)"';
+  const dir = tmpProject(progress);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /\[ok\].*node -e "process\.exit\(0\)"/s);
+  assert.match(out, /\[exit 7\]/);
+  assert.doesNotMatch(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.ok, false);
+  assert.strictEqual(evidence.results.length, 2);
+});
+
+test("verify without a stressCheckpoint keeps the single-result evidence shape (backward compatible)", () => {
+  const dir = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.results.length, 1);
+  assert.strictEqual(evidence.stressCheckpoint, null);
+});
+
+test("verify syncs the global git ledger when the passing phase declares a gitTier", () => {
+  const progress = sampleProgress();
+  progress.phases[0].gitTier = 1;
+  const dir = tmpProject(progress);
+  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
+  spawnSync("git", ["-C", dir, "config", "user.name", "t"]);
+  spawnSync("git", ["-C", dir, "config", "user.email", "t@t"]);
+  fs.writeFileSync(path.join(dir, "a.txt"), "1");
+  spawnSync("git", ["-C", dir, "add", "."]);
+  spawnSync("git", ["-C", dir, "commit", "-m", "feat: a"]);
+
+  const home = tmpHome();
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+
+  const { config } = readGitTracks({ home });
+  assert.strictEqual(config.tiers["1"].achieved, true);
+});
+
+test("verify syncs the global domain ledger from real code, keyed by the detected stack, not the progress.json label", () => {
+  const progress = sampleProgress(); // technology: "Node" — the ledger key must NOT be "node"
+  const dir = tmpProject(progress);
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "src", "index.js"),
+    'const app = require("express")();\napp.get("/x", async (req, res) => { await Promise.resolve(); res.json({}); });\napp.listen(3000);\n',
+  );
+
+  const home = tmpHome();
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+
+  const { readDomainLedger } = require("../bin/lib/tracks/domain");
+  const { config, exists } = readDomainLedger({ technology: "javascript", home });
+  assert.strictEqual(exists, true);
+  assert.strictEqual(config.concepts["js-routes"].achieved, true);
+});
+
+test("verify never marks done or fails if the git ledger sync throws (isolated failure domain)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].gitTier = 1;
+  const dir = tmpProject(progress);
+
+  // A `home` that is itself a file, not a directory: writeGitTracks's
+  // internal mkdirSync(..., {recursive:true}) throws ENOTDIR — this must
+  // never leak into verify's own done/exitCode contract.
+  const brokenHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-verify-broken-")), "not-a-dir");
+  fs.writeFileSync(brokenHome, "x");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, home: brokenHome }));
+
+  assert.match(out, /marked done/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+  assert.strictEqual(process.exitCode, 0);
 });
 
 test("verify with --no-mark keeps the phase pending despite a green checkpoint", () => {

@@ -33,6 +33,25 @@ Le code de révélation est déposé par l'IA dans **`docs/solutions/<brique>.md
 - **Échappatoire visible** : si l'apprenant est vraiment coincé, noter `- Corrigé par : IA` dans le journal — une exception enregistrée, jamais un saut silencieux (`ai-learn check` la signale).
 - L'IA propose « on peut faire mieux » : technique idiomatique, réduction de lignes, pattern du marché — **toujours citée** pour que l'utilisateur puisse vérifier, pas seulement croire. L'apprenant **prédit la direction d'amélioration**, puis tape la version améliorée. **2 passes max par brique**, arrêt à un niveau **« standard du marché » lisible** — la lisibilité et l'idiome sont la cible, pas le plus court / le plus malin. Aucun état brouillon n'est laissé.
 
+### 3bis. L'apprenant tape aussi les commandes git/gh — blocage mécanique total
+
+Même principe que le code, étendu à git et `gh` (GitHub CLI) : **l'apprenant tape lui-même toute commande git/gh, lecture incluse** (`git status`, `git log`, `gh pr view`…, pas seulement les écritures). `ai-learn guard` bloque mécaniquement toute tentative de l'IA d'exécuter `git`/`gh` via son propre outil Bash — reflex/alias, wrappers (`sudo`, `env`…), chaînes (`&&`, `;`, `|`) et sous-shells (`$(...)`) inclus. Ce n'est pas configurable au cas par cas dans la session : c'est un mur, comme le guard sur `src/**`.
+
+Concrètement, l'IA **ne lance jamais** `git`/`gh` elle-même dans ce projet. Quand elle a besoin de voir un état (branche courante, diff, PR ouvertes…), elle suit le protocole « Reality checks » ci-dessous : elle demande à l'apprenant de lancer la commande et de rapporter ce qu'il voit.
+
+La maîtrise git/gh se suit dans un ledger **global, cross-projet** (`~/.ai-learn/tracks/git.json`, jamais remis à zéro par un nouveau projet), par tiers (1 : vocabulaire + format de commit vérifié par un hook `commit-msg` mécanique · 2 : diff/stash/restore · 3 : branches + vrai conflit résolu · 4 : amend/rebase -i/cherry-pick · 5 : workflow PR complet via `gh`, jamais l'UI web · 6 : lire un diff/commit écrit par quelqu'un d'autre, sur une vraie PR sourcée). `ai-learn status` en affiche le résumé quand il existe.
+
+### 3ter. Phases taguées stress — prédire la casse avant qu'elle arrive
+
+Certaines phases portent un `stressCheckpoint` en plus du `checkpoint` habituel (voir la banque `stresses` des stack packs) : le renfort de méthode inspiré du principe *base → stress → casse → concept appris*, mais avec une casse **exécutée pour de vrai**, jamais racontée, et un chemin **piloté par l'évidence du projet** — pas un récit écrit d'avance. Sur ces phases, avant la révélation habituelle, six étapes :
+
+1. **Le checkpoint de base passe déjà** — la brique fonctionne en usage normal, montrée à l'apprenant.
+2. **Prédire la casse** — nouveau type de prédiction écrite, distinct de « prédire le code » : l'apprenant prédit **ce qui va casser et pourquoi** quand le stress (10x connexions, entrée malformée, invocation concurrente…) est appliqué. Même exigence de précision que toute prédiction (cf. banque d'exemples neutres ci-dessous).
+3. **Lancer le `stressCheckpoint` pour de vrai** — la casse est **observée**, pas narrée : timeout réel, crash réel, corruption d'état réelle. C'est le point qui manque à une lecture purement conceptuelle du sujet.
+4. **Comparaison prédiction/réalité** — même mécanique 3 points que d'habitude (points forts, zones de faiblesse, explication flash avec analogie).
+5. **Révélation du concept qui corrige** — retour au flux normal de la section 1-3 (prédiction du code, frappe par l'apprenant, docs/solutions non-collable).
+6. **Clôture** — `ai-learn verify <id>` exige que **le `checkpoint` ET le `stressCheckpoint` passent tous les deux** avant de marquer la phase `done` ; un seul des deux qui échoue et la phase reste non prouvée.
+
 ### 4. Reality checks — la seule boucle non truquable
 Régulièrement (au moins une fois par phase) : l'IA fait **prédire à l'utilisateur ce qui va se passer** à l'exécution (lancer le serveur, appeler la route, statut attendu, log attendu), puis on **observe ensemble**. C'est la seule boucle que l'IA et l'utilisateur ne peuvent pas compléter de connivence — le runtime ne pardonne pas les prédictions fausses.
 
@@ -88,7 +107,7 @@ anomalie à combler.
 
 | Commande | Rôle |
 |---|---|
-| `ai-learn status` | Où j'en suis : phases et leur état |
+| `ai-learn status` | Où j'en suis : phases et leur état — affiche aussi le résumé git/gh cross-projet (`~/.ai-learn/tracks/git.json`) quand il existe, automatique, rien à taper en plus |
 | `ai-learn next` | La prochaine phase à faire |
 | `ai-learn scan` | Analyse un projet existant, montre où tu en es, propose une suite d'approfondissement — jamais de reprise à zéro |
 | `ai-learn propose` | Propose des projets à construire quand tu ne sais pas quoi faire — tout est fait automatiquement, chaque étape sourcée |
@@ -98,10 +117,15 @@ anomalie à combler.
 | `ai-learn docs remove <nom>` | Retire une source (copie locale + entrée du ledger) |
 | `ai-learn verify <id>` | Prouve une phase : exécute le checkpoint, marque `done` seulement si ça passe (automatique en clôture de phase) |
 | `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé |
-| `ai-learn guard` | Hook interne (PreToolUse) : refuse à l'IA toute écriture dans les fichiers solution (`src/**`) — câblé automatiquement par `init`/`update` |
+| `ai-learn guard` | Hook interne (PreToolUse) : refuse à l'IA toute écriture dans les fichiers solution (`src/**`) **et toute commande git/gh** (lecture incluse) — câblé automatiquement par `init`/`update` |
 | `ai-learn traps` | Régénère la banque de pièges depuis les docs embarquées (zones de friction, citées fichier:ligne) |
-| `ai-learn update [--platform <claude\|codex\|gemini\|opencode>]` | Propage le protocole + la banque de pièges à tous les projets installés sous `--root` ; `--platform` (re)installe aussi les commandes `/…` de **ta** plateforme si besoin |
+| `ai-learn update [--platform <claude\|codex\|gemini\|opencode\|antigravity>]` | Propage le protocole + la banque de pièges à tous les projets installés sous `--root` ; `--platform` (re)installe aussi les commandes `/…` de **ta** plateforme si besoin |
 | `ai-learn upgrade` | Met à jour l'outil `ai-learn` lui-même vers la dernière version (pas les projets — `update` s'en charge séparément) |
+
+Le hook `commit-msg` (format Conventional Commits, mécanique) se câble tout
+seul dès qu'un `.git` existe dans le projet — via `init` s'il existe déjà,
+sinon automatiquement au prochain `ai-learn update` (ex. juste après un
+premier `git init`). Rien à taper, rien à retenir.
 
 ## Reprise sur une autre plateforme
 
@@ -110,7 +134,7 @@ créé (ex. démarré sur Claude Code, repris sur Codex) : **rien à faire de
 particulier, ce n'est pas une consigne à suivre**. Chaque `ai-learn <commande>`
 vérifie et répare ça tout seul, avant même de s'exécuter — mécanique, pas une
 étape que l'IA pourrait oublier. Sur Claude Code c'est automatique (signal
-détecté). Sur Codex/Gemini/OpenCode, passer `--platform <la-tienne>` à
+détecté). Sur Codex/Gemini/OpenCode/Antigravity, passer `--platform <la-tienne>` à
 n'importe quelle commande (`ai-learn next --platform codex`, pas besoin d'un
 appel séparé) déclenche la même réparation — tu connais ta plateforme,
 inutile de la deviner. Sans ce flag sur ces plateformes-là, rien ne casse :

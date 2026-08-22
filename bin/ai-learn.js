@@ -209,7 +209,7 @@ function main() {
 Usage:
   ai-learn version | --version | -v
   ai-learn init --technology <name> [--project <name>] [--doc-source <path|url>] [--phases '<json>']
-             [--platform <claude|codex|gemini|opencode>]
+             [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn status [--dir <dir>]
   ai-learn next [--dir <dir>]
   ai-learn scan [--dir <dir>]
@@ -218,12 +218,12 @@ Usage:
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
   ai-learn check [--root <dir>]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
-             docs presets: build-your-own-x, developer-roadmap
+             docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
-  ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode>]
+  ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn upgrade
-  ai-learn install [claude|codex|gemini|opencode] [--home <dir>]
+  ai-learn install [claude|codex|gemini|opencode|antigravity] [--home <dir>]
 
 --platform is accepted by EVERY command (not just init/update): before
 dispatch, ai-learn mechanically installs that platform's /… commands if

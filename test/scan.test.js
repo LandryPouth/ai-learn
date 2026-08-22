@@ -22,6 +22,7 @@ const {
   detectConcepts,
   estimateLevel,
   suggestDirections,
+  evaluateMandatoryAt,
   resolveDirectionDoc,
 } = require("../bin/lib/scan");
 
@@ -308,6 +309,21 @@ test("walkSources skips noise dirs, dot-dirs and binary files without crashing",
   }
 });
 
+test("walkSources attaches an exact per-file loc, 0 for binaries, summing to totalLoc", () => {
+  const dir = tmpDir();
+  writeFile(dir, "a.txt", "one\ntwo\nthree\n"); // 3 newlines → 3 lines
+  writeFile(dir, "b.txt", "single line, no trailing newline");
+  fs.writeFileSync(path.join(dir, "bin.dat"), Buffer.from([0, 1, 2, 0]));
+
+  const walked = walkSources(dir);
+  const byRel = Object.fromEntries(walked.files.map((f) => [f.rel, f]));
+
+  assert.strictEqual(byRel["a.txt"].loc, 3);
+  assert.strictEqual(byRel["b.txt"].loc, 0); // no newline char → 0, matching countLines' own contract
+  assert.strictEqual(byRel["bin.dat"].loc, 0);
+  assert.strictEqual(walked.totalLoc, walked.files.reduce((sum, f) => sum + f.loc, 0));
+});
+
 test("a single fortuitous line is not enough to mark a concept used", () => {
   const dir = tmpDir();
   // One lone malloc( in a comment/one-off line — not real mastery.
@@ -411,6 +427,106 @@ test("an unknown-language project yields no concepts and generic directions", ()
   assert.strictEqual(report.concepts.used.length, 0);
   assert.ok(report.suggestions.length > 0);
   assert.ok(report.suggestions.every((s) => s.id.startsWith("g-")));
+  // The generic "10x" stress bank is the fallback for any untracked
+  // language — same "g-" namespace as the generic directions.
+  assert.ok(report.stresses.length > 0);
+  assert.ok(report.stresses.every((s) => s.id.startsWith("g-")));
+});
+
+test("stresses are strictly deeper than the deepest used concept, never mastered (C)", () => {
+  const dir = tmpDir();
+  // Just malloc/free — no threads/sockets/signals, so maxUsedTier stays at 2
+  // and the tier-3 c-malloc-stress is exactly "next tier up".
+  writeFile(dir, "src/main.c", "void *p = malloc(10);\nfree(p);\n");
+
+  const report = scanProject(dir);
+  const usedIds = new Set(report.concepts.used.map((c) => c.id));
+  const maxUsedTier = Math.max(0, ...report.concepts.used.map((c) => c.tier));
+
+  const stress = report.stresses.find((s) => s.id === "c-malloc-stress");
+  assert.ok(stress, `c-malloc-stress should be suggested: ${report.stresses.map((s) => s.id)}`);
+  assert.ok(stress.tier > maxUsedTier);
+  assert.ok(!usedIds.has(stress.deepens));
+  assert.ok(stress.stressCheckpoint, "a stress must carry a real, executable stressCheckpoint");
+});
+
+test("stresses require their anchor: js-load-concurrency needs js-routes", () => {
+  const dir = tmpDir();
+  writeFile(
+    dir,
+    "src/index.js",
+    'const app = require("express")();\napp.get("/items", async (req, res) => { res.json([]); });\napp.listen(3000);\n',
+  );
+
+  const report = scanProject(dir);
+  const ids = report.stresses.map((s) => s.id);
+  assert.ok(ids.includes("js-load-concurrency"), `js-load-concurrency missing in ${ids}`);
+
+  // Without any route detected, the same stress must not appear.
+  const noRoutesDir = tmpDir();
+  writeFile(noRoutesDir, "src/index.js", "async function f() { await Promise.resolve(1); }\nf();\n");
+  const noRoutesReport = scanProject(noRoutesDir);
+  assert.ok(!noRoutesReport.stresses.map((s) => s.id).includes("js-load-concurrency"));
+});
+
+test("stresses already mastered (past their tier) never regress back into suggestions", () => {
+  const dir = tmpDir();
+  makeCFixture(dir); // threads/sockets/signals → maxUsedTier 4, above c-malloc-stress's tier 3
+
+  const report = scanProject(dir);
+  assert.ok(
+    !report.stresses.map((s) => s.id).includes("c-malloc-stress"),
+    "a tier-3 stress must not resurface once the project is already past tier 3",
+  );
+});
+
+test("the report renders a distinct 'Stress réels proposés' section with the real stressCheckpoint", () => {
+  const dir = tmpDir();
+  writeFile(dir, "src/main.c", "void *p = malloc(10);\nfree(p);\n");
+
+  const out = capture(() => scanCommand({ dir }));
+  assert.match(out, /Stress réels proposés/);
+  assert.match(out, /Casse\s+: valgrind --leak-check=full/);
+});
+
+test("evaluateMandatoryAt: locInFile checks per-file loc against gt, false without a mandatoryAt or walked", () => {
+  const walked = { files: [{ loc: 100 }, { loc: 400 }] };
+  assert.strictEqual(evaluateMandatoryAt({ metric: "locInFile", gt: 300 }, { walked }), true);
+  assert.strictEqual(evaluateMandatoryAt({ metric: "locInFile", gt: 500 }, { walked }), false);
+  assert.strictEqual(evaluateMandatoryAt(null, { walked }), false);
+  assert.strictEqual(evaluateMandatoryAt({ metric: "locInFile", gt: 1 }, { walked: null }), false);
+});
+
+test("a file crossing the mandatoryAt threshold promotes g-arch to mandatory:true, sorted first", () => {
+  const dir = tmpDir();
+  writeFile(dir, "README.md", "# notes\n");
+  writeFile(dir, "big.txt", "x\n".repeat(301));
+
+  const report = scanProject(dir);
+  const arch = report.suggestions.find((s) => s.id === "g-arch");
+  assert.ok(arch, "g-arch should be suggested");
+  assert.strictEqual(arch.mandatory, true);
+  assert.strictEqual(report.suggestions[0].id, "g-arch", "mandatory entries must sort first");
+});
+
+test("below the threshold, g-arch is suggested but never mandatory", () => {
+  const dir = tmpDir();
+  writeFile(dir, "README.md", "# notes\n");
+  writeFile(dir, "small.txt", "x\n".repeat(10));
+
+  const report = scanProject(dir);
+  const arch = report.suggestions.find((s) => s.id === "g-arch");
+  assert.ok(arch);
+  assert.strictEqual(arch.mandatory, false);
+});
+
+test("the report renders a mandatory direction distinctly (⚠ OBLIGATOIRE)", () => {
+  const dir = tmpDir();
+  writeFile(dir, "README.md", "# notes\n");
+  writeFile(dir, "big.txt", "x\n".repeat(301));
+
+  const out = capture(() => scanCommand({ dir }));
+  assert.match(out, /⚠ OBLIGATOIRE — Architecture & modularité/);
 });
 
 test("scanCommand prints the report and writes scan.json", () => {

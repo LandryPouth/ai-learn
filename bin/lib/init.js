@@ -11,6 +11,7 @@ const path = require("path");
 const { log, writeJson, mkdirp, normalizePortable } = require("./util");
 const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
+const { ensureCommitMsgHook } = require("./git-hooks");
 const { PLATFORMS, INSTALLERS } = require("./install");
 const os = require("os");
 
@@ -93,6 +94,14 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
 
   for (const file of guard.created) {
     created.push(file);
+  }
+
+  // The commit-msg hook (mechanical, Conventional Commits) — silent no-op if
+  // `git init` hasn't happened yet, picked up automatically on `ai-learn update`.
+  const commitHook = ensureCommitMsgHook(abs);
+
+  if (commitHook.file === "created") {
+    created.push(normalizePortable(path.relative(abs, path.join(abs, ".githooks", "commit-msg"))));
   }
 
   // The friction journal: the AI logs unexpected tool behavior here as it

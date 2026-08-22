@@ -27,7 +27,15 @@ const { renderConfig: renderCodexConfig, MARKER: CODEX_MARKER } = require("./pla
 
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 const DEFAULT_LEARNER_FILES = ["src/**"];
+const DEFAULT_BLOCKED_COMMANDS = ["git", "gh"];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
+
+// Commands that merely wrap another command — unwrapped so `sudo git log` or
+// `env FOO=bar git status` still resolve to `git`, not to the wrapper itself.
+const WRAPPER_COMMANDS = new Set(["env", "sudo", "command", "nice", "time", "exec"]);
+// `npx <bin>` / `pnpm dlx <bin>` / `yarn dlx <bin>` run a binary without it
+// being on PATH — the binary name is one token further in.
+const DLX_RUNNERS = new Set(["pnpm", "yarn"]);
 
 function normalizePortable(value) {
   return String(value).replace(/\\/g, "/");
@@ -80,7 +88,7 @@ function targetPath(toolInput) {
 // back to the default — a project that never ran `init`/`update` is still guarded
 // against writing into `src/`.
 function loadGuardConfig(root) {
-  const defaults = { learnerFiles: DEFAULT_LEARNER_FILES };
+  const defaults = { learnerFiles: DEFAULT_LEARNER_FILES, blockedCommands: DEFAULT_BLOCKED_COMMANDS, gitAliases: [] };
   const configFile = path.join(root, ".ai-learn", "guard.json");
 
   let config = null;
@@ -97,6 +105,13 @@ function loadGuardConfig(root) {
       config && Array.isArray(config.learnerFiles) && config.learnerFiles.length > 0
         ? config.learnerFiles
         : defaults.learnerFiles,
+    // Unlike learnerFiles above, an explicit `[]` IS honored here (not treated
+    // as "unset") — it is the documented escape valve to turn the git/gh block
+    // off entirely for a project where it's genuinely wrong. Only a missing/
+    // corrupt config falls back to the default block list.
+    blockedCommands:
+      config && Array.isArray(config.blockedCommands) ? config.blockedCommands : defaults.blockedCommands,
+    gitAliases: config && Array.isArray(config.gitAliases) ? config.gitAliases : defaults.gitAliases,
   };
 }
 
@@ -253,6 +268,97 @@ function shellWriteTargets(command) {
   return targets.filter(Boolean);
 }
 
+// Split a raw command string into independent segments to scan for a git/gh
+// invocation: top-level `&&`/`||`/`;`/`|`/newline chains, plus the inner
+// content of every `$(...)` / backtick span found anywhere (recursively, so a
+// subshell nested inside a subshell is still scanned) — `echo $(git rev-parse
+// HEAD)` must be caught even though the outer command is `echo`. This is the
+// same "hedge, not a full shell parser" stance as `shellWriteTargets` above:
+// naive on purpose, defense-in-depth on top of the mechanical Write/Edit wall.
+function collectSubshells(str, out) {
+  for (const m of str.matchAll(/\$\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)) {
+    out.push(m[1]);
+    collectSubshells(m[1], out);
+  }
+  for (const m of str.matchAll(/`([^`]*)`/g)) {
+    out.push(m[1]);
+    collectSubshells(m[1], out);
+  }
+}
+
+function splitSegments(command) {
+  const subshells = [];
+  collectSubshells(command, subshells);
+
+  const segments = [];
+  for (const str of [command, ...subshells]) {
+    segments.push(...str.split(/&&|\|\||[;|]|\n/));
+  }
+  return segments.map((s) => s.trim()).filter(Boolean);
+}
+
+// Reduce a raw token to the binary name it would exec: strip quotes, drop any
+// leading path (`/usr/bin/git` → `git`), drop a Windows `.exe` suffix.
+function normalizeBinaryToken(token) {
+  const stripped = stripQuotes(token);
+  return path.basename(stripped).replace(/\.exe$/i, "");
+}
+
+// Full block (read + write) on any git/gh invocation the AI's own Bash tool
+// would run — this is a distinct question from `shellWriteTargets` above
+// ("does this write into src/**"): here a *match on the binary name alone* is
+// enough, unconditional, no path/argument parsing needed. `git`/`gh` never
+// pass through, regardless of subcommand or flags (`git -C dir log`, `gh pr
+// view` — reads included, per the learner's explicit choice to type every
+// git/gh command themselves, exactly like their code). Does NOT — and cannot
+// — see `ai-learn`'s own internal `spawnSync("git", …)` calls (scan.js,
+// docs.js, tracks/git.js): this hook only intercepts the AI agent's own
+// PreToolUse-mediated Bash calls, never the CLI's own child processes.
+function detectGitOrGh(command, blockedCommands) {
+  // An explicit empty array IS respected (the block-off escape valve) — only
+  // a genuinely absent argument (undefined/null) falls back to the default.
+  const blocked = new Set(Array.isArray(blockedCommands) ? blockedCommands : DEFAULT_BLOCKED_COMMANDS);
+
+  for (const segment of splitSegments(command)) {
+    const tokens = segment.split(/\s+/).filter(Boolean);
+    let i = 0;
+
+    // Leading `VAR=value` assignments don't change which binary runs.
+    while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) {
+      i += 1;
+    }
+
+    // Unwrap wrapper commands (`sudo git log`, `env FOO=1 git status`).
+    while (i < tokens.length && WRAPPER_COMMANDS.has(normalizeBinaryToken(tokens[i]))) {
+      i += 1;
+    }
+
+    if (i >= tokens.length) {
+      continue;
+    }
+
+    let head = normalizeBinaryToken(tokens[i]);
+
+    // `npx gh pr view` / `pnpm dlx gh …` / `yarn dlx gh …` — the real binary
+    // is the next non-flag token.
+    if (head === "npx" || (DLX_RUNNERS.has(head) && tokens[i + 1] === "dlx")) {
+      let j = head === "npx" ? i + 1 : i + 2;
+      while (j < tokens.length && tokens[j].startsWith("-")) {
+        j += 1;
+      }
+      if (j < tokens.length) {
+        head = normalizeBinaryToken(tokens[j]);
+      }
+    }
+
+    if (blocked.has(head)) {
+      return { binary: head, segment };
+    }
+  }
+
+  return null;
+}
+
 function decide(hook, root) {
   if (!hook || typeof hook !== "object") {
     return { decision: "allow", reason: "no parseable hook input" };
@@ -269,6 +375,20 @@ function decide(hook, root) {
     }
 
     const config = loadGuardConfig(root);
+    const blockedCommands = [...config.blockedCommands, ...config.gitAliases];
+
+    const gitGh = detectGitOrGh(command, blockedCommands);
+
+    if (gitGh) {
+      return {
+        decision: "deny",
+        command: gitGh.segment,
+        reason:
+          `cette commande invoque \`${gitGh.binary}\` (\`${gitGh.segment}\`). ` +
+          "`ai-learn guard` bloque toute commande git/gh, lecture incluse : demande à l'apprenant " +
+          "de lancer la commande lui-même et de te rapporter ce qu'il voit (cf. AGENTS.md §4 « Reality checks »).",
+      };
+    }
 
     for (const target of shellWriteTargets(command)) {
       const rel = toRelative(root, target);
@@ -332,6 +452,7 @@ function recordDenial({ root, hook, result }) {
         at: new Date().toISOString(),
         tool: (hook && hook.tool_name) || null,
         path: target ? normalizePortable(path.isAbsolute(target) ? path.relative(root, target) : target) : null,
+        command: result.command || null,
         reason: result.reason,
       })}\n`,
     );
@@ -433,7 +554,14 @@ function ensureGuardHook(dir) {
 
   if (!fs.existsSync(guardJsonPath)) {
     fs.mkdirSync(path.dirname(guardJsonPath), { recursive: true });
-    fs.writeFileSync(guardJsonPath, `${JSON.stringify({ version: 1, learnerFiles: DEFAULT_LEARNER_FILES }, null, 2)}\n`);
+    fs.writeFileSync(
+      guardJsonPath,
+      `${JSON.stringify(
+        { version: 1, learnerFiles: DEFAULT_LEARNER_FILES, blockedCommands: DEFAULT_BLOCKED_COMMANDS, gitAliases: [] },
+        null,
+        2,
+      )}\n`,
+    );
     created.push(normalizePortable(path.relative(dir, guardJsonPath)));
   }
 
@@ -524,5 +652,8 @@ module.exports = {
   loadGuardConfig,
   matchesLearnerPath,
   shellWriteTargets,
+  detectGitOrGh,
+  splitSegments,
   toRelative,
+  DEFAULT_BLOCKED_COMMANDS,
 };

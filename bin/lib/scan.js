@@ -19,8 +19,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, fail, writeJson, normalizePortable } = require("./util");
-const { progressPath, readProgress } = require("./progress");
-const { latestEvidenceForPhase } = require("./status");
+const { progressPath, readProgress, latestEvidenceForPhase } = require("./progress");
 
 // ---------------------------------------------------------------------------
 // Stack packs — one file per language under bin/lib/stacks/, each exporting
@@ -42,7 +41,7 @@ const { latestEvidenceForPhase } = require("./status");
 // language-agnostic directions.
 // ---------------------------------------------------------------------------
 
-const EMPTY_STACK = { concepts: [], directions: [], recipes: [] };
+const EMPTY_STACK = { concepts: [], directions: [], recipes: [], stresses: [] };
 
 function loadStack(key) {
   try {
@@ -171,9 +170,12 @@ function walkSources(dir, opts = {}) {
 
   for (const file of files) {
     byExt[file.ext] = (byExt[file.ext] || 0) + 1;
-    if (!file.binary && file.size <= maxBytes) {
-      totalLoc += countLines(file.abs, maxBytes);
-    }
+    // Per-file LOC (0 for binaries/oversized files, same exclusion as the
+    // aggregate below) — feeds the `mandatoryAt: { metric: "locInFile" }`
+    // check (suggestDirections) and the `stresses` bank's size-shaped
+    // dimensions, not just the project-wide total.
+    file.loc = !file.binary && file.size <= maxBytes ? countLines(file.abs, maxBytes) : 0;
+    totalLoc += file.loc;
   }
 
   return { files, byExt, totalLoc, capped };
@@ -632,29 +634,27 @@ function resolveDirectionDoc(direction, dir) {
   return direction.doc;
 }
 
-function suggestDirections({ language, usedConcepts, dir = null, frameworks = [] }) {
-  // Directions say why to go deeper; recipes (build-your-own-x ladders) say how.
-  // Both obey the same non-regression contract, so they share one filter.
-  const pack = loadStack(stackKey(language));
-  const bank = [...pack.directions, ...pack.recipes];
-  const usedIds = new Set(usedConcepts.map((concept) => concept.id));
-  const maxUsedTier = usedConcepts.reduce((max, concept) => Math.max(max, concept.tier), 0);
-
-  const eligible = bank.filter((direction) => {
+// Shared non-regression filter: an entry (direction, recipe, or stress)
+// survives only if it's anchored in real code (`requires`), strictly deeper
+// than the deepest concept already used (`tier`), and its target isn't
+// already mastered (`deepens`) — never a step back, never a re-teach. Sorted
+// so the next-tier-up entries come first.
+function filterByNonRegression(bank, { usedIds, maxUsedTier, frameworks }) {
+  const eligible = bank.filter((entry) => {
     // `requiresFramework` is generic infrastructure, not tied to any specific
-    // framework: a stack pack can gate a direction on a detected dependency
-    // (see `frameworks`, populated by package.json deps) when its content
-    // only makes sense for that framework. No pack uses it today.
-    if (direction.requiresFramework && !frameworks.includes(direction.requiresFramework)) {
+    // framework: a stack pack can gate an entry on a detected dependency (see
+    // `frameworks`, populated by package.json deps) when its content only
+    // makes sense for that framework. No pack uses it today.
+    if (entry.requiresFramework && !frameworks.includes(entry.requiresFramework)) {
       return false; // content is specific to a framework this project doesn't use
     }
-    if (!direction.requires.every((id) => usedIds.has(id))) {
+    if (!entry.requires.every((id) => usedIds.has(id))) {
       return false; // not anchored in real code
     }
-    if (usedIds.has(direction.deepens)) {
+    if (usedIds.has(entry.deepens)) {
       return false; // target already mastered — never re-teach
     }
-    if (direction.tier <= maxUsedTier) {
+    if (entry.tier <= maxUsedTier) {
       return false; // strictly deeper, never a step back
     }
     return true;
@@ -666,7 +666,57 @@ function suggestDirections({ language, usedConcepts, dir = null, frameworks = []
     return aNext - bNext || b.tier - a.tier || (a.id < b.id ? -1 : 1);
   });
 
-  return eligible.slice(0, 5).map((direction) => ({ ...direction, doc: resolveDirectionDoc(direction, dir) }));
+  return eligible;
+}
+
+// Whether a direction's `mandatoryAt` predicate is satisfied by the
+// project's real, measured size stats (per-file `loc`, see walkSources) —
+// the clean-code/architecture seuil obligatoire (Partie D). No `mandatoryAt`
+// on an entry (the common case) is simply never mandatory.
+function evaluateMandatoryAt(mandatoryAt, { walked }) {
+  if (!mandatoryAt || !walked) {
+    return false;
+  }
+  if (mandatoryAt.metric === "locInFile") {
+    return walked.files.some((file) => file.loc > mandatoryAt.gt);
+  }
+  return false;
+}
+
+function suggestDirections({ language, usedConcepts, dir = null, frameworks = [], walked = null }) {
+  // Directions say why to go deeper; recipes (build-your-own-x ladders) say how.
+  // Both obey the same non-regression contract, so they share one filter.
+  const pack = loadStack(stackKey(language));
+  const bank = [...pack.directions, ...pack.recipes];
+  const usedIds = new Set(usedConcepts.map((concept) => concept.id));
+  const maxUsedTier = usedConcepts.reduce((max, concept) => Math.max(max, concept.tier), 0);
+
+  const filtered = filterByNonRegression(bank, { usedIds, maxUsedTier, frameworks }).map((direction) => ({
+    ...direction,
+    mandatory: evaluateMandatoryAt(direction.mandatoryAt, { walked }),
+  }));
+
+  // Mandatory entries surface first — Array#sort is stable, so this only
+  // ever promotes them ahead of the existing tier-proximity order, never
+  // reshuffles the rest.
+  filtered.sort((a, b) => (b.mandatory ? 1 : 0) - (a.mandatory ? 1 : 0));
+
+  return filtered.slice(0, 5).map((direction) => ({ ...direction, doc: resolveDirectionDoc(direction, dir) }));
+}
+
+// The "10x" reinforcement bank (see docs/plans — Partie B): a stress is the
+// same shape as a direction (requires/deepens/tier), plus a `stressCheckpoint`
+// that actually applies the load/malformed-input/concurrency and is expected
+// to fail before the fix — the tweet's mechanism, but the casse is executed,
+// never narrated. Same non-regression filter, same "never a step back".
+function suggestStresses({ language, usedConcepts, dir = null, frameworks = [] }) {
+  const pack = loadStack(stackKey(language));
+  const usedIds = new Set(usedConcepts.map((concept) => concept.id));
+  const maxUsedTier = usedConcepts.reduce((max, concept) => Math.max(max, concept.tier), 0);
+
+  return filterByNonRegression(pack.stresses || [], { usedIds, maxUsedTier, frameworks })
+    .slice(0, 5)
+    .map((stress) => ({ ...stress, doc: resolveDirectionDoc(stress, dir) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -682,7 +732,8 @@ function scanProject(dir) {
   const tests = detectTests(walked.files);
   const concepts = detectConcepts(stack.language, walked.files);
   const level = estimateLevel({ usedConcepts: concepts.used, tests, git, size: walked });
-  const suggestions = suggestDirections({ language: stack.language, usedConcepts: concepts.used, dir: abs, frameworks: stack.frameworks });
+  const suggestions = suggestDirections({ language: stack.language, usedConcepts: concepts.used, dir: abs, frameworks: stack.frameworks, walked });
+  const stresses = suggestStresses({ language: stack.language, usedConcepts: concepts.used, dir: abs, frameworks: stack.frameworks });
 
   let learning = null;
 
@@ -731,6 +782,7 @@ function scanProject(dir) {
     concepts,
     level,
     suggestions,
+    stresses,
   };
 }
 
@@ -793,7 +845,8 @@ function printReport(report) {
     log("  (aucune direction de la banque au-delà du niveau actuel — l'IA proposera des directions personnalisées)");
   } else {
     report.suggestions.forEach((direction, index) => {
-      log(`  ${index + 1}. ${direction.title}   — niveau ${direction.tier}`);
+      const marker = direction.mandatory ? "⚠ OBLIGATOIRE —" : `${index + 1}.`;
+      log(`  ${marker} ${direction.title}   — niveau ${direction.tier}`);
       log(`     Pourquoi : ${direction.why}`);
       log(`     Ancre : ${direction.anchor}`);
       log(`     Doc   : ${direction.doc}`);
@@ -810,6 +863,20 @@ function printReport(report) {
 
   log("");
   log("Non-régression : ces directions prolongent ton code existant. Aucune reprise à zéro — rien ne recommence.");
+
+  log("");
+  log("Stress réels proposés (renfort méthode — casse exécutée, pas racontée ; 1-2 max par projet) :");
+
+  if (report.stresses.length === 0) {
+    log("  (aucun stress de la banque au-delà du niveau actuel)");
+  } else {
+    report.stresses.forEach((stress, index) => {
+      log(`  ${index + 1}. ${stress.title}   — niveau ${stress.tier}`);
+      log(`     Pourquoi : ${stress.why}`);
+      log(`     Casse    : ${stress.stressCheckpoint}`);
+      log(`     Doc      : ${stress.doc}`);
+    });
+  }
 
   if (report.learningProject) {
     log("");
@@ -852,6 +919,9 @@ module.exports = {
   detectConcepts,
   estimateLevel,
   suggestDirections,
+  suggestStresses,
+  evaluateMandatoryAt,
   resolveDirectionDoc,
   loadStack,
+  stackKey,
 };

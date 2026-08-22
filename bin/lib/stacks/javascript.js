@@ -124,4 +124,18 @@ const recipes = [
   },
 ];
 
-module.exports = { concepts, directions, recipes };
+const stresses = [
+  {
+    id: "js-load-concurrency",
+    title: "10x connexions concurrentes",
+    why: "Les routes tiennent en usage normal — à 10x connexions simultanées, un handler synchrone ou une opération bloquante sature l'event loop. La casse est observée pour de vrai (timeouts, process qui ne répond plus) avant d'apprendre le fix (limitation de concurrence, file d'attente, ou déport du travail bloquant).",
+    anchor: "src/index.ts (routes détectées)",
+    tier: 3,
+    deepens: "js-concurrency-limit",
+    requires: ["js-routes"],
+    stressCheckpoint: "un script envoie ~200 requêtes concurrentes vers une même route — sans fix, une partie timeout ou le process devient inutilisable",
+    doc: "Node.js event loop docs (nodejs.org/en/docs/guides/event-loop-timers-and-nexttick)",
+  },
+];
+
+module.exports = { concepts, directions, recipes, stresses };

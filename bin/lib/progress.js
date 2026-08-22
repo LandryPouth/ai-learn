@@ -18,6 +18,36 @@ function runsDir(dir) {
   return path.join(dir, ".ai-learn", "runs");
 }
 
+// The latest passing verify evidence for a phase, or null. Lives here (a
+// leaf module with no further requires) rather than in status.js, which
+// several modules (scan.js, check.js, next.js) import from — status.js now
+// also reaches into tracks/domain.js → scan.js, so keeping this function on
+// status.js would create a require cycle back into scan.js/check.js/next.js.
+// status.js still re-exports it for backward compatibility.
+function latestEvidenceForPhase(dir, phaseId) {
+  const runs = runsDir(dir);
+
+  if (!fs.existsSync(runs)) {
+    return null;
+  }
+
+  const files = fs.readdirSync(runs).filter((name) => name.endsWith("-verify.json")).sort().reverse();
+
+  for (const name of files) {
+    try {
+      const ev = JSON.parse(fs.readFileSync(path.join(runs, name), "utf8"));
+
+      if (ev.phaseId === phaseId && ev.ok === true) {
+        return ev;
+      }
+    } catch {
+      // Unreadable evidence is not proof; skip it.
+    }
+  }
+
+  return null;
+}
+
 function readProgress(dir) {
   const filePath = progressPath(dir);
 
@@ -73,6 +103,22 @@ function validateProgress(config) {
     if (phase.status === "done" && typeof phase.checkpoint !== "string") {
       issues.push({ level: "warning", message: `phase ${phase.id} is done but has no checkpoint — it cannot be proven` });
     }
+
+    // Optional: which git/gh tier (1-6, see bin/lib/tracks/git.js) this phase
+    // is deliberately teaching. Lenient — an out-of-range value is a mistake
+    // worth flagging, not a reason to refuse an otherwise valid ledger.
+    if (phase.gitTier !== undefined && phase.gitTier !== null) {
+      if (typeof phase.gitTier !== "number" || phase.gitTier < 1 || phase.gitTier > 6) {
+        issues.push({ level: "warning", message: `phase ${phase.id} has an out-of-range gitTier (${phase.gitTier}) — expected 1-6` });
+      }
+    }
+
+    // Optional: the "casse réelle" checkpoint (see bin/lib/stacks/*.js's
+    // `stresses` bank) — `ai-learn verify` requires both this and the base
+    // `checkpoint` to pass before marking the phase done.
+    if (phase.stressCheckpoint !== undefined && phase.stressCheckpoint !== null && typeof phase.stressCheckpoint !== "string") {
+      issues.push({ level: "warning", message: `phase ${phase.id} has a non-string stressCheckpoint` });
+    }
   }
 
   return issues;
@@ -108,4 +154,5 @@ module.exports = {
   validateProgress,
   findPhase,
   setPhaseStatus,
+  latestEvidenceForPhase,
 };

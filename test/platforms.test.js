@@ -6,9 +6,10 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { parseCommandFile } = require("../bin/lib/platforms/commands");
+const { parseCommandFile, listCommandFiles } = require("../bin/lib/platforms/commands");
 const { renderCommand: renderGemini } = require("../bin/lib/platforms/gemini");
 const { renderCommand: renderOpencode } = require("../bin/lib/platforms/opencode");
+const { renderCommand: renderAntigravity } = require("../bin/lib/platforms/antigravity");
 const { renderConfig: renderCodexGuard, PROFILE_NAME, MARKER } = require("../bin/lib/platforms/codex-guard");
 const { installCommand } = require("../bin/lib/install");
 const { ensureCodexGuard } = require("../bin/lib/guard");
@@ -43,6 +44,50 @@ test("opencode renderCommand produces frontmatter + body", () => {
   assert.strictEqual(filename, "status.md");
   assert.match(content, /^---\ndescription: "/);
   assert.match(content, /ai-learn status/);
+});
+
+test("antigravity renderCommand produces a flat skills/<name>/SKILL.md layout", () => {
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "next.md"));
+  const { filename, content } = renderAntigravity(parsed);
+
+  assert.strictEqual(filename, "ai-learn-next/SKILL.md");
+  assert.match(content, /^---\nname: ai-learn-next\ndescription: "/);
+  assert.match(content, /ai-learn next/);
+});
+
+test("antigravity renderCommand quotes a description containing a bare colon (real bug found on real commands)", () => {
+  // Caught empirically: docs.md's and scan.md's descriptions contain a
+  // mid-sentence ":", which breaks YAML plain-scalar parsing when emitted
+  // unquoted — validated with Python's PyYAML against the actual generated
+  // file before this was fixed.
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "docs.md"));
+  assert.match(parsed.description, /:/); // sanity: the fixture still has the colon
+
+  const { content } = renderAntigravity(parsed);
+  const descriptionLine = content.split("\n").find((line) => line.startsWith("description:"));
+  assert.match(descriptionLine, /^description: ".*"$/);
+});
+
+test("antigravity renderCommand escapes embedded double quotes", () => {
+  const { content } = renderAntigravity({ name: "x", description: 'a "quoted" word', body: "body\n" });
+  assert.match(content, /description: "a \\"quoted\\" word"/);
+});
+
+test("install antigravity writes 7 flat skill directories, all YAML-parseable", () => {
+  const home = tmpDir("ai-learn-antigravity-");
+  capture(() => installCommand({ platform: "antigravity", home }));
+
+  const skillsDir = path.join(home, ".gemini", "antigravity", "skills");
+  const entries = fs.readdirSync(skillsDir, { withFileTypes: true }).filter((e) => e.isDirectory());
+  assert.strictEqual(entries.length, listCommandFiles(COMMANDS_DIR).length);
+  assert.ok(fs.existsSync(path.join(skillsDir, "ai-learn-next", "SKILL.md")));
+
+  for (const entry of entries) {
+    const content = fs.readFileSync(path.join(skillsDir, entry.name, "SKILL.md"), "utf8");
+    const frontmatter = content.split("---")[1];
+    assert.match(frontmatter, /name: ai-learn-/);
+    assert.match(frontmatter, /description: "/);
+  }
 });
 
 test("install gemini writes one namespaced .toml per command", () => {

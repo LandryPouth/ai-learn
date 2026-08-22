@@ -3,34 +3,11 @@
 // `ai-learn status` — the single-project view: phases and their state, with the
 // latest passing evidence date when one exists. Read-only.
 
-const fs = require("fs");
 const path = require("path");
 const { log, fail } = require("./util");
-const { readProgress, runsDir, validateProgress } = require("./progress");
-
-function latestEvidenceForPhase(dir, phaseId) {
-  const runs = runsDir(dir);
-
-  if (!fs.existsSync(runs)) {
-    return null;
-  }
-
-  const files = fs.readdirSync(runs).filter((name) => name.endsWith("-verify.json")).sort().reverse();
-
-  for (const name of files) {
-    try {
-      const ev = JSON.parse(fs.readFileSync(path.join(runs, name), "utf8"));
-
-      if (ev.phaseId === phaseId && ev.ok === true) {
-        return ev;
-      }
-    } catch {
-      // Unreadable evidence is not proof; skip it.
-    }
-  }
-
-  return null;
-}
+const { readProgress, validateProgress, latestEvidenceForPhase } = require("./progress");
+const { readGitTracks, TIER_IDS } = require("./tracks/git");
+const { detectDomainKey, domainSummary } = require("./tracks/domain");
 
 function printStatus(config, { dir }) {
   const done = config.phases.filter((phase) => phase.status === "done").length;
@@ -54,7 +31,59 @@ function printStatus(config, { dir }) {
   }
 }
 
-function statusCommand({ dir }) {
+// Additive, read-only summary of the global git/gh mastery ledger (see
+// bin/lib/tracks/git.js) — cross-project, never reset by a new `progress.json`.
+// Silent when the ledger doesn't exist yet: a learner who hasn't touched a
+// tagged git/gh phase yet sees the normal per-project status, nothing more.
+function printGitTracksSummary({ home } = {}) {
+  const { config, exists } = readGitTracks({ home });
+
+  if (!exists || !config || !config.tiers) {
+    return;
+  }
+
+  const achieved = TIER_IDS.filter((tier) => config.tiers[String(tier)] && config.tiers[String(tier)].achieved);
+  const missing = TIER_IDS.filter((tier) => !achieved.includes(tier));
+
+  log("\nGit/gh — maîtrise cross-projet :");
+  log(`  Tiers atteints : ${achieved.length > 0 ? achieved.join(", ") : "aucun"}`);
+  log(missing.length > 0 ? `  Tiers restants  : ${missing.join(", ")}` : "  Tous les tiers sont atteints.");
+}
+
+// Additive, read-only summary of the domain mastery ledger (see
+// bin/lib/tracks/domain.js) — the falsifiable "3 projects → expert" status.
+// Keyed by the stack *detected from real code*, not `progress.json`'s
+// free-text `technology` label — best-effort, silent on any detection
+// failure or an absent ledger (a learner who hasn't verified a phase in this
+// stack yet sees nothing extra).
+function printDomainSummary({ dir, home } = {}) {
+  let key;
+
+  try {
+    key = detectDomainKey(dir).key;
+  } catch {
+    return;
+  }
+
+  const summary = domainSummary({ technology: key, home });
+
+  if (!summary) {
+    return;
+  }
+
+  const unit = summary.metric === "concepts" ? "concept(s)" : "direction(s)";
+  const pct = summary.total > 0 ? Math.round(summary.coverage * 100) : 0;
+
+  log(`\nMaîtrise de domaine (${summary.technology}) — cross-projet :`);
+  log(`  ${summary.achieved}/${summary.total} ${unit} (${pct}%)`);
+  log(
+    summary.expert
+      ? "  Statut : Expert — couverture complète de la banque."
+      : `  Manque encore : ${summary.missing.length > 0 ? summary.missing.join(", ") : "—"}`,
+  );
+}
+
+function statusCommand({ dir, home }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -71,6 +100,9 @@ function statusCommand({ dir }) {
       log(`  - ${issue.message}`);
     }
   }
+
+  printGitTracksSummary({ home });
+  printDomainSummary({ dir, home });
 }
 
-module.exports = { statusCommand, latestEvidenceForPhase };
+module.exports = { statusCommand, latestEvidenceForPhase, printGitTracksSummary, printDomainSummary };

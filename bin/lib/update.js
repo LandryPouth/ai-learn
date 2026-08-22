@@ -19,6 +19,7 @@ const { log, findLearningProjects } = require("./util");
 const { readProgress } = require("./progress");
 const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
+const { ensureCommitMsgHook } = require("./git-hooks");
 const { PLATFORMS, INSTALLERS } = require("./install");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
@@ -148,6 +149,7 @@ function updateCommand({ root, platform }) {
     const { traps } = regenerateTraps(project);
     const guard = ensureGuardHook(project);
     const dogfood = syncDogfood(project);
+    const commitHook = ensureCommitMsgHook(project);
 
     log(`\n${path.basename(project)}`);
     log(`  protocol: ${protocol.file} ${protocol.action}`);
@@ -157,6 +159,7 @@ function updateCommand({ root, platform }) {
     log(`  guard (claude): ${guard.wired ? "hook already wired" : "hook wired"} — ${guardCreated}${guardRefreshed}`);
     log(`  guard (codex): ${guard.codex.skipped ? "customized .codex/config.toml — not touched" : ".codex/config.toml up to date"}`);
     log(`  dogfood journal: .ai-learn/dogfood.md ${dogfood}`);
+    log(`  commit-msg hook: ${commitHook.skipped ? "no .git yet — skipped" : `.githooks/commit-msg ${commitHook.file}, core.hooksPath ${commitHook.hooksPath}`}`);
   }
 }
 

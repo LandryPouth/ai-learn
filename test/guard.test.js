@@ -12,6 +12,7 @@ const {
   loadGuardConfig,
   matchesLearnerPath,
   shellWriteTargets,
+  detectGitOrGh,
   toRelative,
   ensureGuardHook,
 } = require("../bin/lib/guard");
@@ -108,6 +109,68 @@ test("Bash in-place editors and one-liner writers are denied; their read-only tw
   ]) {
     assert.strictEqual(decide(hookFor(dir, "Bash", { command: cmd }), dir).decision, "allow", cmd);
   }
+});
+
+test("Bash git/gh invocations are denied — reads included — with common wrappers/chains/subshells", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  for (const cmd of [
+    "git status",
+    "git -C /tmp log",
+    "gh pr view",
+    'git add . && git commit -m "x"',
+    "ls; git log",
+    "echo $(git rev-parse HEAD)",
+    "echo `git rev-parse HEAD`",
+    "/usr/bin/git status",
+    "npx gh pr view 1",
+    "sudo git log",
+    "FOO=bar git status",
+    "git log | head",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command: cmd }), dir).decision, "deny", cmd);
+  }
+});
+
+test("Bash git/gh false positives are avoided (name match is exact, not substring)", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  for (const cmd of ["cat .gitignore", "npm run build", "legit-deploy.sh status", "digitalocean-cli deploy"]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command: cmd }), dir).decision, "allow", cmd);
+  }
+});
+
+test("blockedCommands: [] in guard.json disables the git/gh block entirely", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["src/**"], blockedCommands: [] }));
+
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "git status" }), dir).decision, "allow");
+});
+
+test("gitAliases opts an explicit alias into the block; unlisted aliases stay allowed", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "g status" }), dir).decision, "allow");
+
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["src/**"], gitAliases: ["g"] }));
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "g status" }), dir).decision, "deny");
+});
+
+test("detectGitOrGh returns the matched binary and offending segment", () => {
+  assert.deepStrictEqual(detectGitOrGh("git status", ["git", "gh"]), { binary: "git", segment: "git status" });
+  assert.strictEqual(detectGitOrGh("npm test", ["git", "gh"]), null);
+});
+
+test("guardCommand logs the offending command (not a path) for a git/gh denial", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  const denied = runGuard({ dir, toolName: "Bash", toolInput: { command: "git commit -m x" } });
+  assert.strictEqual(denied.status, 2);
+
+  const logPath = path.join(dir, ".ai-learn", "guard.log");
+  const line = JSON.parse(fs.readFileSync(logPath, "utf8").trim().split("\n").pop());
+  assert.strictEqual(line.path, null);
+  assert.strictEqual(line.command, "git commit -m x");
+  assert.match(line.reason, /git\/gh/);
 });
 
 test("loadGuardConfig defaults to src/** and reads a custom learnerFiles list", () => {

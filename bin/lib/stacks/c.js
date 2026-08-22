@@ -154,4 +154,18 @@ const recipes = [
   },
 ];
 
-module.exports = { concepts, directions, recipes };
+const stresses = [
+  {
+    id: "c-malloc-stress",
+    title: "10x le volume d'allocations",
+    why: "malloc/free fonctionnent sur un cas simple — à 10x le volume normal d'allocations (ou un chemin d'erreur qui saute un free), les fuites et la fragmentation deviennent visibles. On observe la casse réelle (valgrind qui hurle) avant d'apprendre le pattern de gestion systématique.",
+    anchor: "src/*.c (malloc détecté)",
+    tier: 3,
+    deepens: "c-memory-advanced",
+    requires: ["c-memory"],
+    stressCheckpoint: "valgrind --leak-check=full sur un scénario qui alloue 10x le volume normal révèle des fuites réelles",
+    doc: "valgrind --leak-check=full; CS:APP chap. 9",
+  },
+];
+
+module.exports = { concepts, directions, recipes, stresses };

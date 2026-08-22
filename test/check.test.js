@@ -4,11 +4,25 @@ const { test, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 const { checkProject, checkCommand, countDogfoodEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
+const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
 const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
 const { findLearningProjects } = require("../bin/lib/util");
+
+function initRepo(dir) {
+  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
+  spawnSync("git", ["-C", dir, "config", "user.name", "t"]);
+  spawnSync("git", ["-C", dir, "config", "user.email", "t@t"]);
+}
+
+function commitNoVerify(dir, message) {
+  fs.writeFileSync(path.join(dir, `f-${Date.now()}-${Math.random()}.txt`), "x");
+  spawnSync("git", ["-C", dir, "add", "."]);
+  spawnSync("git", ["-C", dir, "commit", "--no-verify", "-m", message]);
+}
 
 beforeEach(() => {
   process.exitCode = 0;
@@ -28,6 +42,21 @@ test("a phase marked done without evidence is an error", () => {
   const entry = checkProject(dir);
   assert.ok(entry.issues.errors.some((e) => /marked done but has no passing evidence/.test(e.message)));
   assert.strictEqual(entry.issues.warnings.length, 0);
+});
+
+test("an out-of-range gitTier is a warning, not an error; a valid one is silent", () => {
+  const progress = sampleProgress();
+  progress.phases[0].gitTier = 9;
+  const dir = tmpProject(progress);
+
+  const entry = checkProject(dir);
+  assert.strictEqual(entry.issues.errors.length, 0);
+  assert.ok(entry.issues.warnings.some((w) => /out-of-range gitTier/.test(w.message)));
+
+  progress.phases[0].gitTier = 3;
+  const dirValid = tmpProject(progress);
+  const entryValid = checkProject(dirValid);
+  assert.ok(!entryValid.issues.warnings.some((w) => /gitTier/.test(w.message)));
 });
 
 test("a done phase with a green evidence passes", () => {
@@ -64,6 +93,79 @@ test("a guard policy without a wired codex profile is a warning, not an error", 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
   assert.ok(entry.issues.warnings.some((w) => /ai-learn permissions profile/.test(w.message)));
+});
+
+test("a git repo without the commit-msg hook wired is a warning", () => {
+  const dir = tmpProject(sampleProgress());
+  initRepo(dir);
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => /commit-msg hook not wired/.test(w.message)));
+});
+
+test("a project with no .git yet is silent on the commit-msg hook", () => {
+  const dir = tmpProject(sampleProgress());
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.warnings.some((w) => /commit-msg hook/.test(w.message)));
+});
+
+test("a wired hook with clean Conventional Commits history is silent", () => {
+  const dir = tmpProject(sampleProgress());
+  initRepo(dir);
+  ensureCommitMsgHook(dir);
+  fs.writeFileSync(path.join(dir, "a.txt"), "x");
+  spawnSync("git", ["-C", dir, "add", "."]);
+  spawnSync("git", ["-C", dir, "commit", "-m", "feat: add a"]);
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.warnings.some((w) => /commit-msg hook not wired/.test(w.message)));
+  assert.ok(!entry.issues.warnings.some((w) => /Conventional Commits format/.test(w.message)));
+});
+
+test("non-conventional commit subjects (a --no-verify bypass) are a structural warning", () => {
+  const dir = tmpProject(sampleProgress());
+  initRepo(dir);
+  ensureCommitMsgHook(dir);
+  commitNoVerify(dir, "bad message one");
+  commitNoVerify(dir, "bad message two");
+  fs.writeFileSync(path.join(dir, "good.txt"), "x");
+  spawnSync("git", ["-C", dir, "add", "."]);
+  spawnSync("git", ["-C", dir, "commit", "-m", "feat: a good one"]);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.warnings.some((w) => /2\/3 of the last commit subjects/.test(w.message)));
+});
+
+test("gitTier 6 done phase without a real PR citation in its artifact is an error", () => {
+  const progress = sampleProgress();
+  progress.phases[0].gitTier = 6;
+  progress.phases[0].status = "done";
+  progress.phases[0].artifacts = ["docs/plans/tier6-review.md"];
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/plans/tier6-review.md", "Just some notes, no PR link.");
+  writeFile(dir, ".ai-learn/runs/x-phase-0-verify.json", JSON.stringify({ phaseId: 0, ok: true }));
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /gitTier 6 phase marked done but no artifact cites a real PR URL/.test(e.message)));
+});
+
+test("gitTier 6 done phase with a real, well-substantiated PR citation passes cleanly", () => {
+  const progress = sampleProgress();
+  progress.phases[0].gitTier = 6;
+  progress.phases[0].status = "done";
+  progress.phases[0].artifacts = ["docs/plans/tier6-review.md"];
+  const dir = tmpProject(progress);
+  const filler = "x".repeat(250);
+  writeFile(
+    dir,
+    "docs/plans/tier6-review.md",
+    `Ma prédiction avant lecture : ${filler}\n\nSource : https://github.com/nodejs/node/pull/12345\n`,
+  );
+  writeFile(dir, ".ai-learn/runs/x-phase-0-verify.json", JSON.stringify({ phaseId: 0, ok: true }));
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => /gitTier 6/.test(e.message)));
 });
 
 test("the friction journal is counted but never gates check", () => {

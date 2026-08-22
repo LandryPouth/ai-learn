@@ -26,6 +26,12 @@ d'où vient l'idée.
 2. L'IA choisit les filtres d'après la conversation (stack, niveau), ou pose
    **une** question simple et neutre si besoin : *« tu préfères quelque chose de
    réseau, un outil, ou un jeu ? »*
+   - Si un ledger de domaine existe déjà (`~/.ai-learn/domains/<stack>.json`)
+     pour la stack pressentie, lis-le d'abord : calcule `--level` pour cibler
+     les tiers **encore manquants** plutôt que de laisser le niveau au
+     hasard — c'est ce qui rend « quelques projets suffisent pour devenir
+     expert » réel plutôt qu'un vœu. Aucun changement de commande : le filtre
+     `--level` existe déjà, seule la valeur choisie est informée par le ledger.
 3. L'IA lance `ai-learn propose [--stack …] [--level …]` et lit
    `.ai-learn/proposals.json`.
 4. L'IA choisit un projet (ou propose 2-3 en langage naturel), puis **monte

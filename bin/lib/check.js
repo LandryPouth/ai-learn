@@ -8,12 +8,18 @@
 
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 const { log, findLearningProjects } = require("./util");
-const { readProgress, validateProgress, runsDir, progressPath } = require("./progress");
-const { latestEvidenceForPhase } = require("./status");
+const { readProgress, validateProgress, runsDir, progressPath, latestEvidenceForPhase } = require("./progress");
 const { docSourceList } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const { appendAutoEntry } = require("./dogfood");
+const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
+
+// A real merged/open PR URL — the only acceptable evidence shape for a tier-6
+// ("read a stranger's diff") phase, same "presence + minimum substance, not
+// truth" contract as `docCitesOrigin` below.
+const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -140,6 +146,42 @@ function checkProject(dir) {
     });
   }
 
+  // The commit-msg hook (mechanical, Conventional Commits — see
+  // bin/lib/git-hooks.js) is only real once `.githooks/commit-msg` exists and
+  // `core.hooksPath` points at it. `commitMsgHookWired` returns null when
+  // there's no `.git` yet — nothing to warn about, `ai-learn update` will
+  // wire it automatically once the learner runs `git init`.
+  const hookWired = commitMsgHookWired(dir);
+
+  if (hookWired === false) {
+    issues.warnings.push({
+      file: ".githooks/commit-msg",
+      message: "commit-msg hook not wired (run `ai-learn update`) — commit message format is not enforced",
+    });
+  }
+
+  // Structural, not self-reported: a `--no-verify` bypass (or a hook that was
+  // never wired at all) leaves a trace in the commit subjects themselves —
+  // read directly via git, not something the AI has to remember to log. See
+  // templates/commit-msg's own PATTERN, mirrored here as CONVENTIONAL_COMMITS_RE.
+  if (fs.existsSync(path.join(dir, ".git"))) {
+    const log30 = spawnSync("git", ["-C", dir, "log", "--format=%s", "-n", "30"], { encoding: "utf8" });
+
+    if (log30.status === 0) {
+      const subjects = log30.stdout.split("\n").filter(Boolean);
+      const offenders = subjects.filter((subject) => !CONVENTIONAL_COMMITS_RE.test(subject));
+
+      if (offenders.length > 0) {
+        issues.warnings.push({
+          file: ".git (log)",
+          message:
+            `${offenders.length}/${subjects.length} of the last commit subjects don't match the Conventional ` +
+            "Commits format — either the hook was bypassed (`--no-verify`) or it isn't wired yet",
+        });
+      }
+    }
+  }
+
   // The guard blocks the AI from writing `src/**`, but the reveal it deposits
   // in docs/solutions/ is meant to be "non-collable" — written with holes
   // ([...], an incomplete line, a comment to finish) so a blind Cmd+A cannot
@@ -232,6 +274,15 @@ function checkProject(dir) {
         if (!fs.existsSync(path.join(dir, artifact))) {
           issues.errors.push({ file: relative(artifact), message: `phase ${phase.id} requires artifact ${relative(artifact)}` });
         }
+      }
+
+      // Tier 6 ("read a stranger's diff") has no after-the-fact git/gh trace
+      // to detect — reading a diff leaves nothing behind. Its only proof is
+      // the phase's own artifact: it must cite a real PR URL, with the same
+      // "presence + minimum substance, not truth" contract already applied
+      // to a generated doc source's origin citation (see docCitesOrigin).
+      if (phase.gitTier === 6) {
+        checkTier6Artifact(dir, phase, issues, relative);
       }
     } else {
       const ev = latestEvidenceForPhase(dir, phase.id);
@@ -381,6 +432,61 @@ function docCitesOrigin(dirPath, url) {
 
 function normalizeOrigin(url) {
   return String(url).replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
+// Same presence-check shape as `docCitesOrigin`, applied to a phase artifact
+// instead of a doc-source directory: a real PR URL, plus enough real content
+// around it that the citation isn't stapled onto an empty or hallucinated file.
+function citesRealPRUrl(content) {
+  const match = content.match(PR_URL_RE);
+
+  if (!match) {
+    return false;
+  }
+
+  const withoutCitationLines = content
+    .split("\n")
+    .filter((line) => !line.includes(match[0]))
+    .join("\n")
+    .trim();
+
+  return withoutCitationLines.length >= MIN_CONTENT_BEYOND_CITATION;
+}
+
+function checkTier6Artifact(dir, phase, issues, relative) {
+  const artifacts = phase.artifacts || [];
+  let found = false;
+
+  for (const artifact of artifacts) {
+    const full = path.join(dir, artifact);
+
+    if (!fs.existsSync(full)) {
+      continue; // already flagged by the artifact-existence check above
+    }
+
+    let content;
+
+    try {
+      content = fs.readFileSync(full, "utf8");
+    } catch {
+      continue;
+    }
+
+    if (citesRealPRUrl(content)) {
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    issues.errors.push({
+      file: artifacts.length > 0 ? relative(artifacts[0]) : "progress.json",
+      message:
+        `phase ${phase.id} ("${phase.name}") is a gitTier 6 phase marked done but no artifact cites a real ` +
+        "PR URL (https://github.com/<org>/<repo>/pull/<n>) with enough real content around it — " +
+        "reading a stranger's diff leaves no other trace to verify against",
+    });
+  }
 }
 
 // Evidence journal format: one `### Phase <N> — prédiction <k>/<total>` heading per

@@ -36,6 +36,12 @@ const PLATFORMS = {
     guard: "non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; " +
       "seuls AGENTS.md et les trous non-collables de docs/solutions/ protègent src/**",
   },
+  antigravity: {
+    label: "Antigravity",
+    guard: "non câblé — un système de hooks (hooks.json) existe côté doc publique mais " +
+      "n'a pas pu être confirmé sur une install réelle ; seuls AGENTS.md et les trous " +
+      "non-collables de docs/solutions/ protègent src/**",
+  },
 };
 
 // Windows blocks unprivileged symlink creation unless Developer Mode is on
@@ -81,9 +87,11 @@ function installClaude({ home }) {
   return { created };
 }
 
-// Shared shape for the three "parse commands/*.md, render per-platform,
-// write to a fixed directory" installers (codex, gemini, opencode) — only the
-// target directory and the adapter module differ.
+// Shared shape for the "parse commands/*.md, render per-platform, write to a
+// fixed directory" installers (codex, gemini, opencode, antigravity) — only
+// the target directory and the adapter module differ. `filename` may itself
+// contain a subdirectory (antigravity's flat skills/<name>/SKILL.md layout),
+// so the destination's parent is always mkdirp'd, not just targetDir.
 function installRendered({ targetDir, adapterModule }) {
   const { renderCommand } = require(adapterModule);
   mkdirp(targetDir);
@@ -93,8 +101,10 @@ function installRendered({ targetDir, adapterModule }) {
   for (const file of listCommandFiles(COMMANDS_DIR)) {
     const parsed = parseCommandFile(file);
     const { filename, content } = renderCommand(parsed);
-    fs.writeFileSync(path.join(targetDir, filename), content);
-    created.push(path.join(targetDir, filename));
+    const dest = path.join(targetDir, filename);
+    mkdirp(path.dirname(dest));
+    fs.writeFileSync(dest, content);
+    created.push(dest);
   }
 
   return { created };
@@ -120,7 +130,23 @@ function installOpencode({ home }) {
   });
 }
 
-const INSTALLERS = { claude: installClaude, codex: installCodex, gemini: installGemini, opencode: installOpencode };
+function installAntigravity({ home }) {
+  // Confirmed on-disk (not documented): Antigravity reads flat skill
+  // directories from ~/.gemini/antigravity/skills/, sharing Gemini CLI's
+  // skill mechanism — see platforms/antigravity.js for the evidence.
+  return installRendered({
+    targetDir: path.join(home, ".gemini", "antigravity", "skills"),
+    adapterModule: "./platforms/antigravity",
+  });
+}
+
+const INSTALLERS = {
+  claude: installClaude,
+  codex: installCodex,
+  gemini: installGemini,
+  opencode: installOpencode,
+  antigravity: installAntigravity,
+};
 
 function installCommand({ platform, home = os.homedir() }) {
   if (!platform) {

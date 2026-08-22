@@ -24,7 +24,8 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 | `ai-learn docs` | Embarque les sources de doc (clone, URL, ou source fichier) — la vérité de référence des phases |
 | `ai-learn traps` | Extrait la **banque de pièges** (zones de friction) des docs embarquées, citée `fichier:ligne` — jamais inventée |
 | `ai-learn update` | Propage le protocole + la banque de pièges + le guard à tous les projets sous `--root` |
-| `ai-learn guard` | Hook PreToolUse qui bloque l'IA dans `src/**` (les fichiers que l'apprenant doit taper lui-même) ; `update`/`init` le câblent automatiquement |
+| `ai-learn guard` | Hook PreToolUse qui bloque l'IA dans `src/**` **et sur toute commande git/gh** (lecture incluse) — l'apprenant tape tout ça lui-même ; `update`/`init` le câblent automatiquement |
+| `ai-learn` (module git/gh) | Ledger cross-projet `~/.ai-learn/tracks/git.json` (jamais remis à zéro), hook `commit-msg` mécanique (Conventional Commits), tiers 1-6 de la banque git/gh — voir `AGENTS.md` §3bis |
 
 ## Install / usage
 
@@ -62,16 +63,17 @@ ai-learn install            # liste les plateformes supportées + statut du gard
 ai-learn install claude     # ai-learn sur PATH + commandes /… (~/.claude/commands/)
 ai-learn install codex      # commandes en prompts Codex (~/.codex/prompts/)
 ai-learn install gemini     # commandes en /ai-learn:<nom> (~/.gemini/commands/ai-learn/)
-ai-learn install opencode   # commandes en /ai-learn/<nom> (~/.config/opencode/command/ai-learn/)
+ai-learn install opencode    # commandes en /ai-learn/<nom> (~/.config/opencode/command/ai-learn/)
+ai-learn install antigravity # skills en ai-learn-<nom>/SKILL.md (~/.gemini/antigravity/skills/)
 ```
 
-| Plateforme | Commandes `/…` | Garde-fou `src/**` |
-|---|---|---|
-| Claude Code | ✓ | **mécanique** — hook `PreToolUse`, l'écriture n'a jamais lieu |
-| Codex CLI | ✓ (format vérifié contre la doc embarquée du paquet) | **mécanique** — profil de permissions bac à sable OS (`.codex/config.toml`, câblé par `init`/`update`) ; vérifié avec `codex sandbox` (bloque écriture shell **et** Python dans `src/**`, sans toucher au reste du workspace), **pas encore vérifié en session interactive réelle** (pas d'abonnement Codex) ; nécessite que le projet soit « trusted » côté Codex (approbation ponctuelle, comportement normal de leur modèle de sécurité) |
-| Gemini CLI | ✓ (syntaxe TOML validée avec un parseur strict ; **découverte réelle par `gemini` non vérifiée**, pas de moyen non-interactif trouvé pour le confirmer sans appel modèle) | non câblé — un hook `BeforeTool` existe (confirmé dans la doc embarquée du paquet installé), mais le nom exact du champ `tool_input` pour un chemin de fichier n'a pas pu être confirmé sans casser un vrai hook silencieusement inopérant ; `AGENTS.md` + trous non-collables seuls protègent `src/**` |
-| OpenCode | ✓ (**découverte confirmée en conditions réelles** : `opencode debug config` après `ai-learn install opencode` résout les 7 commandes, test automatisé dans `test/integration-opencode.test.js`, auto-skip si `opencode` absent) | non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; `AGENTS.md` + trous non-collables seuls |
-| Antigravity | usage manuel via `ai-learn <commande>` (`AGENTS.md` déjà lu nativement) | pas encore câblé — a un système de hooks (`hooks.json`, `before-tool-execution`) plus riche que les autres sur le papier, jamais testé faute d'installation locale |
+| Plateforme | Commandes `/…` | Garde-fou `src/**` | Garde-fou git/gh |
+|---|---|---|---|
+| Claude Code | ✓ | **mécanique** — hook `PreToolUse`, l'écriture n'a jamais lieu | **mécanique** — même hook `PreToolUse` : toute commande `git`/`gh` de l'IA est refusée, lecture incluse |
+| Codex CLI | ✓ (format vérifié contre la doc embarquée du paquet) | **mécanique** — profil de permissions bac à sable OS (`.codex/config.toml`, câblé par `init`/`update`) ; vérifié avec `codex sandbox` (bloque écriture shell **et** Python dans `src/**`, sans toucher au reste du workspace), **pas encore vérifié en session interactive réelle** (pas d'abonnement Codex) ; nécessite que le projet soit « trusted » côté Codex (approbation ponctuelle, comportement normal de leur modèle de sécurité) | **non traité** — le sandbox Codex bloque par *chemin de fichier*, pas par intention/binaire exécuté ; un blocage exec `git`/`gh` au niveau sandbox casserait aussi les checkpoints internes d'`ai-learn` qui appellent `git`/`gh` légitimement (ex. les checkpoints des tiers 3-5 du module git/gh). Limite ouverte, documentée ici plutôt que silencieuse |
+| Gemini CLI | ✓ (syntaxe TOML validée avec un parseur strict ; **découverte réelle par `gemini` non vérifiée**, pas de moyen non-interactif trouvé pour le confirmer sans appel modèle) | non câblé — un hook `BeforeTool` existe (confirmé dans la doc embarquée du paquet installé), mais le nom exact du champ `tool_input` pour un chemin de fichier n'a pas pu être confirmé sans casser un vrai hook silencieusement inopérant ; `AGENTS.md` + trous non-collables seuls protègent `src/**` | non câblé — même limite que le garde-fou `src/**` ; `AGENTS.md` §3bis seul |
+| OpenCode | ✓ (**découverte confirmée en conditions réelles** : `opencode debug config` après `ai-learn install opencode` résout les 7 commandes, test automatisé dans `test/integration-opencode.test.js`, auto-skip si `opencode` absent) | non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; `AGENTS.md` + trous non-collables seuls | non câblé — même limite ; `AGENTS.md` §3bis seul |
+| Antigravity | ✓ (**structure confirmée sur disque** — `~/.gemini/antigravity/skills/<nom>/SKILL.md`, identique aux skills Gemini CLI, retrouvée réellement installée sur une machine de dev ; le YAML est validé avec un parseur strict, un vrai bug de description non-quotée — un `:` mi-phrase cassait le frontmatter — a été trouvé et corrigé ainsi ; découverte effective par Antigravity non vérifiée faute de session live) | non câblé — un système `hooks.json` plus riche existe côté doc publique mais n'a pas pu être confirmé sur l'install réelle disponible ; `AGENTS.md` + trous non-collables seuls | non câblé — même limite ; `AGENTS.md` §3bis seul |
 
 Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la création de lien symbolique est refusée par l'OS (`EPERM`) — `ai-learn` bascule alors automatiquement sur une copie de fichier, testé en conditions réelles (PowerShell + Node natif Windows).
 
@@ -82,6 +84,7 @@ Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la créa
 - **Le check est la ceinture de sécurité.** C'est lui qui rend visible un AGENTS.md qu'on « oublie » : une phase `done` sans évidence, un artefact manquant, un journal de prédictions vide → erreur ou warning, exit 1.
 - **Ce qu'il ne peut pas garantir : la cognition.** Le tool prouve les preuves visibles (tests, artefacts, journal) ; l'honnêteté de la prédiction reste humaine. Même contrat que Coding Flow : il prouve que les tests tournent, pas que l'agent a raisonné.
 - **L'apprenant tape le code — la frappe est protégée, pas le sens.** `ai-learn guard` bloque mécaniquement l'IA dans `src/**` : pour Write/Edit/MultiEdit/NotebookEdit c'est un mur (l'écriture n'a jamais lieu) ; pour Bash c'est une haie, pas un sandbox — elle reconnaît les façons courantes d'écrire (redirection, `tee`, `cp/mv/ln/install`, `sed -i`/`perl -i`, one-liners `python -c`/`node -e`) et fail-open sur le reste. La référence de révélation (`docs/solutions/`) est écrite **non-collable** (des trous à compléter) : un Cmd+A aveugle produit un code qui échoue au checkpoint. Le checkpoint teste le code réellement tapé ; le débogage est mené par l'apprenant. L'échappatoire reste visible : un journal `Corrigé par : IA` est signalé par `check`. Limite assumée : la frappe est garantie, pas l'attention — recopier en réfléchissant reste possible, c'est la même frontière que la cognition.
+- **L'apprenant tape aussi git et `gh` — même mur, étendu.** `ai-learn guard` refuse à l'IA toute commande `git`/`gh` via Bash, lecture incluse (pas seulement les écritures, contrairement à `src/**`) : quand l'IA a besoin d'un état git, elle le demande à l'apprenant. La maîtrise se suit dans un ledger **global, cross-projet** (`~/.ai-learn/tracks/git.json`) — jamais remise à zéro par un nouveau projet — par tiers ancrés sur l'usage réel (commit/diff/branches/conflit réel/rebase interactif/workflow PR complet via `gh`/lecture de diffs d'autrui), avec un hook `commit-msg` mécanique (Conventional Commits) plutôt qu'une convention sur parole.
 
 ## Développement
 
