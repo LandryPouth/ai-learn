@@ -62,7 +62,8 @@ ai-learn install            # liste les plateformes supportées + statut du gard
 ai-learn install claude     # ai-learn sur PATH + commandes /… (~/.claude/commands/)
 ai-learn install codex      # commandes en prompts Codex (~/.codex/prompts/)
 ai-learn install gemini     # commandes en /ai-learn:<nom> (~/.gemini/commands/ai-learn/)
-ai-learn install opencode   # commandes en /ai-learn/<nom> (~/.config/opencode/command/ai-learn/)
+ai-learn install opencode    # commandes en /ai-learn/<nom> (~/.config/opencode/command/ai-learn/)
+ai-learn install antigravity # skills en ai-learn-<nom>/SKILL.md (~/.gemini/antigravity/skills/)
 ```
 
 | Plateforme | Commandes `/…` | Garde-fou `src/**` |
@@ -71,7 +72,7 @@ ai-learn install opencode   # commandes en /ai-learn/<nom> (~/.config/opencode/c
 | Codex CLI | ✓ (format vérifié contre la doc embarquée du paquet) | **mécanique** — profil de permissions bac à sable OS (`.codex/config.toml`, câblé par `init`/`update`) ; vérifié avec `codex sandbox` (bloque écriture shell **et** Python dans `src/**`, sans toucher au reste du workspace), **pas encore vérifié en session interactive réelle** (pas d'abonnement Codex) ; nécessite que le projet soit « trusted » côté Codex (approbation ponctuelle, comportement normal de leur modèle de sécurité) |
 | Gemini CLI | ✓ (syntaxe TOML validée avec un parseur strict ; **découverte réelle par `gemini` non vérifiée**, pas de moyen non-interactif trouvé pour le confirmer sans appel modèle) | non câblé — un hook `BeforeTool` existe (confirmé dans la doc embarquée du paquet installé), mais le nom exact du champ `tool_input` pour un chemin de fichier n'a pas pu être confirmé sans casser un vrai hook silencieusement inopérant ; `AGENTS.md` + trous non-collables seuls protègent `src/**` |
 | OpenCode | ✓ (**découverte confirmée en conditions réelles** : `opencode debug config` après `ai-learn install opencode` résout les 7 commandes, test automatisé dans `test/integration-opencode.test.js`, auto-skip si `opencode` absent) | non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; `AGENTS.md` + trous non-collables seuls |
-| Antigravity | usage manuel via `ai-learn <commande>` (`AGENTS.md` déjà lu nativement) | pas encore câblé — a un système de hooks (`hooks.json`, `before-tool-execution`) plus riche que les autres sur le papier, jamais testé faute d'installation locale |
+| Antigravity | ✓ (**structure confirmée sur disque** — `~/.gemini/antigravity/skills/<nom>/SKILL.md`, identique aux skills Gemini CLI, retrouvée réellement installée sur une machine de dev ; le YAML est validé avec un parseur strict, un vrai bug de description non-quotée — un `:` mi-phrase cassait le frontmatter — a été trouvé et corrigé ainsi ; découverte effective par Antigravity non vérifiée faute de session live) | non câblé — un système `hooks.json` plus riche existe côté doc publique mais n'a pas pu être confirmé sur l'install réelle disponible ; `AGENTS.md` + trous non-collables seuls |
 
 Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la création de lien symbolique est refusée par l'OS (`EPERM`) — `ai-learn` bascule alors automatiquement sur une copie de fichier, testé en conditions réelles (PowerShell + Node natif Windows).
 

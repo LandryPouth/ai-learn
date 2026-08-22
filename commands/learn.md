@@ -70,7 +70,7 @@ ai-learn init \
   --project "<nom-du-projet>" \
   --doc-source "<chemin-ou-url-de-la-doc>" \
   --phases '<JSON des phases>' \
-  --platform <claude|codex|gemini|opencode>
+  --platform <claude|codex|gemini|opencode|antigravity>
 ```
 
 `--platform` : indique **la plateforme sur laquelle tu tournes toi-même** (tu la

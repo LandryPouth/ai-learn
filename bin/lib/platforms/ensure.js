@@ -32,6 +32,7 @@ const MARKER_FILE = {
   codex: (home) => path.join(home, ".codex", "prompts", "ai-learn-next.md"),
   gemini: (home) => path.join(home, ".gemini", "commands", "ai-learn", "next.toml"),
   opencode: (home) => path.join(home, ".config", "opencode", "command", "ai-learn", "next.md"),
+  antigravity: (home) => path.join(home, ".gemini", "antigravity", "skills", "ai-learn-next", "SKILL.md"),
 };
 
 // Never throws — a broken self-heal must not break the command that
