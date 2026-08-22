@@ -6,8 +6,7 @@
 
 const fs = require("fs");
 const { log, fail } = require("./util");
-const { readProgress } = require("./progress");
-const { latestEvidenceForPhase } = require("./status");
+const { readProgress, latestEvidenceForPhase } = require("./progress");
 
 function nextCommand({ dir }) {
   const { config, exists } = readProgress(dir);

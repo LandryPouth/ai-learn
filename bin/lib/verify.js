@@ -10,6 +10,8 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, fail } = require("./util");
 const { readProgress, runsDir, findPhase, setPhaseStatus } = require("./progress");
+const { syncGitTrack } = require("./tracks/git");
+const { syncDomainLedger } = require("./tracks/domain");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
@@ -39,6 +41,19 @@ function runCommand(command, cwd, { timeoutMs = 120000 } = {}) {
   };
 }
 
+function logResult(command, result) {
+  if (result.ok) {
+    log(`[ok] ${command} (${result.durationMs}ms)`);
+    return;
+  }
+
+  log(`[exit ${result.exitCode}${result.timedOut ? ", timeout" : ""}] ${command} (${result.durationMs}ms)`);
+
+  for (const line of (result.stderrTail || result.stdoutTail || "").split(/\r?\n/).slice(-3).filter(Boolean)) {
+    log(`    ${line}`);
+  }
+}
+
 function writeEvidence(dir, evidence) {
   const runs = runsDir(dir);
   fs.mkdirSync(runs, { recursive: true });
@@ -56,7 +71,7 @@ function writeEvidence(dir, evidence) {
   return outputPath;
 }
 
-function verifyCommand({ dir, phaseId, noMark = false }) {
+function verifyCommand({ dir, phaseId, noMark = false, home }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -77,6 +92,27 @@ function verifyCommand({ dir, phaseId, noMark = false }) {
   log(`Command: ${phase.checkpoint}\n`);
 
   const result = runCommand(phase.checkpoint, dir);
+  const results = [result];
+  logResult(phase.checkpoint, result);
+
+  // A stress-tagged phase (see docs/plans — Partie B, bin/lib/stacks/*.js's
+  // `stresses` bank) requires BOTH the base checkpoint and the stress
+  // checkpoint to pass before the phase counts as done — the "casse réelle"
+  // fix must actually hold, not just the happy path. The moment the stress
+  // legitimately fails (before the learner writes the fix) is part of the
+  // interactive session, not something `verify` replays; `verify` only ever
+  // sees — and requires — the final, both-green state.
+  let stressResult = null;
+
+  if (phase.stressCheckpoint) {
+    log(`\nStress: ${phase.stressCheckpoint}\n`);
+    stressResult = runCommand(phase.stressCheckpoint, dir);
+    results.push(stressResult);
+    logResult(phase.stressCheckpoint, stressResult);
+  }
+
+  const ok = result.ok && (!stressResult || stressResult.ok);
+
   const evidence = {
     generatedAt: new Date().toISOString(),
     project: config.project,
@@ -84,32 +120,41 @@ function verifyCommand({ dir, phaseId, noMark = false }) {
     phaseId: phase.id,
     phaseName: phase.name,
     checkpoint: phase.checkpoint,
+    stressCheckpoint: phase.stressCheckpoint || null,
     cwd: dir,
     environment: captureEnvironment(),
-    ok: result.ok,
-    results: [result],
+    ok,
+    results,
   };
 
   const outputPath = writeEvidence(dir, evidence);
 
-  if (result.ok) {
-    log(`[ok] ${phase.checkpoint} (${result.durationMs}ms)`);
-
+  if (ok) {
     if (!noMark) {
       setPhaseStatus(dir, phase.id, "done");
-      log(`Phase ${phase.id} marked done.`);
-    }
-  } else {
-    log(`[exit ${result.exitCode}${result.timedOut ? ", timeout" : ""}] ${phase.checkpoint} (${result.durationMs}ms)`);
 
-    for (const line of (result.stderrTail || result.stdoutTail || "").split(/\r?\n/).slice(-3).filter(Boolean)) {
-      log(`    ${line}`);
+      // Best-effort, secondary tracking feature — must never entangle with
+      // or break verify's own load-bearing contract (mark done only on a
+      // real pass), hence its own isolated try/catch.
+      try {
+        syncGitTrack({ dir, phase, verifyEvidence: evidence, home });
+      } catch {
+        // ledger sync failing is never a reason to fail verify itself
+      }
+
+      try {
+        syncDomainLedger({ dir, verifyEvidence: evidence, home });
+      } catch {
+        // same isolated failure domain as the git ledger sync above
+      }
+
+      log(`Phase ${phase.id} marked done.`);
     }
   }
 
   log(`Evidence: ${outputPath}`);
 
-  if (!result.ok) {
+  if (!ok) {
     process.exitCode = 1;
   }
 }

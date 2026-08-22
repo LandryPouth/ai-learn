@@ -31,6 +31,12 @@ const directions = [
     deepens: "__generic__",
     requires: [],
     doc: "patterns d'architecture de la stack",
+    // Promoted from suggestion to mandatory once a real file crosses this
+    // threshold — the clean-code/architecture seuil obligatoire (Partie D):
+    // suggestDirections() checks this against per-file `loc` (see
+    // walkSources in scan.js) and surfaces the direction first, marked
+    // `mandatory: true`, instead of leaving it optional forever.
+    mandatoryAt: { metric: "locInFile", gt: 300 },
   },
   {
     id: "g-tests",
@@ -66,4 +72,46 @@ const directions = [
 
 const recipes = [];
 
-module.exports = { concepts, directions, recipes };
+// The fallback "10x" bank for any untracked language — domain-agnostic
+// stress dimensions that apply to almost any codebase, mirroring the
+// generic directions above. `requires: []` + `deepens: "__generic__"`
+// (never a real concept id, see the directions above) means these are never
+// filtered out as "already mastered" — the non-regression rule only ever
+// promotes strictly deeper stresses as `maxUsedTier` climbs.
+const stresses = [
+  {
+    id: "g-input-size",
+    title: "10x la taille d'entrée",
+    why: "Le code marche sur un cas normal — un fichier ou un payload 10x plus gros révèle souvent une hypothèse implicite (tout tient en mémoire, complexité quadratique…).",
+    anchor: "code existant",
+    tier: 3,
+    deepens: "__generic__",
+    requires: [],
+    stressCheckpoint: "rejouer le même scénario avec une entrée 10x plus grosse — mesurer si ça casse ou ralentit de façon disproportionnée",
+    doc: "profiler de la stack + mesure avant optimisation",
+  },
+  {
+    id: "g-malformed-input",
+    title: "Entrée malformée / adversariale",
+    why: "Le chemin heureux passe — une entrée tronquée, mal encodée ou délibérément invalide teste si le code suppose une entrée propre.",
+    anchor: "code existant (parsing/validation)",
+    tier: 3,
+    deepens: "__generic__",
+    requires: [],
+    stressCheckpoint: "rejouer avec une entrée tronquée ou mal formée — observer un crash, une exception non gérée, ou un comportement silencieusement faux",
+    doc: "tests de robustesse / fuzzing basique de la stack",
+  },
+  {
+    id: "g-concurrent-invocation",
+    title: "Invocation concurrente",
+    why: "Le code marche appelé une fois — deux invocations simultanées révèlent souvent un état partagé non protégé.",
+    anchor: "code existant",
+    tier: 4,
+    deepens: "__generic__",
+    requires: [],
+    stressCheckpoint: "lancer N invocations concurrentes du même chemin — chercher une race condition ou une corruption d'état",
+    doc: "notes de la stack sur la concurrence (threads/async/process)",
+  },
+];
+
+module.exports = { concepts, directions, recipes, stresses };

@@ -39,6 +39,19 @@ const SOURCE_PRESETS = {
     mode: "regen",
     source: "https://roadmap.sh/backend",
   },
+  // Reference material for the git/gh module (see bin/lib/tracks/git.js,
+  // templates/commit-msg): neither site is a git-clonable resource, so both
+  // are `regen` presets, exactly like developer-roadmap above.
+  "conventional-commits": {
+    title: "Conventional Commits v1.0.0",
+    mode: "regen",
+    source: "https://www.conventionalcommits.org/en/v1.0.0/",
+  },
+  "gh-manual": {
+    title: "GitHub CLI manual",
+    mode: "regen",
+    source: "https://cli.github.com/manual/",
+  },
 };
 
 function sourcesDir(dir) {

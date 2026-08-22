@@ -218,7 +218,7 @@ Usage:
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
   ai-learn check [--root <dir>]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
-             docs presets: build-your-own-x, developer-roadmap
+             docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]

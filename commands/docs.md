@@ -120,7 +120,7 @@ ai-learn docs add <techno>-book /chemin/vers/livre.pdf
 
 ## Presets (compléments, pas une roadmap)
 
-Deux raccourcis éprouvés pour des ressources **complémentaires** — l'outil reste
+Quatre raccourcis éprouvés pour des ressources **complémentaires** — l'outil reste
 **libre**, ce sont des points d'entrée, pas une roadmap imposée :
 
 ```bash
@@ -129,10 +129,18 @@ ai-learn docs add build-your-own-x
 
 # Recrée localement la roadmap backend (le repo est un data backend, inutile en clone)
 ai-learn docs add developer-roadmap
+
+# Recrée localement la spec Conventional Commits (module git/gh)
+ai-learn docs add conventional-commits
+
+# Recrée localement le manuel de la CLI gh (module git/gh)
+ai-learn docs add gh-manual
 ```
 
 - `build-your-own-x` → clone de `codecrafters-io/build-your-own-x`.
 - `developer-roadmap` → `--regen` depuis `https://roadmap.sh/backend`.
+- `conventional-commits` → `--regen` depuis `conventionalcommits.org/en/v1.0.0/`.
+- `gh-manual` → `--regen` depuis `cli.github.com/manual/`.
 
 ## Banque de pièges (zones de friction)
 

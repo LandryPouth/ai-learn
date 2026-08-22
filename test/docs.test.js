@@ -222,6 +222,26 @@ test("SOURCE_PRESETS maps the two vetted complements", () => {
   assert.match(SOURCE_PRESETS["developer-roadmap"].source, /roadmap\.sh\/backend/);
 });
 
+test("SOURCE_PRESETS maps the git/gh module's two reference docs (regen — neither is clonable)", () => {
+  assert.strictEqual(SOURCE_PRESETS["conventional-commits"].mode, "regen");
+  assert.match(SOURCE_PRESETS["conventional-commits"].source, /conventionalcommits\.org/);
+  assert.strictEqual(SOURCE_PRESETS["gh-manual"].mode, "regen");
+  assert.match(SOURCE_PRESETS["gh-manual"].source, /cli\.github\.com\/manual/);
+});
+
+test("docsCommand resolves a bare conventional-commits preset to the regen flow", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  const out = capture(() => docsCommand({ dir, args: ["add", "conventional-commits"] }));
+
+  assert.match(out, /Resolved preset "conventional-commits" → https:\/\/www\.conventionalcommits\.org\/en\/v1\.0\.0\/ \(regen\)/);
+  assert.match(out, /Added generated source "conventional-commits"/);
+
+  const progress = readJson(path.join(dir, "progress.json"), null);
+  assert.strictEqual(progress.docSource.sources[0].generated, true);
+  assert.strictEqual(progress.docSource.sources[0].url, "https://www.conventionalcommits.org/en/v1.0.0/");
+});
+
 test("add --regen scaffolds a generated source with provenance", () => {
   const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
 
