@@ -97,6 +97,21 @@ test("update wires the learner-file guard (hook, policy, solutions dir)", () => 
   assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
 });
 
+test("update creates .ai-learn/norm.json once and never rewrites a learner's edits", () => {
+  const dir = tmpProject(project());
+
+  capture(() => updateCommand({ root: dir }));
+
+  const normConfigPath = path.join(dir, ".ai-learn", "norm.json");
+  assert.ok(fs.existsSync(normConfigPath));
+
+  fs.writeFileSync(normConfigPath, JSON.stringify({ version: 1, maxFunctionLines: 999 }));
+  capture(() => updateCommand({ root: dir }));
+
+  const stillCustom = JSON.parse(fs.readFileSync(normConfigPath, "utf8"));
+  assert.strictEqual(stillCustom.maxFunctionLines, 999);
+});
+
 test("update backfills the friction journal into a project that predates it", () => {
   const dir = tmpProject(project());
 

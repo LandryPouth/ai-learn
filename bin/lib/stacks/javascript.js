@@ -138,4 +138,9 @@ const stresses = [
   },
 ];
 
-module.exports = { concepts, directions, recipes, stresses };
+// Clean-code thresholds for `ai-learn norm` — same numbers as generic.js's
+// fallback for v1, declared explicitly here (not inherited) so this stack
+// stays independently tunable later. See bin/lib/norm.js.
+const norm = { maxFileLines: 400, maxFunctionLines: 50, maxNestingDepth: 4, maxParams: 5 };
+
+module.exports = { concepts, directions, recipes, stresses, norm };

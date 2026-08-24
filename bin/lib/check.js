@@ -15,6 +15,7 @@ const { docSourceList } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
+const { normProject } = require("./norm");
 
 // A real merged/open PR URL — the only acceptable evidence shape for a tier-6
 // ("read a stranger's diff") phase, same "presence + minimum substance, not
@@ -126,6 +127,20 @@ function checkProject(dir) {
       surface: "hook-guard",
       expected: "le hook PreToolUse ai-learn guard aurait dû être câblé dans .claude/settings.json par init/update",
       problem: "guard.json existe mais aucun hook PreToolUse pointant vers ai-learn.js guard n'est présent dans .claude/settings.json",
+    });
+  }
+
+  // Clean-code norm (ai-learn norm) — same hard-block philosophy as verify's
+  // own gate (see verify.js), but audited here project-wide across every
+  // learning project under --root, not just the one being verified right
+  // now. Always an error (never a warning): only issues.errors fails the
+  // exit code below, and this mechanism is explicitly a hard block.
+  const normReport = normProject(dir);
+
+  for (const violation of normReport.violations) {
+    issues.errors.push({
+      file: `${violation.file}:${violation.line}`,
+      message: `${violation.message} [${violation.rule}]`,
     });
   }
 

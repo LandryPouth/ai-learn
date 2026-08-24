@@ -924,4 +924,6 @@ module.exports = {
   resolveDirectionDoc,
   loadStack,
   stackKey,
+  SOURCE_EXTS,
+  ALL_SOURCE_EXTS,
 };

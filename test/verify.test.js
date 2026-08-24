@@ -167,6 +167,67 @@ test("verify with --no-mark keeps the phase pending despite a green checkpoint",
   assert.strictEqual(config.phases[0].status, "pending");
 });
 
+test("verify does not mark done when a norm violation exists in the learner's files, even though the checkpoint passes", () => {
+  const dir = tmpProject(sampleProgress());
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".ai-learn", "norm.json"), JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "src", "index.js"),
+    "function tooLong() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  return a + b + c;\n}\n",
+  );
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Norme \(clean code\)/);
+  assert.match(out, /function `tooLong` is 6 lines \(max 3\)/);
+  assert.doesNotMatch(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.ok, false);
+  assert.strictEqual(evidence.norm.ok, false);
+  assert.strictEqual(evidence.norm.violations.length, 1);
+});
+
+test("verify marks done once the norm violation is fixed, with checkpoint and stress otherwise unchanged", () => {
+  const dir = tmpProject(sampleProgress());
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".ai-learn", "norm.json"), JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "index.js"), "function fine() {\n  return 1;\n}\n");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /Norme \(clean code\)/);
+  assert.match(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+  assert.strictEqual(process.exitCode, 0);
+});
+
+test("verify with --no-mark still computes and logs the norm identically, without marking done", () => {
+  const dir = tmpProject(sampleProgress());
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".ai-learn", "norm.json"), JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "src", "index.js"),
+    "function tooLong() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  return a + b + c;\n}\n",
+  );
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
+
+  assert.match(out, /Norme \(clean code\)/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+});
+
 test("verify refuses an unknown phase id", () => {
   const dir = tmpProject(sampleProgress());
   assert.throws(() => verifyCommand({ dir, phaseId: 42 }));
