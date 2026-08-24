@@ -114,4 +114,11 @@ const stresses = [
   },
 ];
 
-module.exports = { concepts, directions, recipes, stresses };
+// Clean-code thresholds for `ai-learn norm` — the fallback used by any
+// language without its own stack pack (Python, Go, Rust, C#…), and by
+// javascript.js which declares the same numbers explicitly. Loose enough
+// that a heuristic parser not tuned for the language in question doesn't
+// punish reasonably-structured code. See bin/lib/norm.js.
+const norm = { maxFileLines: 400, maxFunctionLines: 50, maxNestingDepth: 4, maxParams: 5 };
+
+module.exports = { concepts, directions, recipes, stresses, norm };

@@ -168,4 +168,11 @@ const stresses = [
   },
 ];
 
-module.exports = { concepts, directions, recipes, stresses };
+// Clean-code thresholds for `ai-learn norm`, explicitly inspired by (not a
+// copy of) École 42's Norminette: maxParams kept at its exact real value (4),
+// maxFunctionLines loosened from the literal 25 to 30 to absorb this
+// heuristic's raw-physical-line counting (no comment/blank stripping in v1).
+// See bin/lib/norm.js.
+const norm = { maxFileLines: 250, maxFunctionLines: 30, maxNestingDepth: 4, maxParams: 4 };
+
+module.exports = { concepts, directions, recipes, stresses, norm };

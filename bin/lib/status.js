@@ -8,6 +8,7 @@ const { log, fail } = require("./util");
 const { readProgress, validateProgress, latestEvidenceForPhase } = require("./progress");
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
+const { normProject } = require("./norm");
 
 function printStatus(config, { dir }) {
   const done = config.phases.filter((phase) => phase.status === "done").length;
@@ -83,6 +84,19 @@ function printDomainSummary({ dir, home } = {}) {
   );
 }
 
+// Unlike the git/domain summaries above, this one is not silent-by-absence:
+// it re-checks the norm on every `status` call (decision: always verify — see
+// docs/plans, walkSources already caps at 1000 files/1MB each so the cost
+// stays negligible for a real learning project). Silent only when there are
+// zero violations to report.
+function printNormSummary({ dir }) {
+  const report = normProject(dir);
+
+  if (report.violations.length > 0) {
+    log(`\nNorme (clean code) : ${report.violations.length} violation(s) — voir \`ai-learn norm\`.`);
+  }
+}
+
 function statusCommand({ dir, home }) {
   const { config, exists } = readProgress(dir);
 
@@ -103,6 +117,7 @@ function statusCommand({ dir, home }) {
 
   printGitTracksSummary({ home });
   printDomainSummary({ dir, home });
+  printNormSummary({ dir });
 }
 
-module.exports = { statusCommand, latestEvidenceForPhase, printGitTracksSummary, printDomainSummary };
+module.exports = { statusCommand, latestEvidenceForPhase, printGitTracksSummary, printDomainSummary, printNormSummary };

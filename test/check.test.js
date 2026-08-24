@@ -44,6 +44,30 @@ test("a phase marked done without evidence is an error", () => {
   assert.strictEqual(entry.issues.warnings.length, 0);
 });
 
+test("a norm violation in the learner's files is an error (hard block), not a warning", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(
+    dir,
+    "src/index.js",
+    "function tooLong() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  return a + b + c;\n}\n",
+  );
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /function-length/.test(e.message)));
+  assert.ok(entry.issues.errors.some((e) => e.file === "src/index.js:1"));
+});
+
+test("a project with no norm violation reports none (no regression on the clean-fixture path)", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "function fine() {\n  return 1;\n}\n");
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => /\[function-length\]|\[file-length\]|\[nesting-depth\]|\[param-count\]/.test(e.message)));
+});
+
 test("an out-of-range gitTier is a warning, not an error; a valid one is silent", () => {
   const progress = sampleProgress();
   progress.phases[0].gitTier = 9;

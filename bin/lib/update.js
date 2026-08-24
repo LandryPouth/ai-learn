@@ -20,6 +20,8 @@ const { readProgress } = require("./progress");
 const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
+const { ensureNormConfig } = require("./norm");
+const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
@@ -151,6 +153,16 @@ function updateCommand({ root, platform }) {
     const dogfood = syncDogfood(project);
     const commitHook = ensureCommitMsgHook(project);
 
+    // Same real-detected-language sourcing as init.js — see there for why
+    // this is not the free-text progress.json `technology` label.
+    let detectedLanguage = null;
+    try {
+      detectedLanguage = detectDomainKey(project).stack.language;
+    } catch {
+      // best-effort — falls back to generic defaults
+    }
+    const normConfig = ensureNormConfig(project, detectedLanguage);
+
     log(`\n${path.basename(project)}`);
     log(`  protocol: ${protocol.file} ${protocol.action}`);
     log(`  friction bank: ${traps.length} trap(s)`);
@@ -160,6 +172,7 @@ function updateCommand({ root, platform }) {
     log(`  guard (codex): ${guard.codex.skipped ? "customized .codex/config.toml — not touched" : ".codex/config.toml up to date"}`);
     log(`  dogfood journal: .ai-learn/dogfood.md ${dogfood}`);
     log(`  commit-msg hook: ${commitHook.skipped ? "no .git yet — skipped" : `.githooks/commit-msg ${commitHook.file}, core.hooksPath ${commitHook.hooksPath}`}`);
+    log(`  norm config: .ai-learn/norm.json ${normConfig.created ? "created" : "already present — not touched"}`);
   }
 }
 

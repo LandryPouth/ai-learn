@@ -173,6 +173,15 @@ function main() {
       break;
     }
 
+    case "norm": {
+      // Standalone, read-only clean-code check (file/function length, nesting,
+      // params) — same engine verify/check hard-block on, but callable anytime
+      // for a fast local feedback loop. Exits non-zero on any violation.
+      const { normCommand } = require("./lib/norm");
+      normCommand({ dir });
+      break;
+    }
+
     case "guard": {
       // PreToolUse hook (hot path): refuses the AI any write into the learner's
       // solution files. Reads the hook JSON on stdin, responds allow/deny.
@@ -220,6 +229,7 @@ Usage:
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
+  ai-learn norm [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn upgrade
@@ -252,6 +262,10 @@ Commands:
            only what the plan needs into an essentiel.md citing pages
   traps    Extract the friction bank (warning callouts) from the embedded docs —
            each trap cited file:line, probed by the protocol, never invented
+  norm     Check clean-code metrics (file/function length, nesting depth, param
+           count) against the project's norm (.ai-learn/norm.json or the stack
+           pack's defaults) — read-only, non-zero exit on violation. Same engine
+           verify/check hard-block on; run standalone for fast local feedback
   guard    PreToolUse hook: refuses the AI any write into the learner's solution
            files (src/** by default, .ai-learn/guard.json). Wired by init/update —
            the learner types that code, the AI cannot

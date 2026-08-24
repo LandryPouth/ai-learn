@@ -12,6 +12,7 @@ const { log, fail } = require("./util");
 const { readProgress, runsDir, findPhase, setPhaseStatus } = require("./progress");
 const { syncGitTrack } = require("./tracks/git");
 const { syncDomainLedger } = require("./tracks/domain");
+const { normProject, formatViolation } = require("./norm");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
@@ -111,7 +112,21 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     logResult(phase.stressCheckpoint, stressResult);
   }
 
-  const ok = result.ok && (!stressResult || stressResult.ok);
+  // The clean-code norm (ai-learn norm — file/function length, nesting,
+  // param count) is checked on every verify, whether or not this phase
+  // touches gitTier/stressCheckpoint: it's a standing property of the
+  // learner's files, not something tied to one phase. Computed
+  // unconditionally, same as stressResult above, regardless of --no-mark.
+  const normReport = normProject(dir);
+
+  if (normReport.violations.length > 0) {
+    log("\nNorme (clean code) :");
+    for (const violation of normReport.violations) {
+      log(`  ✗ ${formatViolation(violation)}`);
+    }
+  }
+
+  const ok = result.ok && (!stressResult || stressResult.ok) && normReport.violations.length === 0;
 
   const evidence = {
     generatedAt: new Date().toISOString(),
@@ -125,6 +140,12 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     environment: captureEnvironment(),
     ok,
     results,
+    norm: {
+      ok: normReport.violations.length === 0,
+      violations: normReport.violations,
+      scannedFiles: normReport.scanned,
+      skipped: normReport.skippedFunctionParse,
+    },
   };
 
   const outputPath = writeEvidence(dir, evidence);

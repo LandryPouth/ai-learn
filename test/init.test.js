@@ -54,6 +54,27 @@ test("init scaffolds the expected structure", () => {
   assert.ok(fs.existsSync(codexConfigPath));
   assert.match(fs.readFileSync(codexConfigPath, "utf8"), /"src\/\*\*" = "deny"/);
   assert.ok(created.includes(".codex/config.toml"));
+
+  // The clean-code norm config — auto-created once, generic defaults for a
+  // fresh project with no source files yet to detect a stack from.
+  const normConfigPath = path.join(dir, ".ai-learn", "norm.json");
+  assert.ok(fs.existsSync(normConfigPath));
+  assert.ok(created.includes(".ai-learn/norm.json"));
+  const normConfig = readJson(normConfigPath, null);
+  assert.strictEqual(normConfig.maxFunctionLines, 50);
+});
+
+test("init writes the detected stack's norm thresholds when real source already exists (ex. a scan-based init)", () => {
+  const dir = tmpDir();
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "Makefile"), "CC=gcc\n");
+  fs.writeFileSync(path.join(dir, "src", "main.c"), "int main(void) {\n  return 0;\n}\n");
+
+  scaffold({ dir, project: "demo", technology: "C", docSource: null, phases: [] });
+
+  const normConfig = readJson(path.join(dir, ".ai-learn", "norm.json"), null);
+  assert.strictEqual(normConfig.maxFunctionLines, 30);
+  assert.strictEqual(normConfig.maxParams, 4);
 });
 
 test("init never overwrites an existing dogfood journal", () => {

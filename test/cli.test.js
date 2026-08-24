@@ -27,6 +27,7 @@ test("--help prints the command catalog and exits 0", () => {
   assert.match(result.stdout, /ai-learn check/);
   assert.match(result.stdout, /ai-learn docs/);
   assert.match(result.stdout, /ai-learn traps/);
+  assert.match(result.stdout, /ai-learn norm/);
   assert.match(result.stdout, /ai-learn guard/);
   assert.match(result.stdout, /ai-learn update/);
 });

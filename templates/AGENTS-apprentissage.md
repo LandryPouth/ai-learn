@@ -52,6 +52,16 @@ Certaines phases portent un `stressCheckpoint` en plus du `checkpoint` habituel 
 5. **Révélation du concept qui corrige** — retour au flux normal de la section 1-3 (prédiction du code, frappe par l'apprenant, docs/solutions non-collable).
 6. **Clôture** — `ai-learn verify <id>` exige que **le `checkpoint` ET le `stressCheckpoint` passent tous les deux** avant de marquer la phase `done` ; un seul des deux qui échoue et la phase reste non prouvée.
 
+### 3quater. Le code doit rester lisible — blocage mécanique (norme)
+
+`ai-learn verify` et `ai-learn check` vérifient mécaniquement des métriques de clean code sur les fichiers de l'apprenant (`src/**`) : longueur de fichier, longueur de fonction, profondeur d'imbrication, nombre de paramètres — seuils définis par la stack détectée ou surchargés dans `.ai-learn/norm.json`. C'est un **blocage dur** : une phase ne peut pas passer `done` tant qu'une violation existe, exactement comme le checkpoint lui-même.
+
+Sur une violation, le rôle de l'IA est d'**expliquer**, jamais de corriger à la place de l'apprenant :
+- Citer précisément la règle, le seuil, la valeur réelle et l'emplacement (`fichier:ligne — message [règle]`, format déjà affiché par `verify`/`check`/`ai-learn norm`).
+- Faire le lien avec le concept clean-code concerné (fonction trop longue → extraire une sous-fonction ; imbrication trop profonde → early return / garde ; trop de paramètres → regrouper en objet).
+- Laisser l'apprenant refactorer **lui-même** dans son éditeur — l'IA n'écrit **jamais** dans `src/**` pour corriger une violation à sa place (déjà mécaniquement impossible via `ai-learn guard`, mais le rappeler évite un réflexe de proposer un diff prêt à coller).
+- `ai-learn norm` (lecture seule, sans lancer `verify`) donne un retour rapide à tout moment pendant que l'apprenant retravaille sa fonction.
+
 ### 4. Reality checks — la seule boucle non truquable
 Régulièrement (au moins une fois par phase) : l'IA fait **prédire à l'utilisateur ce qui va se passer** à l'exécution (lancer le serveur, appeler la route, statut attendu, log attendu), puis on **observe ensemble**. C'est la seule boucle que l'IA et l'utilisateur ne peuvent pas compléter de connivence — le runtime ne pardonne pas les prédictions fausses.
 
@@ -107,7 +117,7 @@ anomalie à combler.
 
 | Commande | Rôle |
 |---|---|
-| `ai-learn status` | Où j'en suis : phases et leur état — affiche aussi le résumé git/gh cross-projet (`~/.ai-learn/tracks/git.json`) quand il existe, automatique, rien à taper en plus |
+| `ai-learn status` | Où j'en suis : phases et leur état — affiche aussi le résumé git/gh cross-projet (`~/.ai-learn/tracks/git.json`) quand il existe et l'état de la norme clean-code, automatique, rien à taper en plus |
 | `ai-learn next` | La prochaine phase à faire |
 | `ai-learn scan` | Analyse un projet existant, montre où tu en es, propose une suite d'approfondissement — jamais de reprise à zéro |
 | `ai-learn propose` | Propose des projets à construire quand tu ne sais pas quoi faire — tout est fait automatiquement, chaque étape sourcée |
@@ -116,7 +126,8 @@ anomalie à combler.
 | `ai-learn docs update <nom>` | Rafraîchit une source locale depuis son origine |
 | `ai-learn docs remove <nom>` | Retire une source (copie locale + entrée du ledger) |
 | `ai-learn verify <id>` | Prouve une phase : exécute le checkpoint, marque `done` seulement si ça passe (automatique en clôture de phase) |
-| `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé |
+| `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé, et toute violation de la norme clean-code dans `src/**` |
+| `ai-learn norm` | Vérifie la norme clean-code (longueur fichier/fonction, imbrication, params) — lecture seule, retour rapide sans attendre `verify` |
 | `ai-learn guard` | Hook interne (PreToolUse) : refuse à l'IA toute écriture dans les fichiers solution (`src/**`) **et toute commande git/gh** (lecture incluse) — câblé automatiquement par `init`/`update` |
 | `ai-learn traps` | Régénère la banque de pièges depuis les docs embarquées (zones de friction, citées fichier:ligne) |
 | `ai-learn update [--platform <claude\|codex\|gemini\|opencode\|antigravity>]` | Propage le protocole + la banque de pièges à tous les projets installés sous `--root` ; `--platform` (re)installe aussi les commandes `/…` de **ta** plateforme si besoin |
@@ -126,6 +137,10 @@ Le hook `commit-msg` (format Conventional Commits, mécanique) se câble tout
 seul dès qu'un `.git` existe dans le projet — via `init` s'il existe déjà,
 sinon automatiquement au prochain `ai-learn update` (ex. juste après un
 premier `git init`). Rien à taper, rien à retenir.
+
+`.ai-learn/norm.json` (seuils clean-code) est créé automatiquement par `init`,
+avec les valeurs concrètes de la stack détectée — jamais réécrit ensuite si
+l'apprenant l'a personnalisé.
 
 ## Reprise sur une autre plateforme
 

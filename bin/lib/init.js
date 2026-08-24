@@ -12,6 +12,8 @@ const { log, writeJson, mkdirp, normalizePortable } = require("./util");
 const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
+const { ensureNormConfig } = require("./norm");
+const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
 const os = require("os");
 
@@ -102,6 +104,24 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
 
   if (commitHook.file === "created") {
     created.push(normalizePortable(path.relative(abs, path.join(abs, ".githooks", "commit-msg"))));
+  }
+
+  // The clean-code norm config (.ai-learn/norm.json) — auto-created once with
+  // the detected stack's concrete thresholds, same precedent as guard.json
+  // above. Keyed off the real detected language (same source detectDomainKey
+  // uses for the domain ledger), not the free-text --technology flag, which a
+  // learner can phrase however they like ("Node CLI", "API web"…).
+  let detectedLanguage = null;
+  try {
+    detectedLanguage = detectDomainKey(abs).stack.language;
+  } catch {
+    // best-effort — an unreadable/empty tree just falls back to generic defaults
+  }
+
+  const normConfig = ensureNormConfig(abs, detectedLanguage);
+
+  if (normConfig.created) {
+    created.push(normalizePortable(path.relative(abs, path.join(abs, ".ai-learn", "norm.json"))));
   }
 
   // The friction journal: the AI logs unexpected tool behavior here as it

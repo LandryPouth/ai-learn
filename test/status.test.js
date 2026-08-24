@@ -10,7 +10,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { statusCommand, printGitTracksSummary, printDomainSummary } = require("../bin/lib/status");
+const { statusCommand, printGitTracksSummary, printDomainSummary, printNormSummary } = require("../bin/lib/status");
 const { defaultGitTracks, writeGitTracks } = require("../bin/lib/tracks/git");
 const { defaultDomainLedger, writeDomainLedger } = require("../bin/lib/tracks/domain");
 const { loadStack } = require("../bin/lib/scan");
@@ -107,6 +107,41 @@ test("printDomainSummary reports Expert once every bank concept is achieved", ()
 
   const out = capture(() => printDomainSummary({ dir, home }));
   assert.match(out, /Statut : Expert/);
+});
+
+test("printNormSummary is silent when there is no violation", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "function fine() {\n  return 1;\n}\n");
+
+  const out = capture(() => printNormSummary({ dir }));
+  assert.strictEqual(out, "");
+});
+
+test("printNormSummary reports a violation count when the norm is broken", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(
+    dir,
+    "src/index.js",
+    "function tooLong() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  return a + b + c;\n}\n",
+  );
+
+  const out = capture(() => printNormSummary({ dir }));
+  assert.match(out, /Norme \(clean code\) : 1 violation\(s\)/);
+});
+
+test("statusCommand includes the norm summary when a violation exists, even without ever running `ai-learn norm` first", () => {
+  const dir = tmpProject(sampleProgress());
+  const home = tmpHome();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(
+    dir,
+    "src/index.js",
+    "function tooLong() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  return a + b + c;\n}\n",
+  );
+
+  const out = capture(() => statusCommand({ dir, home }));
+  assert.match(out, /Norme \(clean code\) : 1 violation\(s\)/);
 });
 
 test("statusCommand includes the domain summary alongside the git/gh one", () => {
