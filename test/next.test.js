@@ -27,6 +27,7 @@ test("next points to the first phase that is not done", () => {
   assert.match(out, /Next: Phase 1 — One/);
   assert.match(out, /Checkpoint: node -e/);
   assert.match(out, /Predictions required: 3/);
+  assert.match(out, /docs\/plans\/predictions\.md/);
   assert.match(out, /ai-learn verify 1/);
 });
 

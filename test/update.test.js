@@ -131,6 +131,25 @@ test("update never overwrites an existing dogfood journal with real entries", ()
   assert.strictEqual(fs.readFileSync(dogfoodPath, "utf8"), "### medium — déjà noté\n- Surface : verify\n");
 });
 
+test("update backfills the checkpoint/ orientation stub into a project that predates it", () => {
+  const dir = tmpProject(project());
+
+  capture(() => updateCommand({ root: dir }));
+
+  const readmePath = path.join(dir, "checkpoint", "README.md");
+  assert.ok(fs.existsSync(readmePath));
+  assert.match(fs.readFileSync(readmePath, "utf8"), /ai-learn verify/);
+});
+
+test("update never overwrites an existing checkpoint/README.md", () => {
+  const dir = tmpProject(project());
+  const readmePath = writeFile(dir, "checkpoint/README.md", "custom notes");
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.strictEqual(fs.readFileSync(readmePath, "utf8"), "custom notes");
+});
+
 test("update --platform installs that platform's slash commands into an isolated home", () => {
   const dir = tmpProject(project());
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-platform-"));

@@ -228,6 +228,49 @@ test("verify with --no-mark still computes and logs the norm identically, withou
   assert.strictEqual(config.phases[0].status, "pending");
 });
 
+test("verify does not mark done when a declared artifact is missing, even though the checkpoint passes", () => {
+  const progress = sampleProgress();
+  progress.phases[0].artifacts = ["docs/phase-0-notes.md"];
+  const dir = tmpProject(progress);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Artefacts manquants/);
+  assert.match(out, /docs\/phase-0-notes\.md/);
+  assert.doesNotMatch(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.ok, false);
+  assert.deepStrictEqual(evidence.missingArtifacts, ["docs/phase-0-notes.md"]);
+});
+
+test("verify marks done once the declared artifact exists", () => {
+  const progress = sampleProgress();
+  progress.phases[0].artifacts = ["docs/phase-0-notes.md"];
+  const dir = tmpProject(progress);
+  fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "docs", "phase-0-notes.md"), "# notes");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
+test("verify suggests a per-phase commit once the phase is marked done", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /git add -A && git commit -m "feat\(phase-0\): Phase zero"/);
+});
+
 test("verify refuses an unknown phase id", () => {
   const dir = tmpProject(sampleProgress());
   assert.throws(() => verifyCommand({ dir, phaseId: 42 }));

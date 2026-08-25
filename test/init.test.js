@@ -27,6 +27,12 @@ test("init scaffolds the expected structure", () => {
   assert.ok(fs.existsSync(path.join(dir, "docs", "plans", "plan-apprentissage.md")));
   assert.ok(fs.existsSync(path.join(dir, "docs", "plans", "predictions.md")));
   assert.ok(fs.existsSync(path.join(dir, "checkpoint")));
+
+  // checkpoint/ used to scaffold empty with no hint of the expected test
+  // strategy — a stub README orients without prescribing a specific runner.
+  assert.ok(fs.existsSync(path.join(dir, "checkpoint", "README.md")));
+  assert.match(fs.readFileSync(path.join(dir, "checkpoint", "README.md"), "utf8"), /ai-learn verify/);
+  assert.ok(created.includes("checkpoint/README.md"));
   assert.ok(fs.existsSync(path.join(dir, ".ai-learn", "runs")));
   assert.ok(created.includes("progress.json"));
 

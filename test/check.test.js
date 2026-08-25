@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
-const { checkProject, checkCommand, countDogfoodEntries } = require("../bin/lib/check");
+const { checkProject, checkCommand, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
 const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
@@ -214,13 +214,16 @@ test("a missing artifact blocks a done phase", () => {
   progress.phases[0].artifacts = ["docs/phase-0-notes.md"];
   const dir = tmpProject(progress);
 
-  capture(() => verifyCommand({ dir, phaseId: 0 }));
-
+  // The artifact must exist before verify runs — verify itself now refuses to
+  // mark a phase done (i.e. record passing evidence) when a declared artifact
+  // is missing, so this fixture only reaches "passing evidence" once written.
   writeFile(dir, "docs/phase-0-notes.md", "# notes");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
 
+  // Artifact deleted *after* a successful verify — drift check still catches it.
   fs.rmSync(path.join(dir, "docs", "phase-0-notes.md"));
 
   const entry2 = checkProject(dir);
@@ -296,6 +299,19 @@ test("hole markers: ellipsis, TODO and a trailing truncated line all count; a fe
   const flagged = entry.issues.warnings.filter((w) => /docs\/solutions/.test(w.file)).map((w) => w.file);
 
   assert.deepStrictEqual(flagged, ["docs/solutions/d.md"]);
+});
+
+test("countJournalEntries counts every recorded prediction, not just the first (regex needs both g and m flags)", () => {
+  const dir = tmpProject(sampleProgress());
+  const journalPath = writeFile(
+    dir,
+    "docs/plans/predictions.md",
+    "# Journal\n\n" +
+      "### Phase 0 — prédiction 1/2\n- Prédiction : x\n\n" +
+      "### Phase 0 — prédiction 2/2\n- Prédiction : y\n",
+  );
+
+  assert.strictEqual(countJournalEntries(journalPath), 2);
 });
 
 test("missing predictions in the journal is a warning", () => {

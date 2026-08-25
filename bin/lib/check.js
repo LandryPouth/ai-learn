@@ -506,9 +506,12 @@ function checkTier6Artifact(dir, phase, issues, relative) {
 
 // Evidence journal format: one `### Phase <N> — prédiction <k>/<total>` heading per
 // recorded prediction. Structural count only — honesty is the learner's.
+// `gm`: `g` to count every heading, not just the first; `m` so `^` anchors each
+// line instead of only the start of the whole file (without it, both bugs
+// combined into a verdict that was structurally always ~0, never the real count).
 function countJournalEntries(journalPath) {
   const content = fs.readFileSync(journalPath, "utf8");
-  return (content.match(/^###\s+Phase\s+\d+\s+—\s+prédiction/i) || []).length;
+  return (content.match(/^###\s+Phase\s+\d+\s+—\s+prédiction/gim) || []).length;
 }
 
 // Corrections the learner explicitly handed to the AI ("Corrigé par : IA").

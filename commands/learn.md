@@ -60,6 +60,21 @@ Séquence type API web (modèle à adapter à la techno choisie) : mise en route
 routes → validation d'entrée → architecture/modularité → persistance/IO →
 logique métier → gestion des erreurs → config/tests → prod.
 
+### Ne jamais noter une prédiction sur une techno support
+
+`AGENTS-apprentissage.md` (posé par `init` dans le projet) dit explicitement
+que les **technos support** (`tsconfig.json`, scripts npm, `docker-compose.yml`,
+migrations SQL, scaffolding de config…) restent **libres** — hors protocole
+« prédire avant de révéler ». `predictionsRequired` ne doit donc **jamais**
+porter sur ce genre de détail, à aucune phase — et surtout pas à la Phase 0
+(« mise en route »), avant que l'apprenant ait vu une ligne de la techno
+visée : lui faire prédire du tooling hors-sujet dès sa toute première
+évaluation notée contredit la règle du protocole et risque de démoraliser un
+vrai débutant (« je suis venu pour X, on me demande Y »). Si la Phase 0 n'est
+que du scaffold, mets `predictionsRequired: 0` pour elle — les prédictions
+notées commencent dès que la techno principale ou un choix d'architecture
+apparaît réellement.
+
 ### Ne jamais réapprendre un concept déjà maîtrisé ailleurs
 
 Avant de générer les phases, regarde si un ledger de domaine existe déjà pour

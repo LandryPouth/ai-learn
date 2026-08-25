@@ -44,6 +44,8 @@ function nextCommand({ dir }) {
 
   if (next.predictionsRequired) {
     log(`  Predictions required: ${next.predictionsRequired}`);
+    log("  Protocole : AGENTS.md § « prédire avant de révéler » — une prédiction par écrit, dans le chat,");
+    log("  AVANT chaque révélation ; puis consignée dans docs/plans/predictions.md (format en tête du fichier).");
   }
 
   if (Array.isArray(next.artifacts) && next.artifacts.length > 0) {
