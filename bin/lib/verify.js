@@ -126,7 +126,22 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     }
   }
 
-  const ok = result.ok && (!stressResult || stressResult.ok) && normReport.violations.length === 0;
+  // A checkpoint can pass while the phase's declared artifact (the doc it was
+  // supposed to produce) was never written — `check` already catches this
+  // after the fact, on a phase already marked done; verify should refuse to
+  // mark done in the first place instead of leaving that gap for `check` to
+  // discover later.
+  const missingArtifacts = (phase.artifacts || []).filter((artifact) => !fs.existsSync(path.join(dir, artifact)));
+
+  if (missingArtifacts.length > 0) {
+    log("\nArtefacts manquants :");
+    for (const artifact of missingArtifacts) {
+      log(`  ✗ ${artifact}`);
+    }
+  }
+
+  const ok =
+    result.ok && (!stressResult || stressResult.ok) && normReport.violations.length === 0 && missingArtifacts.length === 0;
 
   const evidence = {
     generatedAt: new Date().toISOString(),
@@ -140,6 +155,7 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     environment: captureEnvironment(),
     ok,
     results,
+    missingArtifacts,
     norm: {
       ok: normReport.violations.length === 0,
       violations: normReport.violations,
@@ -170,6 +186,15 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
       }
 
       log(`Phase ${phase.id} marked done.`);
+
+      // AGENTS.md §3bis forbids the AI from running git itself — only the
+      // human learner types it. Without a nudge here, nothing prompts a
+      // commit per phase, and everything piles up into one commit at the end
+      // instead of the "one phase = one commit" habit the track is meant to
+      // teach. `ai-learn` only ever suggests the command; it never runs it.
+      log("");
+      log("Clôture propre — committez cette phase avant de continuer :");
+      log(`  git add -A && git commit -m "feat(phase-${phase.id}): ${phase.name}"`);
     }
   }
 

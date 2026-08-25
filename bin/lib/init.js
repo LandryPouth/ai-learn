@@ -41,6 +41,16 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
   mkdirp(path.join(abs, "checkpoint"));
   mkdirp(path.join(abs, ".ai-learn", "runs"));
 
+  // Scaffolded empty otherwise, with no hint of the expected test strategy —
+  // the first `ai-learn verify` would fail on a missing file with nothing
+  // pointing toward what to write. This stub orients without prescribing.
+  const checkpointReadme = path.join(abs, "checkpoint", "README.md");
+
+  if (!fs.existsSync(checkpointReadme)) {
+    fs.writeFileSync(checkpointReadme, fs.readFileSync(templatePath("checkpoint-readme.md"), "utf8"));
+    created.push(normalizePortable(path.relative(abs, checkpointReadme)));
+  }
+
   const progressFile = progressPath(abs);
 
   if (!fs.existsSync(progressFile)) {
