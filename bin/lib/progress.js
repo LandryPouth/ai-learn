@@ -128,6 +128,52 @@ function findPhase(config, id) {
   return (config && Array.isArray(config.phases) && config.phases.find((p) => p && p.id === id)) || null;
 }
 
+// The verdict of a phase's proof — the single place `check`, `status` and
+// `next` all derive "is this phase actually proven" from, instead of each
+// re-deriving `status × does evidence exist` its own way.
+//
+// Pure on purpose: every fact (the phase, its latest evidence, a freshly
+// computed hash, whether a checkpoint file exists) is passed in by the
+// caller. That is what lets this stay in progress.js, a leaf module — the
+// hash itself needs scan.js/guard.js (see bin/lib/source-hash.js), and
+// importing either here would recreate the require cycle that already forced
+// `latestEvidenceForPhase` out of status.js.
+//
+// States: pending · in-progress · proven · proven-unhashed · stale · unproven.
+// `unproven` is the only one that is still an error: a checkpoint file
+// exists, the phase isn't in progress, and nothing has proven it. An
+// evidence written before this field existed (`sourceHash` absent) is
+// `proven-unhashed`, never `stale` — backward compatibility is a locked
+// decision, not an oversight.
+function phaseVerdict({ phase, evidence, currentHash, checkpointFileExists }) {
+  const status = phase && phase.status;
+
+  if (status === "done") {
+    if (!evidence) {
+      return { state: "unproven" };
+    }
+
+    if (!evidence.sourceHash) {
+      return { state: "proven-unhashed" };
+    }
+
+    const same =
+      currentHash && evidence.sourceHash.algo === currentHash.algo && evidence.sourceHash.digest === currentHash.digest;
+
+    return { state: same ? "proven" : "stale" };
+  }
+
+  if (status === "in_progress") {
+    return { state: "in-progress" };
+  }
+
+  if (checkpointFileExists && !evidence) {
+    return { state: "unproven" };
+  }
+
+  return { state: "pending" };
+}
+
 function setPhaseStatus(dir, id, status) {
   const { config, exists } = readProgress(dir);
 
@@ -155,4 +201,5 @@ module.exports = {
   findPhase,
   setPhaseStatus,
   latestEvidenceForPhase,
+  phaseVerdict,
 };

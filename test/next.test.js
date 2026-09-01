@@ -2,8 +2,9 @@
 
 const { test, afterEach } = require("node:test");
 const assert = require("node:assert");
-const { tmpProject, capture, sampleProgress } = require("./helpers");
+const { tmpProject, capture, sampleProgress, writeFile } = require("./helpers");
 const { nextCommand } = require("../bin/lib/next");
+const { verifyCommand } = require("../bin/lib/verify");
 
 // nextCommand logs to stdout via `log`; reset the exit code between tests so a
 // fail() in one test cannot leak into the next.
@@ -74,6 +75,19 @@ test("next reports completion when every phase is done", () => {
 
   assert.match(out, /All 1\/1 phases done/);
   assert.match(out, /ai-learn check/);
+});
+
+test("next flags a stale done phase as to re-prove, not as finished", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => nextCommand({ dir }));
+  assert.match(out, /stale/);
+  assert.match(out, /re-prove it/);
+  assert.match(out, /All 1\/1 phases done/);
 });
 
 test("next fails cleanly without a progress.json", () => {

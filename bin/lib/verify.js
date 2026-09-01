@@ -13,6 +13,7 @@ const { readProgress, runsDir, findPhase, setPhaseStatus } = require("./progress
 const { syncGitTrack } = require("./tracks/git");
 const { syncDomainLedger } = require("./tracks/domain");
 const { normProject, formatViolation } = require("./norm");
+const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
@@ -140,6 +141,13 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     }
   }
 
+  // The empreinte of what this run's proof covers — the learner's own files
+  // plus the checkpoint file itself. Written unconditionally, same as
+  // normReport/missingArtifacts above: only evidence with `ok: true` is ever
+  // consulted by `phaseVerdict`, but a failing run still gets one for
+  // consistency and debugging.
+  const sourceHash = computeSourceHash(dir, { checkpointFile: checkpointFilePath(dir, phase.checkpoint) });
+
   const ok =
     result.ok && (!stressResult || stressResult.ok) && normReport.violations.length === 0 && missingArtifacts.length === 0;
 
@@ -156,6 +164,7 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     ok,
     results,
     missingArtifacts,
+    sourceHash,
     norm: {
       ok: normReport.violations.length === 0,
       violations: normReport.violations,

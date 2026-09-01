@@ -336,6 +336,74 @@ test("a checkpoint file written but never verified is an error", () => {
   assert.ok(entry.issues.errors.some((e) => /checkpoint exists but no passing evidence/.test(e.message)));
 });
 
+test("in_progress with a checkpoint file but no passing evidence is not an error (story 01.01)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "in_progress";
+  progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
+  const dir = tmpProject(progress);
+
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; test('ok', () => {});");
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+});
+
+test("pending with a checkpoint file but no passing evidence stays an error (non-regression)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "pending";
+  progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
+  const dir = tmpProject(progress);
+
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; test('ok', () => {});");
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /checkpoint exists but no passing evidence/.test(e.message)));
+});
+
+test("a modification to src/ after a passing verify makes the proof stale", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  assert.deepStrictEqual(checkProject(dir).issues.errors, []);
+
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /is done but its proof is stale/.test(e.message)));
+});
+
+test("proof stays valid when nothing covered by it changed", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+});
+
+test("legacy evidence without a sourceHash field is never marked stale", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const runsDirPath = path.join(dir, ".ai-learn", "runs");
+  const runFile = fs.readdirSync(runsDirPath).find((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDirPath, runFile), "utf8"));
+  delete evidence.sourceHash;
+  fs.writeFileSync(path.join(runsDirPath, runFile), `${JSON.stringify(evidence, null, 2)}\n`);
+
+  writeFile(dir, "src/index.js", "console.log('changed after stripping sourceHash');\n");
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+});
+
 test("a verified checkpoint file passes cleanly", () => {
   const progress = sampleProgress();
   progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";

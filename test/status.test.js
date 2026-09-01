@@ -11,6 +11,7 @@ const os = require("os");
 const path = require("path");
 
 const { statusCommand, printGitTracksSummary, printDomainSummary, printNormSummary } = require("../bin/lib/status");
+const { verifyCommand } = require("../bin/lib/verify");
 const { defaultGitTracks, writeGitTracks } = require("../bin/lib/tracks/git");
 const { defaultDomainLedger, writeDomainLedger } = require("../bin/lib/tracks/domain");
 const { loadStack } = require("../bin/lib/scan");
@@ -142,6 +143,18 @@ test("statusCommand includes the norm summary when a violation exists, even with
 
   const out = capture(() => statusCommand({ dir, home }));
   assert.match(out, /Norme \(clean code\) : 1 violation\(s\)/);
+});
+
+test("status displays the stale state for a phase whose proof no longer covers the code (shared verdict function)", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const home = tmpHome();
+  const out = capture(() => statusCommand({ dir, home }));
+  assert.match(out, /⚠ Phase 0 — Phase zero.*périmé/);
 });
 
 test("statusCommand includes the domain summary alongside the git/gh one", () => {

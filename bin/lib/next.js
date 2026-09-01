@@ -6,7 +6,8 @@
 
 const fs = require("fs");
 const { log, fail } = require("./util");
-const { readProgress, latestEvidenceForPhase } = require("./progress");
+const { readProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
+const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 
 function nextCommand({ dir }) {
   const { config, exists } = readProgress(dir);
@@ -18,17 +19,35 @@ function nextCommand({ dir }) {
   const phases = Array.isArray(config.phases) ? config.phases : [];
   const next = phases.find((phase) => phase && phase.status !== "done");
 
-  // Unproven "done" phases are drift the learner should know about before
-  // moving on — the check scanner fails on them, and next should not hide it.
-  const unprovenDone = phases.filter(
-    (phase) => phase && phase.status === "done" && !latestEvidenceForPhase(dir, phase.id),
-  );
+  // Done phases whose proof does not actually hold — never proven, or once
+  // proven and now stale — are drift the learner should know about before
+  // moving on. `check` fails on both; `next` should not hide either.
+  const brokenDone = [];
 
-  for (const phase of unprovenDone) {
-    log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but has no passing evidence (unproven).`);
+  for (const phase of phases) {
+    if (!phase || phase.status !== "done") {
+      continue;
+    }
+
+    const ev = latestEvidenceForPhase(dir, phase.id);
+    const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
+    const currentHash = ev ? computeSourceHash(dir, { checkpointFile }) : null;
+    const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
+
+    if (verdict.state === "unproven" || verdict.state === "stale") {
+      brokenDone.push({ phase, verdict });
+    }
   }
 
-  if (unprovenDone.length > 0) {
+  for (const { phase, verdict } of brokenDone) {
+    if (verdict.state === "stale") {
+      log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but its proof is stale — re-prove it: \`ai-learn verify ${phase.id}\`.`);
+    } else {
+      log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but has no passing evidence (unproven).`);
+    }
+  }
+
+  if (brokenDone.length > 0) {
     log("");
   }
 

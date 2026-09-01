@@ -283,3 +283,34 @@ test("verify refuses a phase without a checkpoint command", () => {
 
   assert.throws(() => verifyCommand({ dir, phaseId: 0 }));
 });
+
+test("verify writes a sourceHash covering the learner's files and the checkpoint file", () => {
+  const dir = tmpProject(sampleProgress());
+  require("fs").mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "index.js"), "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+
+  assert.strictEqual(evidence.sourceHash.algo, "sha256");
+  assert.match(evidence.sourceHash.digest, /^[0-9a-f]{64}$/);
+  assert.ok(evidence.sourceHash.files >= 1);
+});
+
+test("verify's sourceHash digest is stable across two runs with no change", () => {
+  const dir = tmpProject(sampleProgress());
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "a.js"), "const a = 1;\n");
+  fs.writeFileSync(path.join(dir, "src", "b.js"), "const b = 2;\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
+  capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json")).sort();
+  const first = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  const second = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[1]), "utf8"));
+
+  assert.strictEqual(first.sourceHash.digest, second.sourceHash.digest);
+});
