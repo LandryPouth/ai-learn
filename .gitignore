@@ -5,3 +5,4 @@ coverage/
 .claude/
 .env
 .env.*
+.coding-flow/active-story.json

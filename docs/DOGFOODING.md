@@ -46,6 +46,28 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `medium` — Worktree créé pour une chaîne qui n'a rien à paralléliser
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `ai-flow worktree place` (placement automatique des stories)
+- **Problème** : sur l'epic-01 (`s1` se ramifie en `s2`→`s3`→`s4`→`s5` et `s6`),
+  `s1` a tourné directement sur le dossier principal (rien d'autre en cours à ce
+  moment). Son entrée dans le carnet de réservation
+  (`.git/coding-flow/worktree-plan/<epic>.json`) n'est jamais nettoyée : la
+  libération (`clearChainPlacement`) n'est déclenchée que par un `land` depuis un
+  worktree isolé, jamais par une chaîne qui a fini **sur place**. Conséquence :
+  lancer `story-01-02` (nouvelle chaîne au point de ramification) plus tard, alors
+  que rien ne tourne en parallèle, la fait quand même partir dans un nouveau
+  worktree (`ai-learn-worktrees/story-01-02-preuve-perimee-a-reprouver`) — parce
+  que le carnet voit encore `s1` comme « occupant » le dossier principal, bien que
+  `s1` soit terminée depuis longtemps. Isolation inutile : dossier, branche et
+  `land` en plus pour un travail qui n'avait rien à paralléliser.
+- **Workaround** : aucun — accepté tel quel, correctif prévu directement dans
+  Coding Flow plutôt qu'en contournement côté ai-learn.
+- **Résolution** : ouverte. Piste retenue : libérer la réservation d'une chaîne
+  dès qu'elle atteint `done`, pas seulement au `land` d'un worktree isolé — pour
+  qu'une chaîne terminée sur place cesse d'occuper le dossier principal aux yeux
+  du placement.
+
 ### `medium` — `docs add` un fichier (livre PDF) plante en `ENOTDIR`
 - **Repo** : ai-learn (dogfooding du tool lui-même)
 - **Surface** : docs
