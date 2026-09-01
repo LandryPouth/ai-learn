@@ -12,6 +12,7 @@ const path = require("path");
 
 const { phaseVerdict } = require("../bin/lib/progress");
 const { computeSourceHash, checkpointFilePath } = require("../bin/lib/source-hash");
+const { normalizePortable } = require("../bin/lib/util");
 const { tmpProject, writeFile, sampleProgress } = require("./helpers");
 
 const HASH_A = { algo: "sha256", files: 1, digest: "a".repeat(64) };
@@ -113,6 +114,14 @@ test("computeSourceHash: file creation order does not change the digest", () => 
   writeFile(dirB, "src/a.js", "const a = 1;\n");
 
   assert.strictEqual(computeSourceHash(dirA).digest, computeSourceHash(dirB).digest);
+});
+
+test("computeSourceHash: a path with a simulated Windows backslash normalizes to the same digest input as its slash equivalent", () => {
+  // Linux's path.relative never emits a backslash, so this exercises
+  // normalizePortable directly — the piece sourceHashScope() relies on to
+  // make the digest independent of OS path separator (see plan.md).
+  assert.strictEqual(normalizePortable("checkpoint\\phase-0.test.mjs"), "checkpoint/phase-0.test.mjs");
+  assert.strictEqual(normalizePortable("checkpoint\\phase-0.test.mjs"), normalizePortable("checkpoint/phase-0.test.mjs"));
 });
 
 test("computeSourceHash: the checkpoint file is included in the scope even though it's outside learnerFiles", () => {

@@ -86,6 +86,13 @@ préexistants passent tels quels.
   fichiers de comportement ; pas de rapport lcov dans ce projet, donc pas de mesure
   `verified` — attendu, aucun outil de couverture n'est configuré ici).
 
+**Post-review (P2).** `/flow-review` a relevé que le cas du Test Plan « chemin avec
+backslash simulé → même digest qu'un chemin avec slash » n'avait pas été écrit.
+Ajouté à `test/verdict.test.js` : test direct de `normalizePortable` (la fonction
+dont dépend `sourceHashScope` pour cette garantie — `path.relative` n'émet jamais de
+backslash sous Linux, donc ce n'était testable que directement). `npm test` →
+318/318, 0 échec.
+
 **Reproduction des défauts avant correctif** (notée à la demande de la tâche
 Pre-Implementation) :
 - Défaut A : phase `in_progress` + `checkpoint/phase-0.test.mjs` existant, sans
