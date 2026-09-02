@@ -46,6 +46,47 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `medium` — rien ne resurgit un travail prouvé-mais-pas-atterri après un `/clear`
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `/flow-run` (fin de story) + cycle `/clear` + reprise en session fraîche
+- **Problème** : story 01.06 a été implémentée, laissée `in-progress` à raison
+  (un AC ne pouvait pas être prouvé en sandbox), puis la session a fait
+  `run` → `clear` → `review` avant de revenir dessus bien plus tard. Diagnostic
+  initial faux : « le `/clear` a cassé le `land` ». En creusant : `land`
+  n'a jamais rien de cassé à réparer — tout l'état de Coding Flow (le
+  `## Status`, les preuves `verify` capturées, le registre de placement des
+  worktrees) vit dans des fichiers versionnés/`.git`, jamais dans le contexte
+  de conversation ; un `/clear` ne touche à rien de tout ça. Le vrai trou :
+  `/flow-run` n'enchaîne `unlock` + `autoland` **qu'au moment précis** où il
+  vient d'écrire `## Status: done` avec un verify vert — un `land` correctement
+  différé (parce que le travail n'était pas fini) ne se redéclenche jamais tout
+  seul quand la dernière pièce de preuve arrive enfin (ici : un vrai run CI,
+  minutes plus tard, hors du process `flow-run`). Rien entre `/clear` et
+  `/flow-review` ne gère le cycle de vie des worktrees ; le worktree est resté
+  orphelin jusqu'à ce qu'un humain le remarque et demande explicitement de le
+  « ramener ». `/flow-next` est *conçu* pour détecter exactement ce cas (tier
+  `ready-to-ship` : *« a story is proven and has unshipped work »*), mais rien
+  n'oblige à le lancer après un `/clear` — ça dépend entièrement de la mémoire
+  de l'humain (ou de la mienne).
+- **Workaround** : lancer `/flow-next` (ou `ai-flow next`) manuellement juste
+  après chaque `/clear`, avant toute autre commande, tant que rien
+  d'automatique n'existe pour ça.
+- **Résolution** : ouverte. Piste retenue : un hook `SessionStart` (Claude
+  Code) qui lance `ai-flow next` et injecte sa sortie via
+  `hookSpecificOutput.additionalContext` — coût mesuré sur ce dépôt avant
+  d'installer quoi que ce soit : sortie texte ≈ 226 caractères (~60 tokens,
+  recommandation seule) ou 909 caractères (~230 tokens, `--all`) ; latence
+  1.4–3.2 s par run via `npx --no-install` (pas de binaire `ai-flow` direct
+  dans ce projet) sur 3 essais, mais un 4e essai isolé a bloqué 2 minutes
+  avant d'être coupé — accroc `npx` rare, pas reproduit ensuite, à couvrir
+  par un `timeout` généreux mais borné (~10 s) sur le hook plutôt que supposé
+  absent. Reste à vérifier empiriquement (pas de confirmation dans la doc
+  Claude Code) : est-ce que `SessionStart` se redéclenche bien après un
+  `/clear` précisément, ou seulement au lancement d'un nouveau process
+  `claude` ? Sans confirmation, l'alternative de repli serait une instruction
+  explicite dans `CLAUDE.md` (relu par l'agent à chaque session, indépendant
+  de la mémoire humaine) plutôt qu'un hook.
+
 ### `high` — `.githooks/pre-push` corrompt le dépôt réel via `npm test`
 - **Repo** : ai-learn (dogfooding du tool lui-même, story 01.06)
 - **Surface** : `.githooks/pre-push` (hook versionné du dépôt) + suite de tests
@@ -93,8 +134,16 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
   que le carnet voit encore `s1` comme « occupant » le dossier principal, bien que
   `s1` soit terminée depuis longtemps. Isolation inutile : dossier, branche et
   `land` en plus pour un travail qui n'avait rien à paralléliser.
-- **Workaround** : aucun — accepté tel quel, correctif prévu directement dans
-  Coding Flow plutôt qu'en contournement côté ai-learn.
+- **Workaround** : nettoyage manuel de la réservation périmée — vérifié sur ce
+  dépôt (`.git/coding-flow/worktree-plan/epic-01-verdict-fiable.json` contient
+  bien `"s1": { "location": ".../ai-learn" }` alors que `s1`
+  (story-01-01) est fusionnée depuis longtemps). Une fois une chaîne confirmée
+  `done`/fusionnée sur le dossier principal, retirer sa clé (`s1`, `s2`, …) du
+  fichier JSON de l'epic sous `.git/coding-flow/worktree-plan/<epic>.json`
+  (`{ "chains": {} }` si c'est la seule entrée) avant le prochain
+  `ai-flow worktree place` — édition de métadonnées pure, aucun risque sur le
+  code ou l'historique git : au pire, si fait à tort, le comportement actuel
+  (un worktree de trop) ne fait que continuer.
 - **Résolution** : ouverte. Piste retenue : libérer la réservation d'une chaîne
   dès qu'elle atteint `done`, pas seulement au `land` d'un worktree isolé — pour
   qu'une chaîne terminée sur place cesse d'occuper le dossier principal aux yeux
