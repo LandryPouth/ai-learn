@@ -35,7 +35,7 @@ function parseCommandFile(filePath) {
   const [, frontmatter, rest] = match;
   const fields = {};
 
-  for (const line of frontmatter.split("\n")) {
+  for (const line of frontmatter.split(/\r?\n/)) {
     const lineMatch = line.match(/^([a-zA-Z-]+):\s*(.*)$/);
 
     if (lineMatch) {

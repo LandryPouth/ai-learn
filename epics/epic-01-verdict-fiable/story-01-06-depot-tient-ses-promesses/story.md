@@ -2,10 +2,11 @@
 
 ## Status: in-progress
 
-Bloqué sur un seul point : la CI Windows n'a pas pu être observée en exécution
-réelle depuis ce sandbox (pas de runner Windows disponible ici). Tout le reste
-est vert et prouvé — voir `## Result`. Passera à `done` une fois le premier
-run CI réel confirmé (ou un échec réel corrigé) après push/PR.
+Le premier run CI réel (PR #6) a tourné : 6/9 jobs verts, `windows-latest`
+a révélé 12 échecs réels sur 4 causes racines distinctes (dont un bug de
+sécurité dans le garde-fou anti-traversal). Toutes corrigées — voir
+`## Result`. Passera à `done` une fois le run CI suivant sur cette PR
+confirmé vert sur les 9 jobs.
 
 ## Goal
 
@@ -43,7 +44,7 @@ Ce sont les raisons du *pourquoi* de l'outil, et elles sont des références mor
 ## Acceptance Criteria
 
 - [x] Given le workflow CI, when il est déclenché, then la suite tourne sur Ubuntu, Windows et macOS.
-- [ ] Given la CI sur Windows, when la suite tourne, then elle passe sans échec lié aux chemins ou aux fins de ligne — ou l'échec est reproduit, documenté, et corrigé dans cette story. **Non vérifiable dans cet environnement** (sandbox Linux, pas de runner Windows) — voir `## Result`.
+- [ ] Given la CI sur Windows, when la suite tourne, then elle passe sans échec lié aux chemins ou aux fins de ligne — ou l'échec est reproduit, documenté, et corrigé dans cette story. **Échecs reproduits et corrigés** (12/318, 4 causes racines — voir `## Result`) ; en attente du prochain run CI pour confirmer le vert.
 - [x] Given `CHANGELOG.md`, when on le lit, then il couvre les versions 0.1.0 à 0.4.0 à partir de l'historique git réel, sans version inventée.
 - [x] Given une entrée du changelog, when on la compare aux commits de la version correspondante, then chaque ligne renvoie à un changement réellement présent dans l'historique.
 - [x] Given les six commentaires de code qui renvoient à `docs/plans`, when on suit chaque référence, then elle pointe vers un fichier existant qui traite bien le sujet nommé.
@@ -110,21 +111,54 @@ code actuel de `bin/lib/tracks/git.js`, `bin/lib/tracks/domain.js`,
 marquée hypothèse — tout ce qui est écrit trace vers un commit ou un bout de
 code réel.
 
-**Windows CI — limite assumée, pas cachée.** Cet environnement d'exécution
-est un sandbox Linux sans runner Windows disponible : je n'ai pas pu
-déclencher la CI réelle ni observer un passage effectif sur
-`windows-latest`. À la place : audit statique des points de risque
-Windows-spécifiques identifiés dans le contexte de la story — tous les appels
-`spawnSync` du code source (hors `verify.js`, qui exécute la commande de
-checkpoint de l'apprenant) passent des tableaux d'arguments (`git`, `gh`),
-jamais de chaîne shell POSIX-only ; `docs.js#removePath` sonde `trash
---version` et retombe sur `fs.rmSync` s'il est absent (trash-cli n'est pas
-garanti sur les runners Windows) ; la gestion des chemins passe par
-`path.join`/`normalizePortable` (story 01.01) plutôt que des `/` en dur.
-Aucun bloqueur évident trouvé, mais **ce n'est pas une preuve d'exécution** —
-le premier signal réel viendra du premier run CI après la fusion de cette
-story. Risque non résolu, consigné ici plutôt que masqué par une case cochée
-sans preuve.
+**Windows CI — signal réel obtenu, 4 causes racines trouvées et corrigées.**
+L'audit statique ci-dessus (spawnSync par tableaux d'arguments, `trash`
+avec repli, `normalizePortable`) n'était pas une preuve d'exécution — le
+premier run CI réel (PR #6, run `33582634117`, après push) l'a confirmé :
+6/9 jobs verts (les 3 Ubuntu et les 3 macOS), mais `windows-latest` a
+échoué sur node 18 avec 12 tests réellement cassés sur 318 (node 20/22
+annulés par le fail-fast de la matrice avant d'avoir pu tourner). Root-causé
+et corrigé, pas masqué :
+
+1. **Sécurité — `bin/lib/guard.js#toRelative` ne rejetait pas un chemin
+   d'un autre disque.** Sur Windows, `path.relative()` entre deux chemins de
+   disques différents (racine du projet sur `D:`, cible sur `C:`) ne peut pas
+   s'exprimer en `../..` et renvoie la cible telle quelle — qui ne commence
+   pas par `../` et passait donc le garde-fou anti-traversal. Corrigé en
+   ajoutant un test `path.isAbsolute(rel)` (et le cas limite `rel === ".."`
+   que `startsWith("../")` seul manquait aussi). Vérifié manuellement avec
+   `path.win32` : chemin cross-disque, traversée same-disque, parent exact,
+   et le cas légitime (chemin dans le projet) — les quatre se comportent
+   correctement.
+2. **`bin/lib/docs.js` n'appliquait pas `normalizePortable`** sur les
+   chemins stockés dans `progress.json` (`path.relative(dir, target)` brut,
+   6 sites) — persistait des `\` sur Windows là où le reste du code (et
+   `docs.test.js`) suppose du `/`. Corrigé : import de `normalizePortable`,
+   les 6 sites normalisent avant stockage/log.
+3. **`bin/lib/platforms/commands.js#parseCommandFile` cassait sur CRLF.**
+   Le découpage du frontmatter en lignes utilisait `.split("\n")` alors que
+   le délimiteur externe gérait déjà `\r?\n` — sur un fichier checkouté en
+   CRLF (comportement par défaut de git sur Windows), chaque ligne gardait un
+   `\r` de fin qui invalidait la regex par champ (`.` ne matche pas `\r`),
+   silencieusement vidant `description`/`argument-hint`/`allowed-tools` à
+   leurs valeurs par défaut. Corrigé : `.split(/\r?\n/)`. Vérifié en
+   simulant un fichier CRLF réel avec `commands/next.md`.
+4. **Tests — `os.homedir()` lit `USERPROFILE` sur Windows, pas `HOME`.**
+   Cinq fichiers de test isolaient le HOME du CLI en ne fixant que `HOME` ;
+   sur Windows cette redirection était silencieusement ignorée et le CLI
+   écrivait dans le vrai répertoire home de la machine. Corrigé par un
+   helper partagé `homeEnvOverrides` (`test/helpers.js`) qui fixe les deux,
+   réutilisé dans `cli.test.js`, `norm.test.js`,
+   `integration-opencode.test.js`, `init.test.js`, `update.test.js`.
+
+Un 5e échec (`scan.test.js`) était un artefact du test lui-même (son
+helper `snapshot()` comparait un chemin `path.relative` natif Windows à un
+littéral `/` en dur) — corrigé dans le test, aucun code de production
+concerné.
+
+`npm test` reste 318/318 en local (Linux) après ces corrections ; le
+comportement exact sous `windows-latest` sera confirmé par le prochain run
+CI sur cette PR.
 
 **Fichiers modifiés.**
 - `.github/workflows/ci.yml` — matrice `os` ajoutée
@@ -135,6 +169,16 @@ sans preuve.
   `bin/lib/tracks/domain.js`, `bin/lib/status.js`, `bin/lib/norm.js` —
   commentaire seul, le nom de fichier exact remplace la référence nue à
   `docs/plans`
+- `bin/lib/guard.js` — fix sécurité `toRelative` (traversal cross-disque
+  Windows)
+- `bin/lib/docs.js` — `normalizePortable` sur les 6 sites qui stockaient/
+  loguaient un chemin relatif
+- `bin/lib/platforms/commands.js` — split CRLF-safe du frontmatter
+- `test/helpers.js` — nouveau helper `homeEnvOverrides`
+- `test/cli.test.js`, `test/norm.test.js`, `test/integration-opencode.test.js`,
+  `test/init.test.js`, `test/update.test.js` — utilisent `homeEnvOverrides`
+  (HOME + USERPROFILE)
+- `test/scan.test.js` — snapshot helper normalise `\` → `/` avant comparaison
 
 **Tests exécutés.**
 - `npm test` → 318/318, 0 échec, aucun test existant modifié (comparé au

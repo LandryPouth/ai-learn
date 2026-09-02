@@ -35,6 +35,14 @@ function capture(fn) {
   return writes.join("");
 }
 
+// os.homedir() reads USERPROFILE on Windows, not HOME — a test env override
+// that sets only HOME silently fails to isolate the CLI there and it falls
+// through to the real machine home directory. Set both everywhere a test
+// redirects home, whether via a child-process env or an in-process mutation.
+function homeEnvOverrides(home, extra = {}) {
+  return { HOME: home, USERPROFILE: home, ...extra };
+}
+
 function sampleProgress(overrides = {}) {
   return {
     version: 1,
@@ -48,4 +56,4 @@ function sampleProgress(overrides = {}) {
   };
 }
 
-module.exports = { tmpProject, writeFile, capture, sampleProgress };
+module.exports = { tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides };

@@ -15,7 +15,7 @@ const path = require("path");
 const { execFileSync } = require("node:child_process");
 
 const { installCommand } = require("../bin/lib/install");
-const { capture } = require("./helpers");
+const { capture, homeEnvOverrides } = require("./helpers");
 
 function opencodeAvailable() {
   try {
@@ -31,7 +31,7 @@ test("opencode actually discovers the commands ai-learn install generates", { sk
   capture(() => installCommand({ platform: "opencode", home }));
 
   const raw = execFileSync("opencode", ["debug", "config"], {
-    env: { ...process.env, HOME: home },
+    env: { ...process.env, ...homeEnvOverrides(home) },
     encoding: "utf8",
   });
   const config = JSON.parse(raw);
