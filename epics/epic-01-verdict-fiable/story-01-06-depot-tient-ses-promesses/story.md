@@ -1,5 +1,12 @@
 # Story 01.06 — Le dépôt tient ses propres promesses
 
+## Status: in-progress
+
+Bloqué sur un seul point : la CI Windows n'a pas pu être observée en exécution
+réelle depuis ce sandbox (pas de runner Windows disponible ici). Tout le reste
+est vert et prouvé — voir `## Result`. Passera à `done` une fois le premier
+run CI réel confirmé (ou un échec réel corrigé) après push/PR.
+
 ## Goal
 
 Réparer trois endroits où `ai-learn` ne s'applique pas à lui-même ce qu'il exige de
@@ -35,13 +42,13 @@ Ce sont les raisons du *pourquoi* de l'outil, et elles sont des références mor
 
 ## Acceptance Criteria
 
-- [ ] Given le workflow CI, when il est déclenché, then la suite tourne sur Ubuntu, Windows et macOS.
-- [ ] Given la CI sur Windows, when la suite tourne, then elle passe sans échec lié aux chemins ou aux fins de ligne — ou l'échec est reproduit, documenté, et corrigé dans cette story.
-- [ ] Given `CHANGELOG.md`, when on le lit, then il couvre les versions 0.1.0 à 0.4.0 à partir de l'historique git réel, sans version inventée.
-- [ ] Given une entrée du changelog, when on la compare aux commits de la version correspondante, then chaque ligne renvoie à un changement réellement présent dans l'historique.
-- [ ] Given les six commentaires de code qui renvoient à `docs/plans`, when on suit chaque référence, then elle pointe vers un fichier existant qui traite bien le sujet nommé.
-- [ ] Given un plan reconstitué, when une décision n'a pas pu être retrouvée dans le code ou l'historique, then elle est explicitement marquée comme hypothèse plutôt que présentée comme un fait.
-- [ ] Given la suite de tests, when elle tourne après cette story, then aucun test existant n'a été modifié — cette story ne change aucun comportement.
+- [x] Given le workflow CI, when il est déclenché, then la suite tourne sur Ubuntu, Windows et macOS.
+- [ ] Given la CI sur Windows, when la suite tourne, then elle passe sans échec lié aux chemins ou aux fins de ligne — ou l'échec est reproduit, documenté, et corrigé dans cette story. **Non vérifiable dans cet environnement** (sandbox Linux, pas de runner Windows) — voir `## Result`.
+- [x] Given `CHANGELOG.md`, when on le lit, then il couvre les versions 0.1.0 à 0.4.0 à partir de l'historique git réel, sans version inventée.
+- [x] Given une entrée du changelog, when on la compare aux commits de la version correspondante, then chaque ligne renvoie à un changement réellement présent dans l'historique.
+- [x] Given les six commentaires de code qui renvoient à `docs/plans`, when on suit chaque référence, then elle pointe vers un fichier existant qui traite bien le sujet nommé.
+- [x] Given un plan reconstitué, when une décision n'a pas pu être retrouvée dans le code ou l'historique, then elle est explicitement marquée comme hypothèse plutôt que présentée comme un fait.
+- [x] Given la suite de tests, when elle tourne après cette story, then aucun test existant n'a été modifié — cette story ne change aucun comportement.
 
 ## Notes
 
@@ -67,8 +74,82 @@ Ce sont les raisons du *pourquoi* de l'outil, et elles sont des références mor
 
 ## Result
 
-_Rempli après exécution : résumé, fichiers modifiés, tests exécutés._
+**Résumé.** Les trois lacunes de l'audit sont fermées.
+
+1. **CI multi-OS.** `.github/workflows/ci.yml` fait tourner la matrice
+   `[ubuntu-latest, windows-latest, macos-latest] × node [18, 20, 22]` (9 jobs)
+   au lieu d'Ubuntu seul.
+2. **`CHANGELOG.md`** créé à la racine, groupé par la valeur réelle de
+   `version` dans `package.json` au moment de chaque commit (0.1.0 → 0.4.0),
+   chaque ligne citant son hash court. Reconstruit et vérifié à la main contre
+   `git log` (voir méthode ci-dessous) — le script du skill `/changelog`
+   (mode compact, groupé par date) n'a pas été utilisé tel quel : la story
+   demande un regroupement par version, pas par date de commit.
+3. **`docs/plans/` reconstitué**, deux fichiers :
+   - `docs/plans/git-gh-renforcement-domaine.md` (Parties A/B/C — module
+     git/gh à 6 tiers, banque de renforcement « 10x », ledger de maîtrise de
+     domaine) — les trois viennent du même commit `98fc7ff`, documentées
+     ensemble pour cette raison.
+   - `docs/plans/norm-clean-code.md` — rejet d'une Norminette hébergée au
+     profit d'un vérificateur heuristique local, et la décision « toujours
+     revérifier, jamais en cache » de `status.js`.
+   Les 6 commentaires de code qui renvoyaient à `docs/plans` (répertoire nu)
+   citent maintenant le fichier exact.
+
+**Méthode de reconstruction (changelog et plans).** Uniquement depuis
+l'historique git réel et les commentaires de code — jamais depuis la mémoire.
+Pour le changelog : les 3 commits `chore(release): bump version X -> Y`
+(`f2eee54`, `ff35f6e`, `5a69921`) donnent les frontières exactes ;
+`git log <bump-précédent>..<bump-suivant> --no-merges` donne le contenu de
+chaque version, vérifié une seconde fois contre `git log --follow -p --
+package.json` pour confirmer que `0.1.0` est bien la toute première valeur du
+champ (aucun bump `0.0.x → 0.1.0` n'existe). Pour les plans : les commits
+`98fc7ff` et `985806a` (messages complets, pas seulement le sujet) plus le
+code actuel de `bin/lib/tracks/git.js`, `bin/lib/tracks/domain.js`,
+`bin/lib/scan.js` et `bin/lib/norm.js`. Aucune décision documentée n'a dû être
+marquée hypothèse — tout ce qui est écrit trace vers un commit ou un bout de
+code réel.
+
+**Windows CI — limite assumée, pas cachée.** Cet environnement d'exécution
+est un sandbox Linux sans runner Windows disponible : je n'ai pas pu
+déclencher la CI réelle ni observer un passage effectif sur
+`windows-latest`. À la place : audit statique des points de risque
+Windows-spécifiques identifiés dans le contexte de la story — tous les appels
+`spawnSync` du code source (hors `verify.js`, qui exécute la commande de
+checkpoint de l'apprenant) passent des tableaux d'arguments (`git`, `gh`),
+jamais de chaîne shell POSIX-only ; `docs.js#removePath` sonde `trash
+--version` et retombe sur `fs.rmSync` s'il est absent (trash-cli n'est pas
+garanti sur les runners Windows) ; la gestion des chemins passe par
+`path.join`/`normalizePortable` (story 01.01) plutôt que des `/` en dur.
+Aucun bloqueur évident trouvé, mais **ce n'est pas une preuve d'exécution** —
+le premier signal réel viendra du premier run CI après la fusion de cette
+story. Risque non résolu, consigné ici plutôt que masqué par une case cochée
+sans preuve.
+
+**Fichiers modifiés.**
+- `.github/workflows/ci.yml` — matrice `os` ajoutée
+- `CHANGELOG.md` (nouveau)
+- `docs/plans/git-gh-renforcement-domaine.md` (nouveau)
+- `docs/plans/norm-clean-code.md` (nouveau)
+- `bin/lib/verify.js`, `bin/lib/scan.js`, `bin/lib/tracks/git.js`,
+  `bin/lib/tracks/domain.js`, `bin/lib/status.js`, `bin/lib/norm.js` —
+  commentaire seul, le nom de fichier exact remplace la référence nue à
+  `docs/plans`
+
+**Tests exécutés.**
+- `npm test` → 318/318, 0 échec, aucun test existant modifié (comparé au
+  318/318 obtenu avant cette story).
+- `ai-flow verify --story epics/epic-01-verdict-fiable/story-01-06-depot-tient-ses-promesses`
+  → `npm test` vert (1 commande déclarée).
+
+**Revue.** `/flow-review` a relevé un P3 non bloquant : la section `0.4.0`
+(ouverte) du changelog omettait `e85cd94` (`chore(coding-flow): commit
+epic-01 planning scaffold and setup upgrade`), déjà sur `main` avant le
+point de branche de cette story. Corrigé — la ligne est ajoutée.
 
 ### Rollback Notes
 
--
+`git revert` du commit de cette story suffit : `CHANGELOG.md` et `docs/plans/`
+sont de nouveaux fichiers (suppression propre), les 6 changements dans
+`bin/lib/**` sont des commentaires seuls (aucune donnée à migrer), et le
+changement CI n'affecte que le nombre de jobs exécutés, pas leur contenu.

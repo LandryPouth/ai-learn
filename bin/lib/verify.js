@@ -97,7 +97,8 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
   const results = [result];
   logResult(phase.checkpoint, result);
 
-  // A stress-tagged phase (see docs/plans — Partie B, bin/lib/stacks/*.js's
+  // A stress-tagged phase (see docs/plans/git-gh-renforcement-domaine.md —
+  // Partie B, bin/lib/stacks/*.js's
   // `stresses` bank) requires BOTH the base checkpoint and the stress
   // checkpoint to pass before the phase counts as done — the "casse réelle"
   // fix must actually hold, not just the happy path. The moment the stress

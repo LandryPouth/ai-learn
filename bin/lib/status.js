@@ -115,9 +115,9 @@ function printDomainSummary({ dir, home } = {}) {
 
 // Unlike the git/domain summaries above, this one is not silent-by-absence:
 // it re-checks the norm on every `status` call (decision: always verify — see
-// docs/plans, walkSources already caps at 1000 files/1MB each so the cost
-// stays negligible for a real learning project). Silent only when there are
-// zero violations to report.
+// docs/plans/norm-clean-code.md, walkSources already caps at 1000 files/1MB
+// each so the cost stays negligible for a real learning project). Silent only
+// when there are zero violations to report.
 function printNormSummary({ dir }) {
   const report = normProject(dir);
 

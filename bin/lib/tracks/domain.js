@@ -4,8 +4,8 @@
 // `tracks/git.js` is domain-agnostic (git/gh apply everywhere), this one is
 // the opposite: it accumulates concept mastery *within* one stack, across
 // every project the learner has built in it, so "3 projects → expert" is a
-// real, falsifiable status instead of a hardcoded counter (see docs/plans —
-// Partie C).
+// real, falsifiable status instead of a hardcoded counter (see
+// docs/plans/git-gh-renforcement-domaine.md — Partie C).
 //
 // Same home-scoped, injectable-`home` pattern as tracks/git.js. Reuses
 // scan.js's own detection engine (`walkSources`, `detectStack`,

@@ -704,7 +704,8 @@ function suggestDirections({ language, usedConcepts, dir = null, frameworks = []
   return filtered.slice(0, 5).map((direction) => ({ ...direction, doc: resolveDirectionDoc(direction, dir) }));
 }
 
-// The "10x" reinforcement bank (see docs/plans — Partie B): a stress is the
+// The "10x" reinforcement bank (see docs/plans/git-gh-renforcement-domaine.md
+// — Partie B): a stress is the
 // same shape as a direction (requires/deepens/tier), plus a `stressCheckpoint`
 // that actually applies the load/malformed-input/concurrency and is expected
 // to fail before the fix — the tweet's mechanism, but the casse is executed,
