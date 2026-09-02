@@ -378,6 +378,95 @@ test("missing predictions in the journal is a warning", () => {
   assert.ok(entry.issues.warnings.some((w) => /recorded predictions/.test(w.message)));
 });
 
+// -----------------------------------------------------------------------
+// Predictions as data (story 01.03) — per-phase counting, predictions.json
+// as source of truth once valid, legacy .md as the fallback otherwise.
+// -----------------------------------------------------------------------
+
+function twoPhaseProgress() {
+  return sampleProgress({
+    phases: [
+      { id: 0, name: "Phase zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
+      { id: 1, name: "Phase one", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
+    ],
+  });
+}
+
+function predictionsData(entries) {
+  return { version: 1, entries };
+}
+
+function fourEntriesOnPhaseZero() {
+  return [0, 0, 0, 0].map((phaseId, i) => ({
+    id: `e${i}`,
+    phaseId,
+    at: `2026-01-01T00:00:0${i}.000Z`,
+    prediction: `p${i}`,
+    correctedBy: "apprenant",
+  }));
+}
+
+test("the comptage des prédictions est par phase — 4 entries on phase 0 do not cover phase 1", () => {
+  const dir = tmpProject(twoPhaseProgress());
+  writeFile(dir, ".ai-learn/predictions.json", JSON.stringify(predictionsData(fourEntriesOnPhaseZero())));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*recorded predictions/.test(w.message)));
+  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 recorded predictions; 2 missing/.test(w.message)));
+});
+
+test("le séparateur tiret ordinaire est compté — legacy .md with a plain hyphen, no predictions.json", () => {
+  const dir = tmpProject(twoPhaseProgress());
+  writeFile(
+    dir,
+    "docs/plans/predictions.md",
+    "# Journal\n\n### Phase 0 - prédiction 1/2\n- Prédiction : x\n\n### Phase 0 - prédiction 2/2\n- Prédiction : y\n",
+  );
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*recorded predictions/.test(w.message)));
+  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 recorded predictions/.test(w.message)));
+});
+
+test("predictions.json corrompu est une erreur, jamais silencieusement accepté", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/predictions.json", "{ not json");
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.errors.some((e) => /predictions\.json is corrupted/.test(e.message)));
+});
+
+test("corrigé par IA est signalé — from predictions.json data", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(
+    dir,
+    ".ai-learn/predictions.json",
+    JSON.stringify(predictionsData([{ id: "a", phaseId: 0, at: "2026-01-01T00:00:00.000Z", prediction: "x", correctedBy: "IA" }])),
+  );
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.warnings.some((w) => /Corrigé par : IA/.test(w.message)));
+});
+
+test("un projet ayant les deux fichiers — le JSON fait foi, même vide, sur un .md hérité non vide", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 1;
+  const dir = tmpProject(progress);
+
+  writeFile(dir, "docs/plans/predictions.md", "# Journal\n\n### Phase 0 — prédiction 1/1\n- Prédiction : x\n");
+  writeFile(dir, ".ai-learn/predictions.json", JSON.stringify(predictionsData([])));
+
+  const entry = checkProject(dir);
+
+  // The legacy .md alone would satisfy phase 0's requirement; the (empty but
+  // valid) JSON taking precedence means it is reported as missing instead.
+  assert.ok(entry.issues.warnings.some((w) => /phase 0: 0\/1 recorded predictions/.test(w.message)));
+});
+
 test("a checkpoint file written but never verified is an error", () => {
   const progress = sampleProgress();
   progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";

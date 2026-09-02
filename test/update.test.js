@@ -188,6 +188,41 @@ test("update refreshes a pristine (entry-less) dogfood journal when the template
   assert.match(content, /Attendu vs réel/);
 });
 
+test("update backfills predictions.json onto a project that predates it", () => {
+  const dir = tmpProject(project());
+
+  const out = capture(() => updateCommand({ root: dir }));
+
+  const predictionsDataPath = path.join(dir, ".ai-learn", "predictions.json");
+  assert.ok(fs.existsSync(predictionsDataPath));
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(predictionsDataPath, "utf8")), { version: 1, entries: [] });
+  assert.match(out, /predictions\.json created/);
+});
+
+test("update backfilling predictions.json never touches an existing legacy predictions.md, but flags it", () => {
+  const dir = tmpProject(project());
+  const journal = writeFile(
+    dir,
+    "docs/plans/predictions.md",
+    "# Journal de prédictions\n\n### Phase 0 — prédiction 1/1\n- Prédiction : x\n",
+  );
+  const before = fs.readFileSync(journal, "utf8");
+
+  const out = capture(() => updateCommand({ root: dir }));
+
+  assert.strictEqual(fs.readFileSync(journal, "utf8"), before);
+  assert.match(out, /predictions\.json now takes precedence/);
+});
+
+test("update leaves an existing predictions.json untouched", () => {
+  const dir = tmpProject(project());
+  const dataPath = writeFile(dir, ".ai-learn/predictions.json", `${JSON.stringify({ version: 1, entries: [{ id: "x" }] }, null, 2)}\n`);
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(dataPath, "utf8")).entries, [{ id: "x" }]);
+});
+
 test("update walks a root and refreshes every learning project", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-root-"));
 

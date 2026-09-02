@@ -30,6 +30,59 @@ test("--help prints the command catalog and exits 0", () => {
   assert.match(result.stdout, /ai-learn norm/);
   assert.match(result.stdout, /ai-learn guard/);
   assert.match(result.stdout, /ai-learn update/);
+  assert.match(result.stdout, /ai-learn predict/);
+});
+
+test("predict without a phase fails cleanly (UsageError, not a stack trace)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-predict-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({ version: 1, project: "demo", phases: [{ id: 0, name: "Zero", status: "pending" }] }),
+  );
+
+  const result = spawnSync(process.execPath, [BIN, "predict", "--dir", dir, "--prediction", "x"], {
+    encoding: "utf8",
+    env: isolatedEnv(),
+  });
+
+  assert.strictEqual(result.status, 1);
+  assert.match(result.stderr, /requires --phase/);
+  assert.doesNotMatch(result.stderr, /at Object/); // no raw stack trace leaked
+});
+
+test("predict without a prediction text fails cleanly", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-predict-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({ version: 1, project: "demo", phases: [{ id: 0, name: "Zero", status: "pending" }] }),
+  );
+
+  const result = spawnSync(process.execPath, [BIN, "predict", "--dir", dir, "--phase", "0"], {
+    encoding: "utf8",
+    env: isolatedEnv(),
+  });
+
+  assert.strictEqual(result.status, 1);
+  assert.match(result.stderr, /requires --prediction/);
+});
+
+test("predict records an entry and reports it, end to end through the CLI", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-predict-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({ version: 1, project: "demo", phases: [{ id: 0, name: "Zero", status: "pending" }] }),
+  );
+
+  const result = spawnSync(process.execPath, [BIN, "predict", "--dir", dir, "--phase", "0", "--prediction", "GET /x → 200"], {
+    encoding: "utf8",
+    env: isolatedEnv(),
+  });
+
+  assert.strictEqual(result.status, 0);
+  assert.match(result.stdout, /Recorded prediction/);
+  const data = JSON.parse(fs.readFileSync(path.join(dir, ".ai-learn", "predictions.json"), "utf8"));
+  assert.strictEqual(data.entries.length, 1);
+  assert.strictEqual(data.entries[0].prediction, "GET /x → 200");
 });
 
 test("init requires --technology", () => {

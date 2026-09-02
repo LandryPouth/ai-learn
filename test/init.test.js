@@ -68,6 +68,14 @@ test("init scaffolds the expected structure", () => {
   assert.ok(created.includes(".ai-learn/norm.json"));
   const normConfig = readJson(normConfigPath, null);
   assert.strictEqual(normConfig.maxFunctionLines, 50);
+
+  // The prediction journal's source of truth (story 01.03) — created empty,
+  // versioned like every other data file the tool scaffolds.
+  const predictionsDataPath = path.join(dir, ".ai-learn", "predictions.json");
+  assert.ok(fs.existsSync(predictionsDataPath));
+  assert.ok(created.includes(".ai-learn/predictions.json"));
+  const predictionsData = readJson(predictionsDataPath, null);
+  assert.deepStrictEqual(predictionsData, { version: 1, entries: [] });
 });
 
 test("init writes the detected stack's norm thresholds when real source already exists (ex. a scan-based init)", () => {
