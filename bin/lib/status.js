@@ -5,10 +5,31 @@
 
 const path = require("path");
 const { log, fail } = require("./util");
-const { readProgress, validateProgress, latestEvidenceForPhase } = require("./progress");
+const { readProgress, validateProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
+const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+
+// The mark and, where useful, the French label shown next to a phase —
+// derived from the same verdict `check` and `next` consume, not re-derived
+// from `phase.status` alone. Only `stale`/`unproven` get a label: the other
+// states are already legible from the mark plus the raw status text below.
+function verdictDisplay(state) {
+  switch (state) {
+    case "proven":
+    case "proven-unhashed":
+      return { mark: "✓", label: null };
+    case "stale":
+      return { mark: "⚠", label: "périmé — à re-prouver" };
+    case "unproven":
+      return { mark: "✗", label: "non prouvé" };
+    case "in-progress":
+      return { mark: "●", label: null };
+    default:
+      return { mark: "○", label: null };
+  }
+}
 
 function printStatus(config, { dir }) {
   const done = config.phases.filter((phase) => phase.status === "done").length;
@@ -22,10 +43,18 @@ function printStatus(config, { dir }) {
   }
 
   for (const phase of config.phases) {
-    const mark = phase.status === "done" ? "✓" : phase.status === "in_progress" ? "●" : "○";
     const ev = latestEvidenceForPhase(dir, phase.id);
+    const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
+    // Only cost a hash computation (a full walkSources) for a done phase with
+    // evidence to compare it against — phaseVerdict never consults currentHash
+    // for any other status, same guard as check.js/next.js.
+    const currentHash = phase.status === "done" && ev ? computeSourceHash(dir, { checkpointFile }) : null;
+    const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
+    const { mark, label } = verdictDisplay(verdict.state);
+
     const evNote = ev ? ` — evidence ${new Date(ev.generatedAt).toISOString().slice(0, 10)}` : "";
-    log(`  ${mark} Phase ${phase.id} — ${phase.name}${evNote}`);
+    const labelNote = label ? ` (${label})` : "";
+    log(`  ${mark} Phase ${phase.id} — ${phase.name}${evNote}${labelNote}`);
     if (phase.checkpoint) {
       log(`      ${phase.checkpoint}`);
     }
@@ -86,9 +115,9 @@ function printDomainSummary({ dir, home } = {}) {
 
 // Unlike the git/domain summaries above, this one is not silent-by-absence:
 // it re-checks the norm on every `status` call (decision: always verify — see
-// docs/plans, walkSources already caps at 1000 files/1MB each so the cost
-// stays negligible for a real learning project). Silent only when there are
-// zero violations to report.
+// docs/plans/norm-clean-code.md, walkSources already caps at 1000 files/1MB
+// each so the cost stays negligible for a real learning project). Silent only
+// when there are zero violations to report.
 function printNormSummary({ dir }) {
   const report = normProject(dir);
 

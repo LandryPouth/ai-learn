@@ -10,12 +10,13 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, findLearningProjects } = require("./util");
-const { readProgress, validateProgress, runsDir, progressPath, latestEvidenceForPhase } = require("./progress");
+const { readProgress, validateProgress, runsDir, progressPath, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { docSourceList } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
+const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 
 // A real merged/open PR URL — the only acceptable evidence shape for a tier-6
 // ("read a stranger's diff") phase, same "presence + minimum substance, not
@@ -267,6 +268,8 @@ function checkProject(dir) {
 
   for (const phase of config.phases || []) {
     const relative = (artifact) => normalizeRelative(dir, artifact);
+    const ev = latestEvidenceForPhase(dir, phase.id);
+    const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
 
     if (phase.status === "done") {
       if (!phase.checkpoint) {
@@ -275,12 +278,20 @@ function checkProject(dir) {
           message: `phase ${phase.id} ("${phase.name}") is done but has no checkpoint — it cannot be proven`,
         });
       } else {
-        const ev = latestEvidenceForPhase(dir, phase.id);
+        // Only cost a hash computation (a full walkSources) when there is
+        // evidence to compare it against — an unproven phase doesn't need it.
+        const currentHash = ev ? computeSourceHash(dir, { checkpointFile }) : null;
+        const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
 
-        if (!ev) {
+        if (verdict.state === "unproven") {
           issues.errors.push({
             file: "progress.json",
             message: `phase ${phase.id} ("${phase.name}") is marked done but has no passing evidence. Run \`ai-learn verify ${phase.id}\`.`,
+          });
+        } else if (verdict.state === "stale") {
+          issues.errors.push({
+            file: "progress.json",
+            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — learner files changed since \`ai-learn verify ${phase.id}\` last passed. Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
           });
         }
       }
@@ -300,8 +311,6 @@ function checkProject(dir) {
         checkTier6Artifact(dir, phase, issues, relative);
       }
     } else {
-      const ev = latestEvidenceForPhase(dir, phase.id);
-
       if (ev) {
         issues.warnings.push({
           file: "progress.json",
@@ -312,10 +321,12 @@ function checkProject(dir) {
       // The structural backstop: a checkpoint test file that exists but has no
       // passing evidence means the agent wrote the proof but never ran it —
       // verify was skipped even though the work was done. This is what makes
-      // verify non-skippable by omission, not just by word.
-      const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
+      // verify non-skippable by omission, not just by word. Relaxed for
+      // `in_progress` (still mid-phase, not a lie) — `phaseVerdict` keeps the
+      // error only for `pending`.
+      const verdict = phaseVerdict({ phase, evidence: ev, checkpointFileExists: Boolean(checkpointFile) });
 
-      if (checkpointFile && !latestEvidenceForPhase(dir, phase.id)) {
+      if (verdict.state === "unproven") {
         issues.errors.push({
           file: relative(checkpointFile),
           message: `checkpoint exists but no passing evidence — run \`ai-learn verify ${phase.id}\``,
@@ -569,31 +580,6 @@ function codexGuardWired(dir) {
 
 function normalizeRelative(dir, value) {
   return path.relative(dir, path.resolve(dir, value)).replace(/\\/g, "/");
-}
-
-// Extract the test file path a checkpoint command points at, if any. The
-// checkpoint format is a shell command (ex. `node --test checkpoint/phase-1.test.mjs`);
-// we look for a token that resolves to an existing file relative to the project.
-function checkpointFilePath(dir, command) {
-  if (typeof command !== "string") {
-    return null;
-  }
-
-  const tokens = command.split(/\s+/);
-
-  for (const token of tokens) {
-    if (!token || token.startsWith("-")) {
-      continue;
-    }
-
-    const candidate = path.resolve(dir, token);
-
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return candidate;
-    }
-  }
-
-  return null;
 }
 
 function printProjectReport(entry) {

@@ -46,6 +46,60 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `high` — `.githooks/pre-push` corrompt le dépôt réel via `npm test`
+- **Repo** : ai-learn (dogfooding du tool lui-même, story 01.06)
+- **Surface** : `.githooks/pre-push` (hook versionné du dépôt) + suite de tests
+  (`test/git-hooks.test.js`, `test/tracks-git.test.js` et consorts, qui
+  fabriquent de vrais mini-dépôts git pour tester le module git/gh)
+- **Problème** : git peuple l'environnement d'un hook avec `GIT_DIR` (et
+  `GIT_WORK_TREE`/`GIT_INDEX_FILE`) pointant vers le vrai dépôt en cours
+  d'opération. `pre-push` lance `npm test`, qui hérite cet environnement ; les
+  fixtures de test font `spawnSync("git", ["-C", tmpDir, ...])`, mais `-C` ne
+  prime pas sur un `GIT_DIR` déjà présent dans l'environnement — ces commandes
+  finissent donc par écrire dans le **vrai** dépôt partagé au lieu de leur
+  `tmpDir` isolé. Constaté trois fois de suite, reproductible à chaque `git
+  push` : `.git/config` réécrit (`core.bare = true`, `core.hooksPath =
+  custom-hooks`, `user.name/email = t/t@t`, `extensions.worktreeConfig`),
+  `refs/heads/main` et la branche de la story déplacées vers des commits
+  fabriqués par les fixtures (« feat: a », « feat: b », merges/cherry-picks de
+  test), et le `HEAD` par-worktree d'un worktree lié repointé sur `main`. Rien
+  n'a jamais atteint `origin` (vérifié à chaque fois via `ls-remote`), mais le
+  dépôt local a dû être restauré à la main trois fois (`git update-ref`,
+  `git symbolic-ref HEAD`, `git reset --hard`) avant de pouvoir pousser. Un
+  quatrième worktree (`story-01-02-preuve-perimee-a-reprouver`) a été laissé
+  corrompu par le même bug, sans lien avec cette story, non réparé ici.
+- **Workaround** : `git push --no-verify` — légitime ici parce que `npm test`
+  était déjà prouvé vert (318/318) hors contexte de hook (exécution directe,
+  sans `GIT_DIR` dans l'environnement) ; le hook local n'ajoutait aucune
+  garantie qu'il ne pouvait lui-même pas tenir, et la vraie preuve
+  (CI GitHub Actions, sans ce hook) restait intacte.
+- **Résolution** : ouverte. Piste retenue : dans les tests qui fabriquent des
+  dépôts git isolés, passer un `env` explicite à `spawnSync` qui supprime
+  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR` hérités, plutôt
+  que de compter sur `-C`/`cwd` seuls pour l'isolation.
+
+### `medium` — Worktree créé pour une chaîne qui n'a rien à paralléliser
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `ai-flow worktree place` (placement automatique des stories)
+- **Problème** : sur l'epic-01 (`s1` se ramifie en `s2`→`s3`→`s4`→`s5` et `s6`),
+  `s1` a tourné directement sur le dossier principal (rien d'autre en cours à ce
+  moment). Son entrée dans le carnet de réservation
+  (`.git/coding-flow/worktree-plan/<epic>.json`) n'est jamais nettoyée : la
+  libération (`clearChainPlacement`) n'est déclenchée que par un `land` depuis un
+  worktree isolé, jamais par une chaîne qui a fini **sur place**. Conséquence :
+  lancer `story-01-02` (nouvelle chaîne au point de ramification) plus tard, alors
+  que rien ne tourne en parallèle, la fait quand même partir dans un nouveau
+  worktree (`ai-learn-worktrees/story-01-02-preuve-perimee-a-reprouver`) — parce
+  que le carnet voit encore `s1` comme « occupant » le dossier principal, bien que
+  `s1` soit terminée depuis longtemps. Isolation inutile : dossier, branche et
+  `land` en plus pour un travail qui n'avait rien à paralléliser.
+- **Workaround** : aucun — accepté tel quel, correctif prévu directement dans
+  Coding Flow plutôt qu'en contournement côté ai-learn.
+- **Résolution** : ouverte. Piste retenue : libérer la réservation d'une chaîne
+  dès qu'elle atteint `done`, pas seulement au `land` d'un worktree isolé — pour
+  qu'une chaîne terminée sur place cesse d'occuper le dossier principal aux yeux
+  du placement.
+
 ### `medium` — `docs add` un fichier (livre PDF) plante en `ENOTDIR`
 - **Repo** : ai-learn (dogfooding du tool lui-même)
 - **Surface** : docs

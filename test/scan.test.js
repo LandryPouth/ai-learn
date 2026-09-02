@@ -121,7 +121,7 @@ test("scan is non-destructive: only .ai-learn/scan.json is added, sources untouc
         if (entry.isDirectory()) {
           walk(abs);
         } else if (entry.isFile()) {
-          out[path.relative(root, abs)] = fs.readFileSync(abs);
+          out[path.relative(root, abs).replace(/\\/g, "/")] = fs.readFileSync(abs);
         }
       }
     };

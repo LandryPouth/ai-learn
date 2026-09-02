@@ -19,8 +19,9 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { readJson, writeJson } = require("../util");
 
-// The tier bank this ledger tracks (see docs/plans — Partie A of the git/gh
-// module plan): 1 vocabulaire+format de commit, 2 diff/stash/restore, 3
+// The tier bank this ledger tracks (see
+// docs/plans/git-gh-renforcement-domaine.md — Partie A): 1 vocabulaire+format
+// de commit, 2 diff/stash/restore, 3
 // branches+conflit réel, 4 amend/rebase -i/cherry-pick, 5 workflow PR via gh,
 // 6 lecture de diffs/commits d'autrui.
 const TIER_IDS = [1, 2, 3, 4, 5, 6];
