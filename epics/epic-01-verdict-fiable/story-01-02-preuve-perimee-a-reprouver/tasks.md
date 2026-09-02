@@ -108,8 +108,11 @@ directement à ce qu'elle a elle-même causé).
   `check --root` sur ce projet → 0 erreur, 0 warning (confirme le correctif du
   faux positif ci-dessus — avant correctif : 1 warning de dérive).
 - `ai-flow verify --story epics/epic-01-verdict-fiable/story-01-02-preuve-perimee-a-reprouver`
-  → `npm test` vert, coverage `not-required` (risque jugé faible par le
-  harness — aucun terme à haut risque dans le diff).
+  → `npm test` vert ; coverage `required`/`test-file` une fois les 3 fichiers de
+  test pris en compte à côté des 5 fichiers de comportement modifiés, `ok: true`
+  (une première exécution, avant le commit final, avait vu le risque comme trop
+  faible pour exiger de la couverture — la réexécution après commit est la
+  preuve qui fait foi).
 
 ### Rollback Notes
 

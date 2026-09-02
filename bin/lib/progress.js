@@ -18,13 +18,10 @@ function runsDir(dir) {
   return path.join(dir, ".ai-learn", "runs");
 }
 
-// The latest passing verify evidence for a phase, or null. Lives here (a
-// leaf module with no further requires) rather than in status.js, which
-// several modules (scan.js, check.js, next.js) import from — status.js now
-// also reaches into tracks/domain.js → scan.js, so keeping this function on
-// status.js would create a require cycle back into scan.js/check.js/next.js.
-// status.js still re-exports it for backward compatibility.
-function latestEvidenceForPhase(dir, phaseId) {
+// Walks a phase's evidence files newest-first, returning the first one
+// matching `predicate` (or null). Shared by `latestEvidenceForPhase` and
+// `latestAnyEvidenceForPhase` below, which differ only in that predicate.
+function findEvidence(dir, phaseId, predicate) {
   const runs = runsDir(dir);
 
   if (!fs.existsSync(runs)) {
@@ -37,7 +34,7 @@ function latestEvidenceForPhase(dir, phaseId) {
     try {
       const ev = JSON.parse(fs.readFileSync(path.join(runs, name), "utf8"));
 
-      if (ev.phaseId === phaseId && ev.ok === true) {
+      if (ev.phaseId === phaseId && predicate(ev)) {
         return ev;
       }
     } catch {
@@ -48,6 +45,16 @@ function latestEvidenceForPhase(dir, phaseId) {
   return null;
 }
 
+// The latest passing verify evidence for a phase, or null. Lives here (a
+// leaf module with no further requires) rather than in status.js, which
+// several modules (scan.js, check.js, next.js) import from — status.js now
+// also reaches into tracks/domain.js → scan.js, so keeping this function on
+// status.js would create a require cycle back into scan.js/check.js/next.js.
+// status.js still re-exports it for backward compatibility.
+function latestEvidenceForPhase(dir, phaseId) {
+  return findEvidence(dir, phaseId, (ev) => ev.ok === true);
+}
+
 // The most recent evidence for a phase, passing or not — unlike
 // `latestEvidenceForPhase`, which only ever returns a passing one.
 // `check` uses this to tell a legitimate demotion (the most recent run for
@@ -55,27 +62,7 @@ function latestEvidenceForPhase(dir, phaseId) {
 // from stale passing evidence nobody explained (forged, copied in, or the
 // phase reset by hand without a new verify run).
 function latestAnyEvidenceForPhase(dir, phaseId) {
-  const runs = runsDir(dir);
-
-  if (!fs.existsSync(runs)) {
-    return null;
-  }
-
-  const files = fs.readdirSync(runs).filter((name) => name.endsWith("-verify.json")).sort().reverse();
-
-  for (const name of files) {
-    try {
-      const ev = JSON.parse(fs.readFileSync(path.join(runs, name), "utf8"));
-
-      if (ev.phaseId === phaseId) {
-        return ev;
-      }
-    } catch {
-      // Unreadable evidence is not proof; skip it.
-    }
-  }
-
-  return null;
+  return findEvidence(dir, phaseId, () => true);
 }
 
 function readProgress(dir) {
