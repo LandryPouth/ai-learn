@@ -69,22 +69,47 @@ function sourceHashScope(dir, { checkpointFile } = {}) {
 // sha256 over the sorted scope: for each file, "path\n" then its raw bytes.
 // Byte-based on purpose — a CRLF/LF difference is a real change to the file,
 // not noise to normalize away (see docs/architecture.md, Decisions).
+//
+// Alongside the single global digest (the fast path/pending)`phaseVerdict`
+// compares first), each file also gets its own digest in `entries` — the
+// detail `changedSourceFiles` needs to name *which* files a stale verdict
+// covers (story 01.02). `files`/`digest` are unchanged from story 01.01, so
+// evidence written before `entries` existed stays comparable by digest alone.
 function computeSourceHash(dir, opts = {}) {
   const rels = sourceHashScope(dir, opts);
   const hash = crypto.createHash("sha256");
+  const entries = [];
 
   for (const rel of rels) {
     hash.update(`${rel}\n`);
 
+    let bytes = Buffer.alloc(0);
+
     try {
-      hash.update(fs.readFileSync(path.join(dir, rel)));
+      bytes = fs.readFileSync(path.join(dir, rel));
     } catch {
       // Removed between listing and reading — its absence is itself part of
       // what changed; the path is already in the digest.
     }
+
+    hash.update(bytes);
+    entries.push({ path: rel, digest: crypto.createHash("sha256").update(bytes).digest("hex") });
   }
 
-  return { algo: "sha256", files: rels.length, digest: hash.digest("hex") };
+  return { algo: "sha256", files: rels.length, digest: hash.digest("hex"), entries };
 }
 
-module.exports = { checkpointFilePath, computeSourceHash };
+// Which files differ between two computeSourceHash() results, by path — a
+// changed digest, an added path, or a removed path are all "changed" from
+// the learner's point of view. Sorted for a predictable message. Evidence
+// written before `entries` existed (story 01.01) cannot be diffed per file —
+// callers check for `oldHash.entries` before calling this.
+function changedSourceFiles(oldHash, newHash) {
+  const before = new Map((oldHash.entries || []).map((e) => [e.path, e.digest]));
+  const after = new Map((newHash.entries || []).map((e) => [e.path, e.digest]));
+  const paths = new Set([...before.keys(), ...after.keys()]);
+
+  return [...paths].filter((p) => before.get(p) !== after.get(p)).sort();
+}
+
+module.exports = { checkpointFilePath, computeSourceHash, changedSourceFiles };

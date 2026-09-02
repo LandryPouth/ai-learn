@@ -10,13 +10,21 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, findLearningProjects } = require("./util");
-const { readProgress, validateProgress, runsDir, progressPath, latestEvidenceForPhase, phaseVerdict } = require("./progress");
+const {
+  readProgress,
+  validateProgress,
+  runsDir,
+  progressPath,
+  latestEvidenceForPhase,
+  latestAnyEvidenceForPhase,
+  phaseVerdict,
+} = require("./progress");
 const { docSourceList } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
-const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 
 // A real merged/open PR URL — the only acceptable evidence shape for a tier-6
 // ("read a stranger's diff") phase, same "presence + minimum substance, not
@@ -289,9 +297,18 @@ function checkProject(dir) {
             message: `phase ${phase.id} ("${phase.name}") is marked done but has no passing evidence. Run \`ai-learn verify ${phase.id}\`.`,
           });
         } else if (verdict.state === "stale") {
+          // `entries` is absent on evidence written before story 01.02 —
+          // still detected as stale by the global digest, just not
+          // nameable file-by-file; fall back to the untargeted wording.
+          const changed = ev.sourceHash.entries ? changedSourceFiles(ev.sourceHash, currentHash) : [];
+          const changeDetail =
+            changed.length > 0
+              ? `${changed.length} file(s) changed since \`ai-learn verify ${phase.id}\` last passed (${previewFileList(changed)})`
+              : `learner files changed since \`ai-learn verify ${phase.id}\` last passed`;
+
           issues.errors.push({
             file: "progress.json",
-            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — learner files changed since \`ai-learn verify ${phase.id}\` last passed. Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
+            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}. Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
           });
         }
       }
@@ -311,7 +328,22 @@ function checkProject(dir) {
         checkTier6Artifact(dir, phase, issues, relative);
       }
     } else {
-      if (ev) {
+      // A `--no-mark` run deliberately writes passing evidence without
+      // touching the ledger (see verify.js's `marking` field) — that is not
+      // drift, it is the flag working as intended. Evidence written before
+      // story 01.02 has no `marking` field and keeps the existing warning.
+      //
+      // Neither is a legitimate demotion: a failing verify is *why* the
+      // phase left `done` (see verify.js), and that failing run is
+      // necessarily the most recent evidence for this phase. Found while
+      // manually reproducing the demotion — without this, every single
+      // demotion would immediately trip this warning. Only warn when
+      // passing evidence sits there with nothing more recent explaining why
+      // the phase isn't done: evidence forged/copied in, or `progress.json`
+      // edited by hand without a new verify run.
+      const demoted = Boolean(ev) && latestAnyEvidenceForPhase(dir, phase.id).ok === false;
+
+      if (ev && ev.marking !== "skipped" && !demoted) {
         issues.warnings.push({
           file: "progress.json",
           message: `phase ${phase.id} has passing evidence but is not marked done (stale or reverted?)`,
@@ -580,6 +612,13 @@ function codexGuardWired(dir) {
 
 function normalizeRelative(dir, value) {
   return path.relative(dir, path.resolve(dir, value)).replace(/\\/g, "/");
+}
+
+// The first few changed paths named in a stale message, plus how many more —
+// naming every path on a large rename would bury the point in noise.
+function previewFileList(paths, limit = 3) {
+  const shown = paths.slice(0, limit).join(", ");
+  return paths.length > limit ? `${shown}, and ${paths.length - limit} more` : shown;
 }
 
 function printProjectReport(entry) {

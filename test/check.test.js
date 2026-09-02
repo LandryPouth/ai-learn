@@ -8,6 +8,7 @@ const { spawnSync } = require("child_process");
 
 const { checkProject, checkCommand, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
+const { readProgress } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
 const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
 const { findLearningProjects } = require("../bin/lib/util");
@@ -230,13 +231,65 @@ test("a missing artifact blocks a done phase", () => {
   assert.ok(entry2.issues.errors.some((e) => /requires artifact/.test(e.message)));
 });
 
-test("stale evidence on a pending phase is a warning", () => {
+// Was "stale evidence on a pending phase is a warning" before story 01.02:
+// `--no-mark` is a deliberate "observe without touching the ledger" run, not
+// drift — verify.js now writes `marking: "skipped"` on it, and check.js
+// reads that field to stop flagging normal `--no-mark` usage as regression.
+test("verify --no-mark leaves passing evidence unflagged (not drift)", () => {
   const dir = tmpProject(sampleProgress());
 
   capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(!entry.issues.warnings.some((w) => /passing evidence but is not marked done/.test(w.message)));
+});
+
+test("passing evidence without a marking field (legacy, pre-01.02) still warns as drift (non-regression)", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
+
+  const runsDirPath = path.join(dir, ".ai-learn", "runs");
+  const runFile = fs.readdirSync(runsDirPath).find((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDirPath, runFile), "utf8"));
+  delete evidence.marking;
+  fs.writeFileSync(path.join(runsDirPath, runFile), `${JSON.stringify(evidence, null, 2)}\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.warnings.some((w) => /passing evidence but is not marked done/.test(w.message)));
+});
+
+// Found while manually reproducing the demotion for the story's own Result
+// notes: right after a legitimate demotion, the phase's earlier passing
+// evidence is still on disk (verify.js never deletes it), and status is
+// no longer "done" — exactly the shape the drift warning above was
+// watching for. Without this, every single demotion would immediately trip
+// it, which is not drift, it is the feature working.
+test("a legitimately demoted phase is not flagged as drift (its own failing verify explains the status)", () => {
+  const dir = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  let { config } = readProgress(dir);
+  config.phases[0].checkpoint = 'node -e "process.exit(1)"';
+  writeFile(dir, "progress.json", JSON.stringify(config, null, 2));
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.warnings.some((w) => /passing evidence but is not marked done/.test(w.message)));
+});
+
+test("passing evidence with the phase reset by hand (no new verify run since) still warns as drift (non-regression)", () => {
+  const dir = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  let { config } = readProgress(dir);
+  config.phases[0].status = "pending";
+  writeFile(dir, "progress.json", JSON.stringify(config, null, 2));
+
+  const entry = checkProject(dir);
   assert.ok(entry.issues.warnings.some((w) => /passing evidence but is not marked done/.test(w.message)));
 });
 
@@ -372,6 +425,69 @@ test("a modification to src/ after a passing verify makes the proof stale", () =
 
   const entry = checkProject(dir);
   assert.ok(entry.issues.errors.some((e) => /is done but its proof is stale/.test(e.message)));
+});
+
+test("the stale message names the changed file and the total count", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const entry = checkProject(dir);
+  const stale = entry.issues.errors.find((e) => /is done but its proof is stale/.test(e.message));
+
+  assert.ok(stale);
+  assert.match(stale.message, /1 file\(s\) changed/);
+  assert.match(stale.message, /src\/index\.js/);
+});
+
+test("a file removed from the proof's scope (and nothing else) is detected as a change", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/a.js", "const a = 1;\n");
+  writeFile(dir, "src/b.js", "const b = 2;\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  fs.rmSync(path.join(dir, "src", "b.js"));
+
+  const entry = checkProject(dir);
+  const stale = entry.issues.errors.find((e) => /is done but its proof is stale/.test(e.message));
+
+  assert.ok(stale);
+  assert.match(stale.message, /src\/b\.js/);
+});
+
+test("a file added to the proof's scope (and nothing existing changed) is detected as a change", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/a.js", "const a = 1;\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/c.js", "const c = 3;\n");
+
+  const entry = checkProject(dir);
+  const stale = entry.issues.errors.find((e) => /is done but its proof is stale/.test(e.message));
+
+  assert.ok(stale);
+  assert.match(stale.message, /src\/c\.js/);
+});
+
+test("a stale proof and a missing artifact on the same phase are both reported, not just the first", () => {
+  const progress = sampleProgress();
+  progress.phases[0].artifacts = ["docs/phase-0-notes.md"];
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  writeFile(dir, "docs/phase-0-notes.md", "# Notes\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+  fs.rmSync(path.join(dir, "docs", "phase-0-notes.md"));
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /is done but its proof is stale/.test(e.message)));
+  assert.ok(entry.issues.errors.some((e) => /requires artifact/.test(e.message)));
 });
 
 test("proof stays valid when nothing covered by it changed", () => {

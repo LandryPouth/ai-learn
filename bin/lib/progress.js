@@ -48,6 +48,36 @@ function latestEvidenceForPhase(dir, phaseId) {
   return null;
 }
 
+// The most recent evidence for a phase, passing or not — unlike
+// `latestEvidenceForPhase`, which only ever returns a passing one.
+// `check` uses this to tell a legitimate demotion (the most recent run for
+// this phase failed, which is *why* it left `done` — see verify.js) apart
+// from stale passing evidence nobody explained (forged, copied in, or the
+// phase reset by hand without a new verify run).
+function latestAnyEvidenceForPhase(dir, phaseId) {
+  const runs = runsDir(dir);
+
+  if (!fs.existsSync(runs)) {
+    return null;
+  }
+
+  const files = fs.readdirSync(runs).filter((name) => name.endsWith("-verify.json")).sort().reverse();
+
+  for (const name of files) {
+    try {
+      const ev = JSON.parse(fs.readFileSync(path.join(runs, name), "utf8"));
+
+      if (ev.phaseId === phaseId) {
+        return ev;
+      }
+    } catch {
+      // Unreadable evidence is not proof; skip it.
+    }
+  }
+
+  return null;
+}
+
 function readProgress(dir) {
   const filePath = progressPath(dir);
 
@@ -201,5 +231,6 @@ module.exports = {
   findPhase,
   setPhaseStatus,
   latestEvidenceForPhase,
+  latestAnyEvidenceForPhase,
   phaseVerdict,
 };
