@@ -1,12 +1,12 @@
 # Story 01.06 — Le dépôt tient ses propres promesses
 
-## Status: in-progress
+## Status: done
 
-Le premier run CI réel (PR #6) a tourné : 6/9 jobs verts, `windows-latest`
-a révélé 12 échecs réels sur 4 causes racines distinctes (dont un bug de
-sécurité dans le garde-fou anti-traversal). Toutes corrigées — voir
-`## Result`. Passera à `done` une fois le run CI suivant sur cette PR
-confirmé vert sur les 9 jobs.
+Le premier run CI réel (PR #6, run `33582634117`) a tourné : 6/9 jobs verts,
+`windows-latest` a révélé 12 échecs réels sur 4 causes racines distinctes
+(dont un bug de sécurité dans le garde-fou anti-traversal). Toutes
+corrigées — voir `## Result`. Le run suivant (`33623593070`) confirme les
+9 jobs verts (ubuntu/windows/macos × node 18/20/22).
 
 ## Goal
 
@@ -44,12 +44,12 @@ Ce sont les raisons du *pourquoi* de l'outil, et elles sont des références mor
 ## Acceptance Criteria
 
 - [x] Given le workflow CI, when il est déclenché, then la suite tourne sur Ubuntu, Windows et macOS.
-- [ ] Given la CI sur Windows, when la suite tourne, then elle passe sans échec lié aux chemins ou aux fins de ligne — ou l'échec est reproduit, documenté, et corrigé dans cette story. **Échecs reproduits et corrigés** (12/318, 4 causes racines — voir `## Result`) ; en attente du prochain run CI pour confirmer le vert.
+- [x] Given la CI sur Windows, when la suite tourne, then elle passe sans échec lié aux chemins ou aux fins de ligne — ou l'échec est reproduit, documenté, et corrigé dans cette story. Échecs reproduits et corrigés (12/318, 4 causes racines — voir `## Result`) ; run `33623593070` confirme les 9 jobs verts.
 - [x] Given `CHANGELOG.md`, when on le lit, then il couvre les versions 0.1.0 à 0.4.0 à partir de l'historique git réel, sans version inventée.
 - [x] Given une entrée du changelog, when on la compare aux commits de la version correspondante, then chaque ligne renvoie à un changement réellement présent dans l'historique.
 - [x] Given les six commentaires de code qui renvoient à `docs/plans`, when on suit chaque référence, then elle pointe vers un fichier existant qui traite bien le sujet nommé.
 - [x] Given un plan reconstitué, when une décision n'a pas pu être retrouvée dans le code ou l'historique, then elle est explicitement marquée comme hypothèse plutôt que présentée comme un fait.
-- [x] Given la suite de tests, when elle tourne après cette story, then aucun test existant n'a été modifié — cette story ne change aucun comportement.
+- [x] Given la suite de tests, when elle tourne après cette story, then aucun test existant n'a été modifié — cette story ne change aucun comportement. Vrai pour le périmètre initial (CI matrix, changelog, docs/plans : commentaire seul). Ne l'est plus une fois le contingent de l'AC #2 déclenché (« l'échec est reproduit, documenté, et corrigé dans cette story ») : corriger les 4 causes racines Windows a modifié 6 tests existants et 3 comportements réels (`guard.js`, `docs.js`, `commands.js`) — changement de comportement assumé et anticipé par les Notes ci-dessous, pas une dérive de périmètre.
 
 ## Notes
 
@@ -156,9 +156,9 @@ helper `snapshot()` comparait un chemin `path.relative` natif Windows à un
 littéral `/` en dur) — corrigé dans le test, aucun code de production
 concerné.
 
-`npm test` reste 318/318 en local (Linux) après ces corrections ; le
-comportement exact sous `windows-latest` sera confirmé par le prochain run
-CI sur cette PR.
+`npm test` reste 318/318 en local (Linux) après ces corrections. Le run CI
+suivant sur la PR (`33623593070`) confirme les 9 jobs verts, `windows-latest`
+inclus sur node 18/20/22.
 
 **Fichiers modifiés.**
 - `.github/workflows/ci.yml` — matrice `os` ajoutée
