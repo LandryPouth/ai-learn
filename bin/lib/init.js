@@ -13,6 +13,7 @@ const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
 const { ensureNormConfig } = require("./norm");
+const { ensurePredictionsFile, predictionsPath } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
 const os = require("os");
@@ -132,6 +133,15 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
 
   if (normConfig.created) {
     created.push(normalizePortable(path.relative(abs, path.join(abs, ".ai-learn", "norm.json"))));
+  }
+
+  // The prediction journal's source of truth (story 01.03) — created empty so
+  // a brand-new project starts on predictions.json from its very first
+  // prediction; docs/plans/predictions.md stays the template until then.
+  const predictionsData = ensurePredictionsFile(abs);
+
+  if (predictionsData.created) {
+    created.push(normalizePortable(path.relative(abs, predictionsPath(abs))));
   }
 
   // The friction journal: the AI logs unexpected tool behavior here as it

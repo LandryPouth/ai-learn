@@ -17,7 +17,6 @@ function nextCommand({ dir }) {
   }
 
   const phases = Array.isArray(config.phases) ? config.phases : [];
-  const next = phases.find((phase) => phase && phase.status !== "done");
 
   // Done phases whose proof does not actually hold — never proven, or once
   // proven and now stale — are drift the learner should know about before
@@ -51,14 +50,26 @@ function nextCommand({ dir }) {
     log("");
   }
 
+  // A stale proof outranks starting the next unstarted phase: re-proving
+  // what regressed comes first, before moving forward (plan.md, "Ordre dans
+  // next"). Ledger order among several stale phases, not sorted — the first
+  // one a learner would hit reading progress.json top to bottom.
+  const staleFirst = brokenDone.find((entry) => entry.verdict.state === "stale");
+  const next = staleFirst ? staleFirst.phase : phases.find((phase) => phase && phase.status !== "done");
+
   if (!next) {
     log(`All ${phases.length}/${phases.length} phases done.`);
     log("Run `ai-learn check` to confirm the whole track is proven, then ship it.");
     return;
   }
 
-  log(`Next: Phase ${next.id} — ${next.name}`);
-  log(`  Status: ${next.status}`);
+  if (staleFirst) {
+    log(`Next: Phase ${next.id} — ${next.name} — re-prove it (marked done, but its proof is stale)`);
+  } else {
+    log(`Next: Phase ${next.id} — ${next.name}`);
+    log(`  Status: ${next.status}`);
+  }
+
   log(`  Checkpoint: ${next.checkpoint || "(no checkpoint defined)"}`);
 
   if (next.predictionsRequired) {
@@ -72,7 +83,7 @@ function nextCommand({ dir }) {
   }
 
   log("");
-  log("When it passes, prove it:");
+  log(staleFirst ? "Re-prove it:" : "When it passes, prove it:");
   log(`  ai-learn verify ${next.id}`);
 }
 

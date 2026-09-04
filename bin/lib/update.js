@@ -21,6 +21,7 @@ const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
 const { ensureNormConfig } = require("./norm");
+const { ensurePredictionsFile, journalPath: predictionsJournalPath } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
 
@@ -76,6 +77,24 @@ function syncCheckpointReadme(dir) {
   fs.mkdirSync(path.dirname(readmePath), { recursive: true });
   fs.writeFileSync(readmePath, fs.readFileSync(path.join(TEMPLATES_DIR, "checkpoint-readme.md"), "utf8"));
   return "created";
+}
+
+// Backfill .ai-learn/predictions.json into a project that predates story
+// 01.03 (see bin/lib/predictions.js). Locked decision: once this file
+// exists and is valid, it is the source of truth for counting — even over a
+// non-empty legacy docs/plans/predictions.md, which is why this flags that
+// case explicitly instead of backfilling silently.
+function syncPredictionsData(dir) {
+  const result = ensurePredictionsFile(dir);
+
+  if (!result.created) {
+    return { action: "kept" };
+  }
+
+  const journal = predictionsJournalPath(dir);
+  const hasLegacyEntries = fs.existsSync(journal) && /^###\s+Phase\s+\d+\s+[—–-]\s+prédiction/im.test(fs.readFileSync(journal, "utf8"));
+
+  return { action: "created", hasLegacyEntries };
 }
 
 // The exact title `init` writes as the first line of a generated AGENTS.md. Its
@@ -179,6 +198,7 @@ function updateCommand({ root, platform }) {
       // best-effort — falls back to generic defaults
     }
     const normConfig = ensureNormConfig(project, detectedLanguage);
+    const predictionsData = syncPredictionsData(project);
 
     log(`\n${path.basename(project)}`);
     log(`  protocol: ${protocol.file} ${protocol.action}`);
@@ -191,6 +211,18 @@ function updateCommand({ root, platform }) {
     log(`  checkpoint README: checkpoint/README.md ${checkpointReadme}`);
     log(`  commit-msg hook: ${commitHook.skipped ? "no .git yet — skipped" : `.githooks/commit-msg ${commitHook.file}, core.hooksPath ${commitHook.hooksPath}`}`);
     log(`  norm config: .ai-learn/norm.json ${normConfig.created ? "created" : "already present — not touched"}`);
+
+    if (predictionsData.action === "created") {
+      log(
+        `  predictions data: .ai-learn/predictions.json created${
+          predictionsData.hasLegacyEntries
+            ? " — docs/plans/predictions.md has existing entries; predictions.json now takes precedence for counting (record new ones with `ai-learn predict`)"
+            : ""
+        }`,
+      );
+    } else {
+      log("  predictions data: .ai-learn/predictions.json already present — not touched");
+    }
   }
 }
 

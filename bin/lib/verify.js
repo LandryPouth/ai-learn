@@ -166,6 +166,10 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     results,
     missingArtifacts,
     sourceHash,
+    // Whether this run touched the ledger. `check` uses it to tell a
+    // deliberate `--no-mark` observation run apart from a real drift (a
+    // passing evidence that never got marked done) — see story 01.02.
+    marking: noMark ? "skipped" : "applied",
     norm: {
       ok: normReport.violations.length === 0,
       violations: normReport.violations,
@@ -206,6 +210,16 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
       log("Clôture propre — committez cette phase avant de continuer :");
       log(`  git add -A && git commit -m "feat(phase-${phase.id}): ${phase.name}"`);
     }
+  } else if (!noMark && phase.status === "done") {
+    // Symmetric to the promotion above: verify is the only writer of a
+    // phase's status in both directions. A done phase whose checkpoint no
+    // longer passes did not just become unproven — it regressed, and
+    // `in_progress` says so without erasing that the work happened
+    // (never `pending`, see plan.md Decisions).
+    setPhaseStatus(dir, phase.id, "in_progress");
+    log("");
+    log(`Phase ${phase.id} demoted: done → in_progress — the checkpoint or its checks no longer pass.`);
+    log(`Fix it, then re-run \`ai-learn verify ${phase.id}\` to prove it again.`);
   }
 
   log(`Evidence: ${outputPath}`);

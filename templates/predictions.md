@@ -2,6 +2,8 @@
 
 Une entrée par prédiction écrite **avant** révélation. Une prédiction doit être faussable : l'IA la compare élément par élément et note le nombre d'écarts — c'est ce compte qui fait foi, pas une impression.
 
+**Ce fichier est généré.** Les entrées ci-dessous sont régénérées depuis `.ai-learn/predictions.json` (source de vérité) à chaque `ai-learn predict` — ne pas les éditer ici, elles seraient écrasées à la prochaine régénération. Retirer ce titre rend le fichier personnalisé : `ai-learn predict` ne le touchera plus jamais.
+
 ## Format
 
 ```md

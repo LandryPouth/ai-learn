@@ -77,7 +77,11 @@ test("next reports completion when every phase is done", () => {
   assert.match(out, /ai-learn check/);
 });
 
-test("next flags a stale done phase as to re-prove, not as finished", () => {
+// Before story 01.02, a stale phase was only a warning — `next` still fell
+// through to "All 1/1 phases done" because every phase's `status` was
+// literally "done". That was the exact lie this story closes: a stale
+// phase is no longer presented as finished, it becomes the headline "Next".
+test("next presents a stale done phase as the thing to re-prove, not as finished", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
@@ -86,8 +90,49 @@ test("next flags a stale done phase as to re-prove, not as finished", () => {
 
   const out = capture(() => nextCommand({ dir }));
   assert.match(out, /stale/);
-  assert.match(out, /re-prove it/);
-  assert.match(out, /All 1\/1 phases done/);
+  assert.match(out, /Next: Phase 0 — Phase zero — re-prove it/);
+  assert.match(out, /Re-prove it:/);
+  assert.match(out, /ai-learn verify 0/);
+  assert.doesNotMatch(out, /All 1\/1 phases done/);
+});
+
+test("next presents a stale done phase before a later pending phase", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [
+        { id: 0, name: "Zero", status: "done", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+        { id: 1, name: "One", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+      ],
+    }),
+  );
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => nextCommand({ dir }));
+  assert.match(out, /Next: Phase 0 — Zero — re-prove it/);
+  assert.doesNotMatch(out, /Next: Phase 1/);
+});
+
+test("with several stale phases, next presents the first one in ledger order", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [
+        { id: 0, name: "Zero", status: "done", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+        { id: 1, name: "One", status: "done", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+      ],
+    }),
+  );
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 1 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => nextCommand({ dir }));
+  assert.match(out, /Next: Phase 0 — Zero — re-prove it/);
+  assert.doesNotMatch(out, /Next: Phase 1/);
 });
 
 test("next fails cleanly without a progress.json", () => {

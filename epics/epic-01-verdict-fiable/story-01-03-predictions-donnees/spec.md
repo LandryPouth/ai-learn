@@ -31,40 +31,40 @@ Décision verrouillée le 2026-09-01 : **JSON source de vérité, `.md` génér�
 
 ## Requirements
 
-- [ ] Une commande enregistre une prédiction dans `.ai-learn/predictions.json`,
+- [x] Une commande enregistre une prédiction dans `.ai-learn/predictions.json`,
       horodatée, rattachée à une phase.
-- [ ] `docs/plans/predictions.md` est régénéré depuis ce fichier, avec un marqueur de
+- [x] `docs/plans/predictions.md` est régénéré depuis ce fichier, avec un marqueur de
       fichier généré.
-- [ ] Un `predictions.md` personnalisé (sans le marqueur) n'est **jamais** écrasé —
+- [x] Un `predictions.md` personnalisé (sans le marqueur) n'est **jamais** écrasé —
       même convention que `AGENTS.md` et le README des solutions.
-- [ ] Le comptage devient **par phase** et non plus global.
-- [ ] Un projet existant sans `predictions.json` continue d'être compté depuis son
+- [x] Le comptage devient **par phase** et non plus global.
+- [x] Un projet existant sans `predictions.json` continue d'être compté depuis son
       `.md`, avec une tolérance sur le séparateur (`—`, `–`, `-`).
-- [ ] Le fichier de données est versionné et validé structurellement, comme tout
+- [x] Le fichier de données est versionné et validé structurellement, comme tout
       fichier de données du projet.
-- [ ] L'échappatoire visible (`Corrigé par : IA`) est préservée et comptée depuis les
+- [x] L'échappatoire visible (`Corrigé par : IA`) est préservée et comptée depuis les
       données quand elles existent.
 
 ## Acceptance Criteria
 
-- [ ] Given un projet scaffoldé, when une prédiction est enregistrée pour la phase 2, then `.ai-learn/predictions.json` contient une entrée horodatée rattachée à la phase 2.
-- [ ] Given des prédictions enregistrées, when le rendu est régénéré, then `docs/plans/predictions.md` les contient toutes, dans l'ordre chronologique, et porte le marqueur de fichier généré.
-- [ ] Given un `predictions.md` sans le marqueur de fichier généré, when le rendu est régénéré, then le fichier n'est pas écrasé et l'outil le signale.
-- [ ] Given une phase 0 exigeant 2 prédictions et une phase 1 en exigeant 2, when 4 prédictions sont enregistrées toutes sur la phase 0 et que `ai-learn check` tourne, then la phase 1 est signalée comme manquant 2 prédictions.
-- [ ] Given un projet hérité avec un `predictions.md` utilisant un tiret ordinaire et aucun `predictions.json`, when `ai-learn check` tourne, then les entrées sont comptées correctement.
-- [ ] Given un `predictions.json` corrompu, when `ai-learn check` tourne, then une erreur structurelle est émise et le fichier n'est jamais silencieusement accepté.
-- [ ] Given une prédiction marquée corrigée par l'IA, when `ai-learn check` tourne, then l'échappatoire est signalée comme aujourd'hui.
+- [x] Given un projet scaffoldé, when une prédiction est enregistrée pour la phase 2, then `.ai-learn/predictions.json` contient une entrée horodatée rattachée à la phase 2.
+- [x] Given des prédictions enregistrées, when le rendu est régénéré, then `docs/plans/predictions.md` les contient toutes, dans l'ordre chronologique, et porte le marqueur de fichier généré.
+- [x] Given un `predictions.md` sans le marqueur de fichier généré, when le rendu est régénéré, then le fichier n'est pas écrasé et l'outil le signale.
+- [x] Given une phase 0 exigeant 2 prédictions et une phase 1 en exigeant 2, when 4 prédictions sont enregistrées toutes sur la phase 0 et que `ai-learn check` tourne, then la phase 1 est signalée comme manquant 2 prédictions.
+- [x] Given un projet hérité avec un `predictions.md` utilisant un tiret ordinaire et aucun `predictions.json`, when `ai-learn check` tourne, then les entrées sont comptées correctement.
+- [x] Given un `predictions.json` corrompu, when `ai-learn check` tourne, then une erreur structurelle est émise et le fichier n'est jamais silencieusement accepté.
+- [x] Given une prédiction marquée corrigée par l'IA, when `ai-learn check` tourne, then l'échappatoire est signalée comme aujourd'hui.
 
 ## Edge Cases
 
-- [ ] Prédiction enregistrée pour une phase inexistante dans `progress.json`.
-- [ ] Deux prédictions enregistrées dans la même milliseconde.
-- [ ] Caractères spéciaux et retours à la ligne dans le texte d'une prédiction
+- [x] Prédiction enregistrée pour une phase inexistante dans `progress.json`.
+- [x] Deux prédictions enregistrées dans la même milliseconde.
+- [x] Caractères spéciaux et retours à la ligne dans le texte d'une prédiction
       (le rendu markdown ne doit pas être cassé).
-- [ ] Projet ayant à la fois un `predictions.json` et un `.md` hérité non vide —
+- [x] Projet ayant à la fois un `predictions.json` et un `.md` hérité non vide —
       décider lequel fait foi et le documenter (défaut : le JSON).
-- [ ] `predictionsRequired` absent ou à 0 sur une phase.
-- [ ] Phase avec `predictionsRequired` mais aucune prédiction du tout.
+- [x] `predictionsRequired` absent ou à 0 sur une phase.
+- [x] Phase avec `predictionsRequired` mais aucune prédiction du tout.
 
 ## UX Notes
 

@@ -131,6 +131,45 @@ function main() {
       break;
     }
 
+    case "predict": {
+      const { recordPrediction } = require("./lib/predictions");
+      const { readProgress } = require("./lib/progress");
+      const phaseRaw = getFlagValue("--phase", null);
+      const phaseId = phaseRaw !== null ? Number.parseInt(phaseRaw, 10) : NaN;
+
+      if (!Number.isFinite(phaseId)) {
+        fail('predict requires --phase <id>, ex: ai-learn predict --phase 0 --prediction "..."');
+      }
+
+      const { config, exists } = readProgress(dir);
+
+      if (!exists || !config) {
+        fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+      }
+
+      const { entry, render } = recordPrediction(dir, config, {
+        phaseId,
+        prediction: getFlagValue("--prediction", null),
+        gaps: getFlagValue("--gaps", null),
+        score: getFlagValue("--score", null),
+        strengths: getFlagValue("--strengths", null),
+        weaknesses: getFlagValue("--weaknesses", null),
+        flash: getFlagValue("--flash", null),
+        corrected: getFlagValue("--corrected", null),
+        correctedBy: getFlagValue("--corrected-by", "apprenant"),
+      });
+
+      log(`Recorded prediction ${entry.id} for phase ${phaseId} (.ai-learn/predictions.json).`);
+
+      if (render.action === "kept-customized") {
+        log("docs/plans/predictions.md is customized (no generated marker) — left untouched.");
+      } else {
+        log(`docs/plans/predictions.md ${render.action}.`);
+      }
+
+      break;
+    }
+
     case "scan": {
       const { scanCommand } = require("./lib/scan");
       scanCommand({ dir });
@@ -225,6 +264,9 @@ Usage:
   ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
+  ai-learn predict --phase <id> --prediction <text> [--gaps <text>] [--score <text>]
+             [--strengths <text>] [--weaknesses <text>] [--flash <text>] [--corrected <text>]
+             [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
@@ -254,6 +296,10 @@ Commands:
            backed by a verifiable resource; --validate refuses an invented
            project with an unsourced stage
   verify   Run a phase checkpoint, record executed evidence, mark it done on success
+  predict  Record a prediction for a phase in .ai-learn/predictions.json (source of
+           truth) and regenerate docs/plans/predictions.md from it — unless that
+           file has been customized (no generated marker), in which case it is left
+           untouched and the tool says so. Called by the agent, not the learner.
   check    Cross-check progress against reality across learning projects under a root
   docs     Bring reference docs into the project (docs/sources/) and record their
            provenance; --online records URLs only, --regen recreates a
