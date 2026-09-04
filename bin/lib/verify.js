@@ -217,7 +217,7 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     // (never `pending`, see plan.md Decisions).
     setPhaseStatus(dir, phase.id, "in_progress");
     log("");
-    log(`Phase ${phase.id} demoted: done → in_progress — the checkpoint no longer passes.`);
+    log(`Phase ${phase.id} demoted: done → in_progress — the checkpoint or its checks no longer pass.`);
     log(`Fix it, then re-run \`ai-learn verify ${phase.id}\` to prove it again.`);
   }
 
