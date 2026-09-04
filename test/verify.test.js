@@ -8,7 +8,7 @@ const path = require("path");
 const os = require("os");
 const { spawnSync } = require("child_process");
 const { verifyCommand } = require("../bin/lib/verify");
-const { readProgress, runsDir } = require("../bin/lib/progress");
+const { readProgress, runsDir, progressPath } = require("../bin/lib/progress");
 const { readGitTracks } = require("../bin/lib/tracks/git");
 const { capture, sampleProgress, tmpProject } = require("./helpers");
 
@@ -313,4 +313,108 @@ test("verify's sourceHash digest is stable across two runs with no change", () =
   const second = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[1]), "utf8"));
 
   assert.strictEqual(first.sourceHash.digest, second.sourceHash.digest);
+});
+
+// -----------------------------------------------------------------------
+// Demotion (story 01.02) — verify is the only writer of a phase's status,
+// symmetric in both directions: it promotes to done on a pass, and demotes
+// a done phase back to in_progress on a failure.
+// -----------------------------------------------------------------------
+
+test("a failing re-verify demotes a done phase to in_progress, with an explicit message", () => {
+  const dir = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  let { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+
+  config.phases[0].checkpoint = 'node -e "process.exit(1)"';
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /demoted: done → in_progress/);
+  ({ config } = readProgress(dir));
+  assert.strictEqual(config.phases[0].status, "in_progress");
+  assert.strictEqual(process.exitCode, 1);
+});
+
+test("verify --no-mark on a done phase does not demote it, even though the checkpoint now fails", () => {
+  const dir = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  let { config } = readProgress(dir);
+  config.phases[0].checkpoint = 'node -e "process.exit(1)"';
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+
+  capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
+
+  ({ config } = readProgress(dir));
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
+test("a done phase reproven successfully after going stale stays/returns done with fresh evidence", () => {
+  const dir = tmpProject(sampleProgress());
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "index.js"), "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  fs.writeFileSync(path.join(dir, "src", "index.js"), "console.log('changed');\n");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json")).sort();
+  const latest = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[runs.length - 1]), "utf8"));
+  assert.strictEqual(latest.ok, true);
+});
+
+test("demoting a done phase does not touch the git or domain ledgers", () => {
+  const progress = sampleProgress();
+  progress.phases[0].gitTier = 1;
+  const dir = tmpProject(progress);
+  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
+  spawnSync("git", ["-C", dir, "config", "user.name", "t"]);
+  spawnSync("git", ["-C", dir, "config", "user.email", "t@t"]);
+  fs.writeFileSync(path.join(dir, "a.txt"), "1");
+  spawnSync("git", ["-C", dir, "add", "."]);
+  spawnSync("git", ["-C", dir, "commit", "-m", "feat: a"]);
+
+  const home = tmpHome();
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+
+  const { readDomainLedger } = require("../bin/lib/tracks/domain");
+  const gitBefore = readGitTracks({ home }).config;
+  const domainBefore = readDomainLedger({ technology: "javascript", home });
+
+  let { config } = readProgress(dir);
+  config.phases[0].checkpoint = 'node -e "process.exit(1)"';
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+
+  const gitAfter = readGitTracks({ home }).config;
+  const domainAfter = readDomainLedger({ technology: "javascript", home });
+
+  assert.deepStrictEqual(gitAfter, gitBefore);
+  assert.deepStrictEqual(domainAfter, domainBefore);
+});
+
+test("evidence records marking: applied for a normal run, skipped for --no-mark", () => {
+  const dir = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  let runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  let evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.marking, "applied");
+
+  const dir2 = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir: dir2, phaseId: 0, noMark: true }));
+
+  runs = fs.readdirSync(runsDir(dir2)).filter((f) => f.endsWith("-verify.json"));
+  evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir2), runs[0]), "utf8"));
+  assert.strictEqual(evidence.marking, "skipped");
 });

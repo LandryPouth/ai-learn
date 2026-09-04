@@ -46,37 +46,46 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
-### `high` — `.githooks/pre-push` corrompt le dépôt réel via `npm test`
-- **Repo** : ai-learn (dogfooding du tool lui-même, story 01.06)
+### `high` — `.githooks/pre-push` corrompt le dépôt réel via `npm test` (rejoué deux fois en shippant la 01.02, `ai-flow ship` n'a pas de contournement)
+- **Repo** : ai-learn (dogfooding du tool lui-même, story 01.02)
 - **Surface** : `.githooks/pre-push` (hook versionné du dépôt) + suite de tests
-  (`test/git-hooks.test.js`, `test/tracks-git.test.js` et consorts, qui
-  fabriquent de vrais mini-dépôts git pour tester le module git/gh)
-- **Problème** : git peuple l'environnement d'un hook avec `GIT_DIR` (et
-  `GIT_WORK_TREE`/`GIT_INDEX_FILE`) pointant vers le vrai dépôt en cours
-  d'opération. `pre-push` lance `npm test`, qui hérite cet environnement ; les
-  fixtures de test font `spawnSync("git", ["-C", tmpDir, ...])`, mais `-C` ne
-  prime pas sur un `GIT_DIR` déjà présent dans l'environnement — ces commandes
-  finissent donc par écrire dans le **vrai** dépôt partagé au lieu de leur
-  `tmpDir` isolé. Constaté trois fois de suite, reproductible à chaque `git
-  push` : `.git/config` réécrit (`core.bare = true`, `core.hooksPath =
-  custom-hooks`, `user.name/email = t/t@t`, `extensions.worktreeConfig`),
-  `refs/heads/main` et la branche de la story déplacées vers des commits
-  fabriqués par les fixtures (« feat: a », « feat: b », merges/cherry-picks de
-  test), et le `HEAD` par-worktree d'un worktree lié repointé sur `main`. Rien
-  n'a jamais atteint `origin` (vérifié à chaque fois via `ls-remote`), mais le
-  dépôt local a dû être restauré à la main trois fois (`git update-ref`,
-  `git symbolic-ref HEAD`, `git reset --hard`) avant de pouvoir pousser. Un
-  quatrième worktree (`story-01-02-preuve-perimee-a-reprouver`) a été laissé
-  corrompu par le même bug, sans lien avec cette story, non réparé ici.
-- **Workaround** : `git push --no-verify` — légitime ici parce que `npm test`
-  était déjà prouvé vert (318/318) hors contexte de hook (exécution directe,
-  sans `GIT_DIR` dans l'environnement) ; le hook local n'ajoutait aucune
-  garantie qu'il ne pouvait lui-même pas tenir, et la vraie preuve
-  (CI GitHub Actions, sans ce hook) restait intacte.
-- **Résolution** : ouverte. Piste retenue : dans les tests qui fabriquent des
-  dépôts git isolés, passer un `env` explicite à `spawnSync` qui supprime
-  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR` hérités, plutôt
-  que de compter sur `-C`/`cwd` seuls pour l'isolation.
+  git (`test/git-hooks.test.js`, `test/tracks-git.test.js` et consorts) + `ai-flow
+  ship` (push interne)
+- **Problème** : git peuple l'environnement d'un hook avec `GIT_DIR` pointant
+  vers le vrai dépôt en cours d'opération ; `pre-push` lance `npm test`, dont
+  les fixtures git (`spawnSync("git", ["-C", tmpDir, ...])`) héritent cet
+  environnement — `-C` ne prime pas sur un `GIT_DIR` déjà présent, donc ces
+  commandes écrivent dans le **vrai** dépôt partagé au lieu de leur `tmpDir`.
+  En shippant cette story, le bug s'est reproduit **deux fois de suite** dans
+  la même session : une première fois via `ai-flow ship` direct (branche
+  `main` et branche de story écrasées par des commits fabriqués par les
+  fixtures — « feat: a », « feat: b », merges/cherry-picks de test —, et
+  `.git/config` réécrit : `core.bare = true`, `core.hooksPath = custom-hooks`,
+  `user.name/email = t/t@t`) ; une seconde fois via `ai-flow ship --no-commit`
+  alors que le seul but de l'appel était de créer la PR — `--no-commit` ne
+  dispense pas `ship` de retenter son propre `git push`, qui redéclenche le
+  hook (cette fois seul `.git/config` a été réécrit, les refs sont restées
+  intactes). Rien n'a jamais atteint `origin` (vérifié via `ls-remote` /
+  comparaison du commit distant après coup). Complication additionnelle :
+  réparer `.git/config` demande des écritures `git config`, or l'agent IA a
+  l'interdiction stricte d'en faire (garde-fou indépendant de ce dépôt) —
+  l'humain a dû taper les commandes de réparation lui-même, deux fois. `git
+  push --no-verify` fait à la main contourne bien le hook, mais `ship`
+  n'expose aucun flag équivalent : une fois la branche déjà poussée à la
+  main, la seule façon d'obtenir la PR sans retoucher au dépôt a été de
+  sortir complètement de `ship` et d'appeler `gh pr create` directement.
+- **Workaround** : réparation manuelle du dépôt (deux fois — `git update-ref`,
+  `git symbolic-ref HEAD`, `git checkout`, config restaurée à la main) ; `git
+  push --no-verify` fait par l'utilisateur ; `gh pr create` direct au lieu de
+  `ai-flow ship`, en réutilisant l'evidence déjà capturée par `ai-flow verify
+  --story ...` dans le corps de la PR.
+- **Résolution** : ouverte. Piste retenue côté tests : dans les fixtures git,
+  passer un `env` explicite à `spawnSync` qui supprime
+  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR` hérités plutôt
+  que de compter sur `-C`/`cwd` seuls. Piste additionnelle propre à `ship` :
+  exposer un `--no-verify`/`--skip-hook` qui passe `--no-verify` à son `git
+  push` interne, pour que le contournement reste utilisable **via l'outil**
+  plutôt que de forcer à en sortir complètement.
 
 ### `medium` — Worktree créé pour une chaîne qui n'a rien à paralléliser
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)

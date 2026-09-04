@@ -28,36 +28,36 @@ Trois manques constatés à l'audit :
 
 ## Requirements
 
-- [ ] `verify` reste le seul écrivain du statut d'une phase, **dans les deux sens**.
-- [ ] Un `verify` qui échoue sur une phase actuellement `done` la fait redescendre à
+- [x] `verify` reste le seul écrivain du statut d'une phase, **dans les deux sens**.
+- [x] Un `verify` qui échoue sur une phase actuellement `done` la fait redescendre à
       `in_progress`, avec un message explicite.
-- [ ] Un `verify` qui échoue sur une phase non-`done` ne change pas son statut
+- [x] Un `verify` qui échoue sur une phase non-`done` ne change pas son statut
       (comportement actuel préservé).
-- [ ] Une évidence écrite avec `--no-mark` est identifiable comme telle et ne
+- [x] Une évidence écrite avec `--no-mark` est identifiable comme telle et ne
       déclenche plus le warning de dérive.
-- [ ] `next` propose une phase périmée avant toute phase `pending` ultérieure.
-- [ ] Le message de péremption nomme les fichiers qui ont changé (au moins les
+- [x] `next` propose une phase périmée avant toute phase `pending` ultérieure.
+- [x] Le message de péremption nomme les fichiers qui ont changé (au moins les
       premiers, et leur nombre total).
 
 ## Acceptance Criteria
 
-- [ ] Given une phase `done` prouvée, when le code est modifié et `ai-learn verify <id>` échoue, then la phase repasse à `in_progress` et le message le dit explicitement.
-- [ ] Given une phase `pending` sans preuve, when `ai-learn verify <id>` échoue, then son statut reste `pending`.
-- [ ] Given une phase `done` prouvée, when `ai-learn verify <id>` réussit à nouveau, then elle reste `done` avec une évidence fraîche.
-- [ ] Given une évidence écrite avec `--no-mark`, when `ai-learn check` tourne, then aucun warning de dérive n'est émis pour cette phase.
-- [ ] Given une phase périmée et une phase `pending` plus loin dans le parcours, when `ai-learn next` tourne, then la phase périmée est présentée en premier.
-- [ ] Given une phase périmée dont trois fichiers ont changé, when `ai-learn check` tourne, then le message nomme au moins un fichier changé et indique le nombre total.
-- [ ] Given toutes les phases `done` et à jour, when `ai-learn next` tourne, then le message de parcours terminé est inchangé.
+- [x] Given une phase `done` prouvée, when le code est modifié et `ai-learn verify <id>` échoue, then la phase repasse à `in_progress` et le message le dit explicitement.
+- [x] Given une phase `pending` sans preuve, when `ai-learn verify <id>` échoue, then son statut reste `pending`.
+- [x] Given une phase `done` prouvée, when `ai-learn verify <id>` réussit à nouveau, then elle reste `done` avec une évidence fraîche.
+- [x] Given une évidence écrite avec `--no-mark`, when `ai-learn check` tourne, then aucun warning de dérive n'est émis pour cette phase.
+- [x] Given une phase périmée et une phase `pending` plus loin dans le parcours, when `ai-learn next` tourne, then la phase périmée est présentée en premier.
+- [x] Given une phase périmée dont trois fichiers ont changé, when `ai-learn check` tourne, then le message nomme au moins un fichier changé et indique le nombre total.
+- [x] Given toutes les phases `done` et à jour, when `ai-learn next` tourne, then le message de parcours terminé est inchangé.
 
 ## Edge Cases
 
-- [ ] Phase périmée **et** artefact manquant simultanément — les deux doivent être
+- [x] Phase périmée **et** artefact manquant simultanément — les deux doivent être
       signalés, pas seulement le premier rencontré.
-- [ ] Fichier supprimé (et non modifié) dans le périmètre de l'empreinte.
-- [ ] Fichier ajouté dans `src/**` sans qu'aucun fichier existant ne change.
-- [ ] Plusieurs phases périmées à la fois.
-- [ ] Évidence sans empreinte (héritée) — jamais périmée, donc jamais rétrogradée.
-- [ ] `verify --no-mark` sur une phase déjà `done` : ne doit rien rétrograder.
+- [x] Fichier supprimé (et non modifié) dans le périmètre de l'empreinte.
+- [x] Fichier ajouté dans `src/**` sans qu'aucun fichier existant ne change.
+- [x] Plusieurs phases périmées à la fois.
+- [x] Évidence sans empreinte (héritée) — jamais périmée, donc jamais rétrogradée.
+- [x] `verify --no-mark` sur une phase déjà `done` : ne doit rien rétrograder.
 
 ## UX Notes
 

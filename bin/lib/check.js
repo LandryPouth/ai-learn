@@ -10,13 +10,22 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, findLearningProjects } = require("./util");
-const { readProgress, validateProgress, runsDir, progressPath, latestEvidenceForPhase, phaseVerdict } = require("./progress");
+const {
+  readProgress,
+  validateProgress,
+  runsDir,
+  progressPath,
+  latestEvidenceForPhase,
+  latestAnyEvidenceForPhase,
+  phaseVerdict,
+} = require("./progress");
 const { docSourceList } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
-const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
+const { journalPath: predictionsJournalPath, readPredictions, countByPhase, countIATyped } = require("./predictions");
 
 // A real merged/open PR URL — the only acceptable evidence shape for a tier-6
 // ("read a stranger's diff") phase, same "presence + minimum substance, not
@@ -230,40 +239,74 @@ function checkProject(dir) {
     }
   }
 
-  // Prediction journal: phases that require predictions must have a journal, and
-  // ideally enough entries to cover the phases already done.
+  // Prediction journal (story 01.03): predictions.json is the source of truth
+  // once it exists and is valid — never fall back silently when it exists but
+  // is corrupted, that is exactly the drift this check must not hide.
+  // Counting is per phase: summing across phases let 6 predictions on phase 0
+  // satisfy phase 1's requirement too (the bug this story fixes).
   const required = (config.phases || []).reduce(
     (sum, phase) => sum + (Number.isFinite(phase.predictionsRequired) ? phase.predictionsRequired : 0),
     0,
   );
-  const journalPath = path.join(dir, "docs", "plans", "predictions.md");
-  const journalExists = fs.existsSync(journalPath);
-  const journalCount = journalExists ? countJournalEntries(journalPath) : 0;
+  const journalMdPath = predictionsJournalPath(dir);
+  const journalExists = fs.existsSync(journalMdPath);
+  const predictions = readPredictions(dir);
 
-  if (required > 0 && !journalExists) {
-    issues.warnings.push({
-      file: "docs/plans/predictions.md",
-      message: `predictions.md missing; ${required} prediction(s) required across phases`,
+  if (predictions.exists && !predictions.valid) {
+    issues.errors.push({
+      file: ".ai-learn/predictions.json",
+      message: `predictions.json is corrupted, not silently accepted: ${predictions.issues.join("; ")}`,
     });
-  } else if (journalCount < required) {
-    issues.warnings.push({
-      file: "docs/plans/predictions.md",
-      message: `${journalCount}/${required} recorded predictions; ${required - journalCount} missing`,
-    });
+  }
+
+  let countsByPhase = {};
+  let iaTypedCount = 0;
+  let countsSource = null;
+
+  if (predictions.valid) {
+    countsByPhase = countByPhase(predictions.data.entries);
+    iaTypedCount = countIATyped(predictions.data.entries);
+    countsSource = ".ai-learn/predictions.json";
+  } else if (journalExists) {
+    countsByPhase = countJournalEntriesByPhase(journalMdPath);
+    iaTypedCount = countIATypedCorrections(journalMdPath);
+    countsSource = "docs/plans/predictions.md";
+  }
+
+  if (countsSource === null) {
+    if (required > 0) {
+      issues.warnings.push({
+        file: "docs/plans/predictions.md",
+        message: `predictions.md missing; ${required} prediction(s) required across phases`,
+      });
+    }
+  } else {
+    for (const phase of config.phases || []) {
+      const phaseRequired = Number.isFinite(phase.predictionsRequired) ? phase.predictionsRequired : 0;
+
+      if (phaseRequired <= 0) {
+        continue;
+      }
+
+      const have = countsByPhase[phase.id] || 0;
+
+      if (have < phaseRequired) {
+        issues.warnings.push({
+          file: countsSource,
+          message: `phase ${phase.id}: ${have}/${phaseRequired} recorded predictions; ${phaseRequired - have} missing`,
+        });
+      }
+    }
   }
 
   // The visible escape hatch: a correction the AI typed because the learner was
   // genuinely stuck. Legitimate, but worth surfacing so it never becomes the
   // default — the learner-file block exists to prevent exactly that drift.
-  if (journalExists) {
-    const iaTyped = countIATypedCorrections(journalPath);
-
-    if (iaTyped > 0) {
-      issues.warnings.push({
-        file: "docs/plans/predictions.md",
-        message: `${iaTyped} correction(s) marked "Corrigé par : IA" — the learner-file block was bypassed for those bricks (visible escape hatch)`,
-      });
-    }
+  if (iaTypedCount > 0) {
+    issues.warnings.push({
+      file: countsSource || "docs/plans/predictions.md",
+      message: `${iaTypedCount} correction(s) marked "Corrigé par : IA" — the learner-file block was bypassed for those bricks (visible escape hatch)`,
+    });
   }
 
   for (const phase of config.phases || []) {
@@ -289,9 +332,18 @@ function checkProject(dir) {
             message: `phase ${phase.id} ("${phase.name}") is marked done but has no passing evidence. Run \`ai-learn verify ${phase.id}\`.`,
           });
         } else if (verdict.state === "stale") {
+          // `entries` is absent on evidence written before story 01.02 —
+          // still detected as stale by the global digest, just not
+          // nameable file-by-file; fall back to the untargeted wording.
+          const changed = ev.sourceHash.entries ? changedSourceFiles(ev.sourceHash, currentHash) : [];
+          const changeDetail =
+            changed.length > 0
+              ? `${changed.length} file(s) changed since \`ai-learn verify ${phase.id}\` last passed (${previewFileList(changed)})`
+              : `learner files changed since \`ai-learn verify ${phase.id}\` last passed`;
+
           issues.errors.push({
             file: "progress.json",
-            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — learner files changed since \`ai-learn verify ${phase.id}\` last passed. Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
+            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}. Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
           });
         }
       }
@@ -311,7 +363,22 @@ function checkProject(dir) {
         checkTier6Artifact(dir, phase, issues, relative);
       }
     } else {
-      if (ev) {
+      // A `--no-mark` run deliberately writes passing evidence without
+      // touching the ledger (see verify.js's `marking` field) — that is not
+      // drift, it is the flag working as intended. Evidence written before
+      // story 01.02 has no `marking` field and keeps the existing warning.
+      //
+      // Neither is a legitimate demotion: a failing verify is *why* the
+      // phase left `done` (see verify.js), and that failing run is
+      // necessarily the most recent evidence for this phase. Found while
+      // manually reproducing the demotion — without this, every single
+      // demotion would immediately trip this warning. Only warn when
+      // passing evidence sits there with nothing more recent explaining why
+      // the phase isn't done: evidence forged/copied in, or `progress.json`
+      // edited by hand without a new verify run.
+      const demoted = Boolean(ev) && latestAnyEvidenceForPhase(dir, phase.id).ok === false;
+
+      if (ev && ev.marking !== "skipped" && !demoted) {
         issues.warnings.push({
           file: "progress.json",
           message: `phase ${phase.id} has passing evidence but is not marked done (stale or reverted?)`,
@@ -520,9 +587,30 @@ function checkTier6Artifact(dir, phase, issues, relative) {
 // `gm`: `g` to count every heading, not just the first; `m` so `^` anchors each
 // line instead of only the start of the whole file (without it, both bugs
 // combined into a verdict that was structurally always ~0, never the real count).
+// Separator is `[—–-]`: a project without predictions.json is counted from
+// this legacy `.md` alone, and it must not fail on a plain hyphen where the
+// learner (or an older ai-learn) typed one instead of the em dash.
 function countJournalEntries(journalPath) {
   const content = fs.readFileSync(journalPath, "utf8");
-  return (content.match(/^###\s+Phase\s+\d+\s+—\s+prédiction/gim) || []).length;
+  return (content.match(/^###\s+Phase\s+\d+\s+[—–-]\s+prédiction/gim) || []).length;
+}
+
+// Same heading, grouped by phase — the regex already captures the phase
+// number, the legacy total-only count above just never kept it. Used only
+// when there is no valid predictions.json (see checkProject).
+function countJournalEntriesByPhase(journalPath) {
+  const content = fs.readFileSync(journalPath, "utf8");
+  const counts = {};
+  const re = /^###\s+Phase\s+(\d+)\s+[—–-]\s+prédiction/gim;
+  let match = re.exec(content);
+
+  while (match) {
+    const phaseId = Number(match[1]);
+    counts[phaseId] = (counts[phaseId] || 0) + 1;
+    match = re.exec(content);
+  }
+
+  return counts;
 }
 
 // Corrections the learner explicitly handed to the AI ("Corrigé par : IA").
@@ -580,6 +668,13 @@ function codexGuardWired(dir) {
 
 function normalizeRelative(dir, value) {
   return path.relative(dir, path.resolve(dir, value)).replace(/\\/g, "/");
+}
+
+// The first few changed paths named in a stale message, plus how many more —
+// naming every path on a large rename would bury the point in noise.
+function previewFileList(paths, limit = 3) {
+  const shown = paths.slice(0, limit).join(", ");
+  return paths.length > limit ? `${shown}, and ${paths.length - limit} more` : shown;
 }
 
 function printProjectReport(entry) {
