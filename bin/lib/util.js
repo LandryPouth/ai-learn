@@ -5,6 +5,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 function log(message = "") {
   process.stdout.write(`${message}\n`);
@@ -77,4 +78,42 @@ function findLearningProjects(rootDir) {
   return projects;
 }
 
-module.exports = { log, fail, UsageError, readJson, writeJson, mkdirp, normalizePortable, findLearningProjects };
+// A caller below always names its target directory explicitly (`-C dir`,
+// `init dir`, or `cwd: dir`), but git — and `gh`, which resolves "the current
+// repo" via the same git plumbing — also honor a hook's own process GIT_DIR
+// (and GIT_WORK_TREE/GIT_INDEX_FILE/GIT_COMMON_DIR) pointing at whatever repo
+// is currently mid-operation. `-C`/`cwd` don't override an already-set
+// GIT_DIR, so an inherited one silently redirects a command meant for `dir`
+// onto that other repo instead. Reproduced live, twice: `.githooks/pre-push`
+// runs `npm test`, which inherits this env — the test fixtures and `docs.js`'s
+// real sparse-clone path wrote into the actual project repo (collapsing its
+// sparse-checkout to whatever `--path` a docs-source test happened to use),
+// and separately `gh pr list --author=@me` returned the real repo's PRs
+// instead of a tmp fixture's empty history (see docs/DOGFOODING.md).
+// Stripping the four GIT_* vars here is the isolation `-C`/`cwd` alone can't
+// provide, for either binary.
+function gitIsolatedEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  delete env.GIT_COMMON_DIR;
+  return env;
+}
+
+function spawnGit(args, opts = {}) {
+  return spawnSync("git", args, { ...opts, env: gitIsolatedEnv(opts.env) });
+}
+
+module.exports = {
+  log,
+  fail,
+  UsageError,
+  readJson,
+  writeJson,
+  mkdirp,
+  normalizePortable,
+  findLearningProjects,
+  spawnGit,
+  gitIsolatedEnv,
+};

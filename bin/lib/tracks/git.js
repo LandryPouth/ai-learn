@@ -17,7 +17,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { readJson, writeJson } = require("../util");
+const { readJson, writeJson, spawnGit: spawnGitIsolated, gitIsolatedEnv } = require("../util");
 
 // The tier bank this ledger tracks (see
 // docs/plans/git-gh-renforcement-domaine.md — Partie A): 1 vocabulaire+format
@@ -117,7 +117,7 @@ function readOrDefaultGitTracks({ home = os.homedir() } = {}) {
 
 function spawnGit(dir, args) {
   try {
-    const res = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    const res = spawnGitIsolated(["-C", dir, ...args], { encoding: "utf8" });
     return res.status === 0 ? res.stdout : null;
   } catch {
     return null;
@@ -166,7 +166,7 @@ function captureGitSignals(dir) {
     const gh = spawnSync(
       "gh",
       ["pr", "list", "--author=@me", "--state=all", "--json", "number,title,mergedAt,url"],
-      { cwd: dir, encoding: "utf8" },
+      { cwd: dir, encoding: "utf8", env: gitIsolatedEnv() },
     );
 
     if (gh.status === 0) {

@@ -5,7 +5,6 @@ const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
 
 const {
   addSource,
@@ -18,7 +17,7 @@ const {
   docsCommand,
 } = require("../bin/lib/docs");
 const { readJson } = require("../bin/lib/util");
-const { tmpProject, writeFile, capture } = require("./helpers");
+const { tmpProject, writeFile, capture, spawnGit } = require("./helpers");
 
 function sourceDir() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-src-"));
@@ -172,7 +171,7 @@ function localGitRepo() {
     ["add", "-A"],
     ["commit", "-m", "init"],
   ]) {
-    const r = spawnSync("git", ["-C", dir, ...cmd], { encoding: "utf8" });
+    const r = spawnGit(["-C", dir, ...cmd], { encoding: "utf8" });
 
     if (r.status !== 0) {
       throw new Error(`git ${cmd[0]} failed: ${r.stderr}`);

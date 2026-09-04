@@ -316,8 +316,8 @@ function normalizeBinaryToken(token) {
 // pass through, regardless of subcommand or flags (`git -C dir log`, `gh pr
 // view` — reads included, per the learner's explicit choice to type every
 // git/gh command themselves, exactly like their code). Does NOT — and cannot
-// — see `ai-learn`'s own internal `spawnSync("git", …)` calls (scan.js,
-// docs.js, tracks/git.js): this hook only intercepts the AI agent's own
+// — see `ai-learn`'s own internal `spawnGit(…)` calls (scan.js, docs.js,
+// tracks/git.js, git-hooks.js, check.js): this hook only intercepts the AI agent's own
 // PreToolUse-mediated Bash calls, never the CLI's own child processes.
 function detectGitOrGh(command, blockedCommands) {
   // An explicit empty array IS respected (the block-off escape valve) — only
