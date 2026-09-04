@@ -16,7 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { log, fail, mkdirp, writeJson, normalizePortable } = require("./util");
+const { log, fail, mkdirp, writeJson, normalizePortable, spawnGit } = require("./util");
 const { progressPath, readProgress } = require("./progress");
 
 const MAX_SOURCES = 3;
@@ -228,22 +228,21 @@ function gitClone(url, target, pathFilter = null) {
   mkdirp(path.dirname(target));
 
   if (pathFilter) {
-    const init = spawnSync("git", ["init", target], { encoding: "utf8" });
+    const init = spawnGit(["init", target], { encoding: "utf8" });
 
     if (init.status !== 0) {
       fail(`git init failed for ${target}:\n${(init.stderr || "").slice(-500)}`);
     }
 
-    const remote = spawnSync("git", ["-C", target, "remote", "add", "origin", url], { encoding: "utf8" });
-    const config = spawnSync(
-      "git",
+    const remote = spawnGit(["-C", target, "remote", "add", "origin", url], { encoding: "utf8" });
+    const config = spawnGit(
       ["-C", target, "config", "extensions.partialClone", "origin"],
       { encoding: "utf8" },
     );
-    const sparse = spawnSync("git", ["-C", target, "sparse-checkout", "init", "--cone"], { encoding: "utf8" });
-    const set = spawnSync("git", ["-C", target, "sparse-checkout", "set", pathFilter], { encoding: "utf8" });
+    const sparse = spawnGit(["-C", target, "sparse-checkout", "init", "--cone"], { encoding: "utf8" });
+    const set = spawnGit(["-C", target, "sparse-checkout", "set", pathFilter], { encoding: "utf8" });
 
-    const fetch = spawnSync("git", ["-C", target, "fetch", "--depth", "1", "--filter=blob:none", "origin", "HEAD"], {
+    const fetch = spawnGit(["-C", target, "fetch", "--depth", "1", "--filter=blob:none", "origin", "HEAD"], {
       encoding: "utf8",
       timeout: 180000,
     });
@@ -264,7 +263,7 @@ function gitClone(url, target, pathFilter = null) {
     let lastErr = "";
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      checkout = spawnSync("git", ["-C", target, "checkout", "-b", "ai-learn-docs", "FETCH_HEAD"], {
+      checkout = spawnGit(["-C", target, "checkout", "-b", "ai-learn-docs", "FETCH_HEAD"], {
         encoding: "utf8",
         timeout: 180000,
       });
@@ -283,7 +282,7 @@ function gitClone(url, target, pathFilter = null) {
 
     flattenSubpath(target, pathFilter);
   } else {
-    const result = spawnSync("git", ["clone", "--depth", "1", url, target], { encoding: "utf8" });
+    const result = spawnGit(["clone", "--depth", "1", url, target], { encoding: "utf8" });
 
     if (result.status !== 0) {
       if (fs.existsSync(target)) {

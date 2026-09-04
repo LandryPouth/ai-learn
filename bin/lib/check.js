@@ -8,8 +8,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { spawnSync } = require("child_process");
-const { log, findLearningProjects } = require("./util");
+const { log, findLearningProjects, spawnGit } = require("./util");
 const {
   readProgress,
   validateProgress,
@@ -190,7 +189,7 @@ function checkProject(dir) {
   // read directly via git, not something the AI has to remember to log. See
   // templates/commit-msg's own PATTERN, mirrored here as CONVENTIONAL_COMMITS_RE.
   if (fs.existsSync(path.join(dir, ".git"))) {
-    const log30 = spawnSync("git", ["-C", dir, "log", "--format=%s", "-n", "30"], { encoding: "utf8" });
+    const log30 = spawnGit(["-C", dir, "log", "--format=%s", "-n", "30"], { encoding: "utf8" });
 
     if (log30.status === 0) {
       const subjects = log30.stdout.split("\n").filter(Boolean);

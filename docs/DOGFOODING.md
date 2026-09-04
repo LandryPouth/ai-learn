@@ -46,6 +46,47 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `medium` — rien ne resurgit un travail prouvé-mais-pas-atterri après un `/clear`
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `/flow-run` (fin de story) + cycle `/clear` + reprise en session fraîche
+- **Problème** : story 01.06 a été implémentée, laissée `in-progress` à raison
+  (un AC ne pouvait pas être prouvé en sandbox), puis la session a fait
+  `run` → `clear` → `review` avant de revenir dessus bien plus tard. Diagnostic
+  initial faux : « le `/clear` a cassé le `land` ». En creusant : `land`
+  n'a jamais rien de cassé à réparer — tout l'état de Coding Flow (le
+  `## Status`, les preuves `verify` capturées, le registre de placement des
+  worktrees) vit dans des fichiers versionnés/`.git`, jamais dans le contexte
+  de conversation ; un `/clear` ne touche à rien de tout ça. Le vrai trou :
+  `/flow-run` n'enchaîne `unlock` + `autoland` **qu'au moment précis** où il
+  vient d'écrire `## Status: done` avec un verify vert — un `land` correctement
+  différé (parce que le travail n'était pas fini) ne se redéclenche jamais tout
+  seul quand la dernière pièce de preuve arrive enfin (ici : un vrai run CI,
+  minutes plus tard, hors du process `flow-run`). Rien entre `/clear` et
+  `/flow-review` ne gère le cycle de vie des worktrees ; le worktree est resté
+  orphelin jusqu'à ce qu'un humain le remarque et demande explicitement de le
+  « ramener ». `/flow-next` est *conçu* pour détecter exactement ce cas (tier
+  `ready-to-ship` : *« a story is proven and has unshipped work »*), mais rien
+  n'oblige à le lancer après un `/clear` — ça dépend entièrement de la mémoire
+  de l'humain (ou de la mienne).
+- **Workaround** : lancer `/flow-next` (ou `ai-flow next`) manuellement juste
+  après chaque `/clear`, avant toute autre commande, tant que rien
+  d'automatique n'existe pour ça.
+- **Résolution** : ouverte. Piste retenue : un hook `SessionStart` (Claude
+  Code) qui lance `ai-flow next` et injecte sa sortie via
+  `hookSpecificOutput.additionalContext` — coût mesuré sur ce dépôt avant
+  d'installer quoi que ce soit : sortie texte ≈ 226 caractères (~60 tokens,
+  recommandation seule) ou 909 caractères (~230 tokens, `--all`) ; latence
+  1.4–3.2 s par run via `npx --no-install` (pas de binaire `ai-flow` direct
+  dans ce projet) sur 3 essais, mais un 4e essai isolé a bloqué 2 minutes
+  avant d'être coupé — accroc `npx` rare, pas reproduit ensuite, à couvrir
+  par un `timeout` généreux mais borné (~10 s) sur le hook plutôt que supposé
+  absent. Reste à vérifier empiriquement (pas de confirmation dans la doc
+  Claude Code) : est-ce que `SessionStart` se redéclenche bien après un
+  `/clear` précisément, ou seulement au lancement d'un nouveau process
+  `claude` ? Sans confirmation, l'alternative de repli serait une instruction
+  explicite dans `CLAUDE.md` (relu par l'agent à chaque session, indépendant
+  de la mémoire humaine) plutôt qu'un hook.
+
 ### `high` — `.githooks/pre-push` corrompt le dépôt réel via `npm test` (rejoué deux fois en shippant la 01.02, `ai-flow ship` n'a pas de contournement)
 - **Repo** : ai-learn (dogfooding du tool lui-même, story 01.02)
 - **Surface** : `.githooks/pre-push` (hook versionné du dépôt) + suite de tests
@@ -79,13 +120,40 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
   push --no-verify` fait par l'utilisateur ; `gh pr create` direct au lieu de
   `ai-flow ship`, en réutilisant l'evidence déjà capturée par `ai-flow verify
   --story ...` dans le corps de la PR.
-- **Résolution** : ouverte. Piste retenue côté tests : dans les fixtures git,
-  passer un `env` explicite à `spawnSync` qui supprime
-  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR` hérités plutôt
-  que de compter sur `-C`/`cwd` seuls. Piste additionnelle propre à `ship` :
-  exposer un `--no-verify`/`--skip-hook` qui passe `--no-verify` à son `git
-  push` interne, pour que le contournement reste utilisable **via l'outil**
-  plutôt que de forcer à en sortir complètement.
+- **Troisième reproduction, même session, cause différente** : en mergeant
+  `origin/main` dans la branche de story pour lever le conflit qui bloquait la
+  PR, le worktree s'est retrouvé avec un sparse-checkout réduit au seul
+  dossier `docs` (`test/`, `bin/`, `epics/`… absents du disque). Pas les
+  fixtures cette fois : `bin/lib/docs.js` (le vrai chemin de clonage sparse de
+  `ai-learn docs add`) appelle lui-même `git -C target sparse-checkout set
+  <pathFilter>` en production — sous `npm test` lancé depuis le hook, ce code
+  héritait le même `GIT_DIR` et exécutait le `sparse-checkout set docs` d'un
+  test `docs.test.js` contre le **vrai** dépôt au lieu de son `target` tmp.
+  Réparé sans perte via `git sparse-checkout disable` (aucun fichier
+  réellement supprimé, juste absent de l'arbre de travail).
+- **Résolution** : corrigée. `bin/lib/util.js` exporte `spawnGit(args, opts)` /
+  `gitIsolatedEnv(extra)` — supprime `GIT_DIR`/`GIT_WORK_TREE`/
+  `GIT_INDEX_FILE`/`GIT_COMMON_DIR` hérités avant tout `spawnSync`, `-C`/`cwd`
+  ne suffisant pas à eux seuls. Tous les appels internes à `git` (`docs.js` —
+  y compris le vrai chemin sparse-checkout, `scan.js`, `git-hooks.js`,
+  `tracks/git.js`, `check.js`) et `test/helpers.js:spawnGit` pour les fixtures
+  git des tests (`git-hooks.test.js`, `tracks-git.test.js`, `check.test.js`,
+  `verify.test.js`, `scan.test.js`, `docs.test.js`) passent maintenant par ce
+  point unique. Un sous-cas découvert en écrivant le test de non-régression :
+  `gh` résout « le dépôt courant » via le même plumbing git que `-C`/`cwd` ne
+  couvre pas — `gh pr list --author=@me` dans `tracks/git.js` (capture du
+  signal tier 5) renvoyait les vraies PR du dépôt au lieu de l'historique vide
+  du fixture tmp ; corrigé en passant aussi `gitIsolatedEnv()` à cet appel.
+  Preuve par évidence négative : `GIT_DIR="$(pwd)/.git"
+  GIT_WORK_TREE="$(pwd)" npm test` (reproduit exactement l'environnement du
+  hook) plantait un test (le signal `gh` avant le correctif ci-dessus) sans
+  toucher au dépôt réel une fois `spawnGit` en place pour `git` ; après le
+  correctif `gh`, la même commande passe 357/357 et `git status`/`HEAD`
+  restent inchangés — la fuite d'environnement est neutralisée, pas
+  seulement contournée. Piste encore ouverte, propre à `ship` : exposer un
+  `--no-verify`/`--skip-hook` qui passe `--no-verify` à son `git push`
+  interne, pour que le contournement reste utilisable **via l'outil** plutôt
+  que de forcer à en sortir complètement.
 
 ### `medium` — Worktree créé pour une chaîne qui n'a rien à paralléliser
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
@@ -102,8 +170,16 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
   que le carnet voit encore `s1` comme « occupant » le dossier principal, bien que
   `s1` soit terminée depuis longtemps. Isolation inutile : dossier, branche et
   `land` en plus pour un travail qui n'avait rien à paralléliser.
-- **Workaround** : aucun — accepté tel quel, correctif prévu directement dans
-  Coding Flow plutôt qu'en contournement côté ai-learn.
+- **Workaround** : nettoyage manuel de la réservation périmée — vérifié sur ce
+  dépôt (`.git/coding-flow/worktree-plan/epic-01-verdict-fiable.json` contient
+  bien `"s1": { "location": ".../ai-learn" }` alors que `s1`
+  (story-01-01) est fusionnée depuis longtemps). Une fois une chaîne confirmée
+  `done`/fusionnée sur le dossier principal, retirer sa clé (`s1`, `s2`, …) du
+  fichier JSON de l'epic sous `.git/coding-flow/worktree-plan/<epic>.json`
+  (`{ "chains": {} }` si c'est la seule entrée) avant le prochain
+  `ai-flow worktree place` — édition de métadonnées pure, aucun risque sur le
+  code ou l'historique git : au pire, si fait à tort, le comportement actuel
+  (un worktree de trop) ne fait que continuer.
 - **Résolution** : ouverte. Piste retenue : libérer la réservation d'une chaîne
   dès qu'elle atteint `done`, pas seulement au `land` d'un worktree isolé — pour
   qu'une chaîne terminée sur place cesse d'occuper le dossier principal aux yeux

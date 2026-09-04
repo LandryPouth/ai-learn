@@ -11,24 +11,24 @@ const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
 
 const { ensureCommitMsgHook, commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("../bin/lib/git-hooks");
+const { spawnGit } = require("./helpers");
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-githooks-"));
 }
 
 function initRepo(dir) {
-  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
-  spawnSync("git", ["-C", dir, "config", "user.name", "t"]);
-  spawnSync("git", ["-C", dir, "config", "user.email", "t@t"]);
+  spawnGit(["init", "-b", "main"], { cwd: dir });
+  spawnGit(["-C", dir, "config", "user.name", "t"]);
+  spawnGit(["-C", dir, "config", "user.email", "t@t"]);
 }
 
 function commit(dir, message) {
   fs.writeFileSync(path.join(dir, `f-${Date.now()}-${Math.random()}.txt`), "x");
-  spawnSync("git", ["-C", dir, "add", "."]);
-  return spawnSync("git", ["-C", dir, "commit", "-m", message], { encoding: "utf8" });
+  spawnGit(["-C", dir, "add", "."]);
+  return spawnGit(["-C", dir, "commit", "-m", message], { encoding: "utf8" });
 }
 
 test("no .git repo: silent no-op, never throws", () => {
@@ -47,7 +47,7 @@ test("wires .githooks/commit-msg + core.hooksPath on a real repo", () => {
   assert.strictEqual(result.hooksPath, "set");
   assert.ok(fs.existsSync(path.join(dir, ".githooks", "commit-msg")));
 
-  const configured = spawnSync("git", ["-C", dir, "config", "--get", "core.hooksPath"], { encoding: "utf8" });
+  const configured = spawnGit(["-C", dir, "config", "--get", "core.hooksPath"], { encoding: "utf8" });
   assert.strictEqual(configured.stdout.trim(), ".githooks");
 });
 
@@ -80,8 +80,8 @@ test("--no-verify bypasses the hook (visible escape hatch, not silent)", () => {
   ensureCommitMsgHook(dir);
 
   fs.writeFileSync(path.join(dir, "f.txt"), "x");
-  spawnSync("git", ["-C", dir, "add", "."]);
-  const bypassed = spawnSync("git", ["-C", dir, "commit", "--no-verify", "-m", "bad message"], { encoding: "utf8" });
+  spawnGit(["-C", dir, "add", "."]);
+  const bypassed = spawnGit(["-C", dir, "commit", "--no-verify", "-m", "bad message"], { encoding: "utf8" });
   assert.strictEqual(bypassed.status, 0);
 });
 
@@ -89,13 +89,13 @@ test("a pre-existing, differently-configured core.hooksPath is never clobbered",
   const dir = tmpDir();
   initRepo(dir);
   fs.mkdirSync(path.join(dir, "custom-hooks"));
-  spawnSync("git", ["-C", dir, "config", "core.hooksPath", "custom-hooks"]);
+  spawnGit(["-C", dir, "config", "core.hooksPath", "custom-hooks"]);
 
   const result = ensureCommitMsgHook(dir);
   assert.strictEqual(result.hooksPath, "customized");
   assert.strictEqual(result.existing, "custom-hooks");
 
-  const configured = spawnSync("git", ["-C", dir, "config", "--get", "core.hooksPath"], { encoding: "utf8" });
+  const configured = spawnGit(["-C", dir, "config", "--get", "core.hooksPath"], { encoding: "utf8" });
   assert.strictEqual(configured.stdout.trim(), "custom-hooks");
 });
 

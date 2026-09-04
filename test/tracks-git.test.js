@@ -10,8 +10,8 @@ const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
 
+const { spawnGit } = require("./helpers");
 const {
   TIER_IDS,
   tracksHome,
@@ -114,13 +114,13 @@ test("readOrDefaultGitTracks falls back on a corrupt on-disk ledger rather than 
 // --- signal capture (M3) ----------------------------------------------------
 
 function initRepo(dir) {
-  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
-  spawnSync("git", ["-C", dir, "config", "user.name", "t"]);
-  spawnSync("git", ["-C", dir, "config", "user.email", "t@t"]);
+  spawnGit(["init", "-b", "main"], { cwd: dir });
+  spawnGit(["-C", dir, "config", "user.name", "t"]);
+  spawnGit(["-C", dir, "config", "user.email", "t@t"]);
 }
 
 function git(dir, args) {
-  return spawnSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+  return spawnGit(["-C", dir, ...args], { encoding: "utf8" });
 }
 
 function writeAndCommit(dir, file, content, message) {
@@ -154,9 +154,9 @@ test("captureGitSignals detects a real interactive rebase via reflog", () => {
   writeAndCommit(dir, "a.txt", "1", "feat: a");
   writeAndCommit(dir, "b.txt", "2", "feat: b");
 
-  const rebase = spawnSync("git", ["-C", dir, "rebase", "-i", "HEAD~2"], {
+  const rebase = spawnGit(["-C", dir, "rebase", "-i", "HEAD~2"], {
     encoding: "utf8",
-    env: { ...process.env, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
+    env: { GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
   });
   assert.strictEqual(rebase.status, 0, rebase.stderr);
 

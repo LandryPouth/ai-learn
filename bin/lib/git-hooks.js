@@ -8,14 +8,14 @@
 // Installed via `core.hooksPath=.githooks` (a tracked, versioned directory),
 // not `.git/hooks/` — `.git/hooks` is local-only and never travels with a
 // clone, the same reason this repo's own `.githooks/pre-push` exists. Only
-// `ai-learn init`/`update` ever write here (trusted, internal `spawnSync`
+// `ai-learn init`/`update` ever write here (trusted, internal `spawnGit`
 // calls) — this is never something the AI's own Bash tool could run itself,
 // since `ai-learn guard` (see guard.js) blocks the AI from invoking `git`
 // at all.
 
 const fs = require("fs");
 const path = require("path");
-const { spawnSync } = require("child_process");
+const { spawnGit } = require("./util");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
 
@@ -33,7 +33,7 @@ const CONVENTIONAL_COMMITS_RE =
 
 function gitConfigGet(dir, key) {
   try {
-    const res = spawnSync("git", ["-C", dir, "config", "--get", key], { encoding: "utf8" });
+    const res = spawnGit(["-C", dir, "config", "--get", key], { encoding: "utf8" });
     return res.status === 0 ? res.stdout.trim() : null;
   } catch {
     return null;
@@ -83,7 +83,7 @@ function ensureCommitMsgHook(dir) {
     return { file, hooksPath: "customized", existing: current };
   }
 
-  spawnSync("git", ["-C", dir, "config", "core.hooksPath", ".githooks"], { encoding: "utf8" });
+  spawnGit(["-C", dir, "config", "core.hooksPath", ".githooks"], { encoding: "utf8" });
   return { file, hooksPath: "set" };
 }
 

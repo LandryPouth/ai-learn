@@ -4,25 +4,24 @@ const { test, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
-const { spawnSync } = require("child_process");
 
 const { checkProject, checkCommand, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
-const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
+const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
 const { findLearningProjects } = require("../bin/lib/util");
 
 function initRepo(dir) {
-  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
-  spawnSync("git", ["-C", dir, "config", "user.name", "t"]);
-  spawnSync("git", ["-C", dir, "config", "user.email", "t@t"]);
+  spawnGit(["init", "-b", "main"], { cwd: dir });
+  spawnGit(["-C", dir, "config", "user.name", "t"]);
+  spawnGit(["-C", dir, "config", "user.email", "t@t"]);
 }
 
 function commitNoVerify(dir, message) {
   fs.writeFileSync(path.join(dir, `f-${Date.now()}-${Math.random()}.txt`), "x");
-  spawnSync("git", ["-C", dir, "add", "."]);
-  spawnSync("git", ["-C", dir, "commit", "--no-verify", "-m", message]);
+  spawnGit(["-C", dir, "add", "."]);
+  spawnGit(["-C", dir, "commit", "--no-verify", "-m", message]);
 }
 
 beforeEach(() => {
@@ -140,8 +139,8 @@ test("a wired hook with clean Conventional Commits history is silent", () => {
   initRepo(dir);
   ensureCommitMsgHook(dir);
   fs.writeFileSync(path.join(dir, "a.txt"), "x");
-  spawnSync("git", ["-C", dir, "add", "."]);
-  spawnSync("git", ["-C", dir, "commit", "-m", "feat: add a"]);
+  spawnGit(["-C", dir, "add", "."]);
+  spawnGit(["-C", dir, "commit", "-m", "feat: add a"]);
 
   const entry = checkProject(dir);
   assert.ok(!entry.issues.warnings.some((w) => /commit-msg hook not wired/.test(w.message)));
@@ -155,8 +154,8 @@ test("non-conventional commit subjects (a --no-verify bypass) are a structural w
   commitNoVerify(dir, "bad message one");
   commitNoVerify(dir, "bad message two");
   fs.writeFileSync(path.join(dir, "good.txt"), "x");
-  spawnSync("git", ["-C", dir, "add", "."]);
-  spawnSync("git", ["-C", dir, "commit", "-m", "feat: a good one"]);
+  spawnGit(["-C", dir, "add", "."]);
+  spawnGit(["-C", dir, "commit", "-m", "feat: a good one"]);
 
   const entry = checkProject(dir);
   assert.ok(entry.issues.warnings.some((w) => /2\/3 of the last commit subjects/.test(w.message)));

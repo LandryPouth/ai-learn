@@ -17,8 +17,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { spawnSync } = require("child_process");
-const { log, fail, writeJson, normalizePortable } = require("./util");
+const { log, fail, writeJson, normalizePortable, spawnGit } = require("./util");
 const { progressPath, readProgress, latestEvidenceForPhase } = require("./progress");
 
 // ---------------------------------------------------------------------------
@@ -216,7 +215,7 @@ function countLines(abs, maxBytes) {
 function gitState(dir) {
   const read = (args) => {
     try {
-      const res = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+      const res = spawnGit(["-C", dir, ...args], { encoding: "utf8" });
       return res.status === 0 ? res.stdout.trim() : null;
     } catch {
       return null;

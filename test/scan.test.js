@@ -11,7 +11,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { writeFile, capture } = require("./helpers");
+const { writeFile, capture, spawnGit } = require("./helpers");
 const {
   scanProject,
   scanCommand,
@@ -259,9 +259,9 @@ test("estimateLevel: tests + git alone never bump the level, however high git cl
 test("gitState reports a real repo and a non-repo without throwing", () => {
   const repo = tmpDir();
   writeFile(repo, "a.txt", "x");
-  spawnSync("git", ["init", "-b", "main"], { cwd: repo });
-  spawnSync("git", ["add", "."], { cwd: repo });
-  const commit = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init"], { cwd: repo });
+  spawnGit(["init", "-b", "main"], { cwd: repo });
+  spawnGit(["add", "."], { cwd: repo });
+  const commit = spawnGit(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init"], { cwd: repo });
   assert.strictEqual(commit.status, 0, commit.stderr && commit.stderr.toString());
 
   const state = gitState(repo);

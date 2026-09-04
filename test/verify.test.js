@@ -6,11 +6,10 @@ const fs = require("fs");
 const path = require("path");
 
 const os = require("os");
-const { spawnSync } = require("child_process");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, runsDir, progressPath } = require("../bin/lib/progress");
 const { readGitTracks } = require("../bin/lib/tracks/git");
-const { capture, sampleProgress, tmpProject } = require("./helpers");
+const { capture, sampleProgress, tmpProject, spawnGit } = require("./helpers");
 
 function tmpHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-verify-home-"));
@@ -107,12 +106,12 @@ test("verify syncs the global git ledger when the passing phase declares a gitTi
   const progress = sampleProgress();
   progress.phases[0].gitTier = 1;
   const dir = tmpProject(progress);
-  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
-  spawnSync("git", ["-C", dir, "config", "user.name", "t"]);
-  spawnSync("git", ["-C", dir, "config", "user.email", "t@t"]);
+  spawnGit(["init", "-b", "main"], { cwd: dir });
+  spawnGit(["-C", dir, "config", "user.name", "t"]);
+  spawnGit(["-C", dir, "config", "user.email", "t@t"]);
   fs.writeFileSync(path.join(dir, "a.txt"), "1");
-  spawnSync("git", ["-C", dir, "add", "."]);
-  spawnSync("git", ["-C", dir, "commit", "-m", "feat: a"]);
+  spawnGit(["-C", dir, "add", "."]);
+  spawnGit(["-C", dir, "commit", "-m", "feat: a"]);
 
   const home = tmpHome();
   capture(() => verifyCommand({ dir, phaseId: 0, home }));
@@ -376,12 +375,12 @@ test("demoting a done phase does not touch the git or domain ledgers", () => {
   const progress = sampleProgress();
   progress.phases[0].gitTier = 1;
   const dir = tmpProject(progress);
-  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
-  spawnSync("git", ["-C", dir, "config", "user.name", "t"]);
-  spawnSync("git", ["-C", dir, "config", "user.email", "t@t"]);
+  spawnGit(["init", "-b", "main"], { cwd: dir });
+  spawnGit(["-C", dir, "config", "user.name", "t"]);
+  spawnGit(["-C", dir, "config", "user.email", "t@t"]);
   fs.writeFileSync(path.join(dir, "a.txt"), "1");
-  spawnSync("git", ["-C", dir, "add", "."]);
-  spawnSync("git", ["-C", dir, "commit", "-m", "feat: a"]);
+  spawnGit(["-C", dir, "add", "."]);
+  spawnGit(["-C", dir, "commit", "-m", "feat: a"]);
 
   const home = tmpHome();
   capture(() => verifyCommand({ dir, phaseId: 0, home }));
