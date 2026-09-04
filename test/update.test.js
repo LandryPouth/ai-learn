@@ -153,14 +153,18 @@ test("update never overwrites an existing checkpoint/README.md", () => {
 test("update --platform installs that platform's slash commands into an isolated home", () => {
   const dir = tmpProject(project());
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-platform-"));
-  const original = process.env.HOME;
+  const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  // os.homedir() reads USERPROFILE on Windows, not HOME — set both so this
+  // isolates on every platform.
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
 
   try {
     capture(() => updateCommand({ root: dir, platform: "codex" }));
     assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
   } finally {
-    process.env.HOME = original;
+    process.env.HOME = original.HOME;
+    process.env.USERPROFILE = original.USERPROFILE;
   }
 });
 

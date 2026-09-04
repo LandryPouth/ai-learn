@@ -2,9 +2,9 @@
 
 // `ai-learn norm` — a mechanical, heuristic, zero-dependency clean-code
 // checker. Inspired by École 42's Norminette (and rejected as a hosted
-// service, see docs/plans for that decision) but scoped to what a
-// zero-dependency, language-agnostic CLI can measure without a real
-// parser: file length, function length, nesting depth, parameter count.
+// service, see docs/plans/norm-clean-code.md for that decision) but scoped
+// to what a zero-dependency, language-agnostic CLI can measure without a
+// real parser: file length, function length, nesting depth, parameter count.
 //
 // Like every heuristic in this codebase (scan.js's concept markers,
 // mandatoryAt), a false negative (a violation that slips through) is always

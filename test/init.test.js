@@ -138,15 +138,19 @@ test("init never touches any real home directory when --platform is omitted", ()
 test("init installs the given platform's slash commands into an isolated home", () => {
   const dir = tmpDir();
   const home = tmpDir();
-  const original = process.env.HOME;
+  const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  // os.homedir() reads USERPROFILE on Windows, not HOME — set both so this
+  // isolates on every platform.
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
 
   try {
     const { platform } = scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "codex" });
     assert.strictEqual(platform, "codex");
     assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
   } finally {
-    process.env.HOME = original;
+    process.env.HOME = original.HOME;
+    process.env.USERPROFILE = original.USERPROFILE;
   }
 });
 

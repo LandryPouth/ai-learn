@@ -154,7 +154,12 @@ function toRelative(root, filePath) {
   }
   const abs = path.isAbsolute(filePath) ? filePath : path.resolve(root, filePath);
   const rel = normalizePortable(path.relative(root, abs));
-  return rel.startsWith("../") ? null : rel;
+  // On Windows, path.relative() across two different drives (e.g. project root
+  // on D:, target on C:) can't express the difference as "../.." and instead
+  // returns the target path unchanged — which doesn't start with "../" and
+  // would silently defeat this check. path.isAbsolute() catches that case
+  // (and rel === ".." catches the exact-parent edge case "../" alone misses).
+  return rel === ".." || rel.startsWith("../") || path.isAbsolute(rel) ? null : rel;
 }
 
 // Write calls inside interpreted one-liners (`python -c`, `node -e`): the path

@@ -7,15 +7,18 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
+const { homeEnvOverrides } = require("./helpers");
+
 const BIN = path.join(__dirname, "..", "bin", "ai-learn.js");
 
 // Every `ai-learn <command>` now runs a mechanical platform self-heal before
 // dispatch (see lib/platforms/ensure.js) — so any subprocess test that
 // inherits the real environment could silently write into the machine's
-// actual ~/.claude, ~/.codex, etc. Isolating HOME keeps these tests hermetic
+// actual ~/.claude, ~/.codex, etc. Isolating HOME (and USERPROFILE, which is
+// what os.homedir() actually reads on Windows) keeps these tests hermetic
 // regardless of what's already installed on the machine running them.
 function isolatedEnv(extra = {}) {
-  return { ...process.env, HOME: fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-")), CLAUDECODE: "", ...extra };
+  return { ...process.env, ...homeEnvOverrides(fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-")), { CLAUDECODE: "", ...extra }) };
 }
 
 test("--help prints the command catalog and exits 0", () => {
@@ -95,7 +98,7 @@ test("any command with --platform mechanically installs that platform's commands
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-"));
   const result = spawnSync(process.execPath, [BIN, "--platform", "codex", "--help"], {
     encoding: "utf8",
-    env: { ...process.env, HOME: home, CLAUDECODE: "" },
+    env: { ...process.env, ...homeEnvOverrides(home, { CLAUDECODE: "" }) },
   });
 
   assert.strictEqual(result.status, 0);
@@ -106,7 +109,7 @@ test("a command with CLAUDECODE=1 in its env self-heals Claude Code's commands, 
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-"));
   const result = spawnSync(process.execPath, [BIN, "--help"], {
     encoding: "utf8",
-    env: { ...process.env, HOME: home, CLAUDECODE: "1" },
+    env: { ...process.env, ...homeEnvOverrides(home, { CLAUDECODE: "1" }) },
   });
 
   assert.strictEqual(result.status, 0);
@@ -115,7 +118,7 @@ test("a command with CLAUDECODE=1 in its env self-heals Claude Code's commands, 
 
 test("self-heal is a one-time no-op: a second run doesn't rewrite already-installed commands", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-"));
-  const env = { ...process.env, HOME: home, CLAUDECODE: "" };
+  const env = { ...process.env, ...homeEnvOverrides(home, { CLAUDECODE: "" }) };
 
   spawnSync(process.execPath, [BIN, "--platform", "gemini", "--help"], { encoding: "utf8", env });
   const marker = path.join(home, ".gemini", "commands", "ai-learn", "next.toml");
@@ -127,7 +130,7 @@ test("self-heal is a one-time no-op: a second run doesn't rewrite already-instal
 
 test("no platform identifiable (no --platform, no CLAUDECODE): commands stay untouched", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-"));
-  spawnSync(process.execPath, [BIN, "--help"], { encoding: "utf8", env: { ...process.env, HOME: home, CLAUDECODE: "" } });
+  spawnSync(process.execPath, [BIN, "--help"], { encoding: "utf8", env: { ...process.env, ...homeEnvOverrides(home, { CLAUDECODE: "" }) } });
 
   assert.ok(!fs.existsSync(path.join(home, ".claude")));
   assert.ok(!fs.existsSync(path.join(home, ".codex")));

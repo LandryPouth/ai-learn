@@ -14,7 +14,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { writeFile } = require("./helpers");
+const { writeFile, homeEnvOverrides } = require("./helpers");
 const {
   analyzeFile,
   detectFunctionsBrace,
@@ -38,7 +38,7 @@ function tmpDir() {
 const BIN = path.join(__dirname, "..", "bin", "ai-learn.js");
 
 function isolatedEnv() {
-  return { ...process.env, HOME: fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-norm-home-")), CLAUDECODE: "" };
+  return { ...process.env, ...homeEnvOverrides(fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-norm-home-")), { CLAUDECODE: "" }) };
 }
 
 function jsFunctionOfLength(name, bodyLines) {

@@ -16,7 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { log, fail, mkdirp, writeJson } = require("./util");
+const { log, fail, mkdirp, writeJson, normalizePortable } = require("./util");
 const { progressPath, readProgress } = require("./progress");
 
 const MAX_SOURCES = 3;
@@ -372,17 +372,18 @@ function addSource({ dir, name, source, online, subpath, regen }) {
     // origin URL, a non-empty local doc, and that doc must cite its origin.
     const target = docSourceTarget(dir, name);
     mkdirp(target);
+    const rel = normalizePortable(path.relative(dir, target));
 
     writeDocSource(dir, config, {
       name,
       mode: "local",
-      path: path.relative(dir, target),
+      path: rel,
       url: source,
       generated: true,
       generatedAt: new Date().toISOString(),
     });
 
-    log(`Added generated source "${name}" → ${path.relative(dir, target)}`);
+    log(`Added generated source "${name}" → ${rel}`);
     log(`  La source n'est pas clonable : l'IA doit RECRÉER la doc localement depuis ${source}.`);
     log(`  Anti-hallucination : chaque affirmation cite ${source} — rien d'inventé, rien d'approximatif.`);
     log(`  \`ai-learn check\` exigera une doc non vide qui cite son origine.`);
@@ -410,18 +411,19 @@ function addSource({ dir, name, source, online, subpath, regen }) {
     mkdirp(target);
     const file = path.basename(source);
     fs.copyFileSync(source, path.join(target, file));
+    const rel = normalizePortable(path.relative(dir, target));
 
     writeDocSource(dir, config, {
       name,
       mode: "local",
-      path: path.relative(dir, target),
+      path: rel,
       file,
       src: source,
       generated: true,
       generatedAt: new Date().toISOString(),
     });
 
-    log(`Added file source "${name}" → ${path.relative(dir, target)}/${file}`);
+    log(`Added file source "${name}" → ${rel}/${file}`);
     log(`  La doc complète (${file}) reste disponible hors-ligne : l'IA en RECRÉE l'essentiel.`);
     log(`  Workflow : lis ${file} (outil Read, page par page), repère les sections utiles au plan`);
     log(`  (docs/plans/plan-apprentissage.md), puis écris docs/sources/${name}/essentiel.md — chaque`);
@@ -432,15 +434,16 @@ function addSource({ dir, name, source, online, subpath, regen }) {
   }
 
   const target = docSourceTarget(dir, name);
+  const rel = normalizePortable(path.relative(dir, target));
   let entry;
 
   if (isGitUrl(source)) {
     const url = expandGitUrl(source);
     gitClone(url, target, subpath);
-    entry = { name, mode: "local", path: path.relative(dir, target), url, subpath: subpath || null };
+    entry = { name, mode: "local", path: rel, url, subpath: subpath || null };
   } else {
     copyFromSubdir(source, subpath, target);
-    entry = { name, mode: "local", path: path.relative(dir, target), src: source, subpath: subpath || null };
+    entry = { name, mode: "local", path: rel, src: source, subpath: subpath || null };
   }
 
   writeDocSource(dir, config, entry);
@@ -522,7 +525,7 @@ function updateSource({ dir, name, subpath }) {
     fail(`source "${name}" has no recorded origin — re-add it with \`ai-learn docs remove ${name}\` then \`ai-learn docs add\`.`);
   }
 
-  log(`Refreshed source "${name}" → ${path.relative(dir, target)}`);
+  log(`Refreshed source "${name}" → ${normalizePortable(path.relative(dir, target))}`);
   regenerateTrapsBestEffort(dir);
 }
 
