@@ -92,6 +92,19 @@ propres tests, `test/norm.test.js`, passent inchangés).
   une erreur ; le fichier est bit-à-bit restauré malgré l'exception qui
   remonte ensuite normalement à l'appelant.
 
+**Correction post-review (`/flow-review`, P2).** `findFirstSite` balayait
+tout fichier non binaire du périmètre `learnerFiles`, sans filtre
+d'extension — contrairement à `norm.js#normProject`, qui restreint aux
+`ALL_SOURCE_EXTS`. Reproduit : un `src/notes.md` contenant la prose « …
+returns true when data is ready » était choisi comme site mutable avant tout
+code réel, muté, et rapporté `SURVÉCU` — un signal trompeur, puisqu'il n'y a
+aucun code à protéger dans un fichier de prose. Fix : `findFirstSite` filtre
+désormais les candidats à `ALL_SOURCE_EXTS` (import ajouté depuis
+`scan.js`), même discipline que `norm.js`. Nouveau test :
+`test/mutate.test.js::detection: a boolean literal in a non-source file
+(prose, config) is never chosen`. `node --test test/mutate.test.js` →
+17/17 ; `npm test` → 420/420.
+
 ### Rollback Notes
 
 Retirer `bin/lib/mutate.js`, l'enregistrement de la sous-commande `mutate`

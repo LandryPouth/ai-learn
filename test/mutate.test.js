@@ -77,6 +77,14 @@ test("detection: no boolean literal at all reports no site", () => {
   assert.strictEqual(findFirstSite(dir), null);
 });
 
+test("detection: a boolean literal in a non-source file (prose, config) is never chosen", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/notes.md", "# Notes\n\nThis function returns true when data is ready.\n");
+  writeFile(dir, "src/config.json", JSON.stringify({ debug: true }));
+
+  assert.strictEqual(findFirstSite(dir), null);
+});
+
 test("detection: respects a custom learnerFiles scope", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["lib/**"] }));

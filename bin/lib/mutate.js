@@ -16,7 +16,7 @@
 const fs = require("fs");
 const { log, fail } = require("./util");
 const { readProgress, findPhase } = require("./progress");
-const { walkSources } = require("./scan");
+const { walkSources, ALL_SOURCE_EXTS } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const { stripStringsAndComments } = require("./norm");
 const { runCommand } = require("./verify");
@@ -43,12 +43,21 @@ const BOOLEAN_LITERAL_OPERATOR = {
 // hardcoded `src/**`). Detection runs on `stripStringsAndComments`'s output,
 // which preserves length and newlines exactly, so an index found there maps
 // 1:1 onto the real source text.
+//
+// Scanned candidates are restricted to `ALL_SOURCE_EXTS` — same filter as
+// `norm.js#normProject` — so a boolean literal sitting in prose (README.md,
+// a doc file under `src/**`) or in a data file (JSON/YAML config) is never
+// picked as a mutant: it isn't code the checkpoint is meant to protect, and
+// mutating it would only ever produce a misleading SURVÉCU.
 function findFirstSite(dir) {
   const walked = walkSources(dir);
   const { learnerFiles } = loadGuardConfig(dir);
 
   for (const file of walked.files) {
     if (file.binary) {
+      continue;
+    }
+    if (!ALL_SOURCE_EXTS.has(file.ext)) {
       continue;
     }
     if (!matchesLearnerPath(file.rel, learnerFiles)) {
