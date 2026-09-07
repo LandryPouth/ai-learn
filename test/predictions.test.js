@@ -12,6 +12,7 @@ const {
   ensurePredictionsFile,
   predictionsPath,
   journalPath,
+  predictionsReport,
 } = require("../bin/lib/predictions");
 const { tmpProject, writeFile, sampleProgress } = require("./helpers");
 
@@ -153,6 +154,59 @@ test("countByPhase / countIATyped read straight from entries", () => {
 
   assert.deepStrictEqual(countByPhase(entries), { 0: 2, 1: 1 });
   assert.strictEqual(countIATyped(entries), 1);
+});
+
+// -----------------------------------------------------------------------
+// predictionsReport (story 01.04) — the single per-phase count `verify` and
+// `check` both consume, plus antériorité detection.
+// -----------------------------------------------------------------------
+
+function writePredictionsFixture(dir, entries) {
+  writeFile(dir, ".ai-learn/predictions.json", JSON.stringify({ version: 1, entries }));
+}
+
+test("predictionsReport: antériorité inversée signalée — a prediction recorded after its own revelation is an anomaly", () => {
+  const dir = tmpProject(sampleProgress());
+  writePredictionsFixture(dir, [
+    { id: "a", phaseId: 0, at: "2026-01-02T00:00:00.000Z", prediction: "x", revealedAt: "2026-01-01T00:00:00.000Z" },
+  ]);
+
+  const report = predictionsReport({ dir, phase: { id: 0, predictionsRequired: 0 } });
+  assert.strictEqual(report.anomalies.length, 1);
+  assert.strictEqual(report.anomalies[0].id, "a");
+});
+
+test("predictionsReport: no revealedAt yet (revelation not made) is never an anomaly", () => {
+  const dir = tmpProject(sampleProgress());
+  writePredictionsFixture(dir, [{ id: "a", phaseId: 0, at: "2026-01-01T00:00:00.000Z", prediction: "x" }]);
+
+  const report = predictionsReport({ dir, phase: { id: 0, predictionsRequired: 0 } });
+  assert.strictEqual(report.anomalies.length, 0);
+});
+
+test("predictionsReport: timestamps equal to the millisecond are never an anomaly", () => {
+  const dir = tmpProject(sampleProgress());
+  const ts = "2026-01-01T00:00:00.000Z";
+  writePredictionsFixture(dir, [{ id: "a", phaseId: 0, at: ts, prediction: "x", revealedAt: ts }]);
+
+  const report = predictionsReport({ dir, phase: { id: 0, predictionsRequired: 0 } });
+  assert.strictEqual(report.anomalies.length, 0);
+});
+
+test("predictionsReport: a legacy project with no predictions.json at all never blocks, regardless of predictionsRequired", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const report = predictionsReport({ dir, phase: { id: 0, predictionsRequired: 5 } });
+  assert.strictEqual(report.missing, 0);
+});
+
+test("predictionsReport: a corrupted predictions.json blocks a phase that requires predictions instead of silently passing", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/predictions.json", "{ not json");
+
+  const report = predictionsReport({ dir, phase: { id: 0, predictionsRequired: 2 } });
+  assert.strictEqual(report.corrupted, true);
+  assert.strictEqual(report.missing, 2);
 });
 
 test("ensurePredictionsFile is idempotent and never touches an existing file", () => {

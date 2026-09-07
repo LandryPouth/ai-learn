@@ -14,6 +14,7 @@ const { syncGitTrack } = require("./tracks/git");
 const { syncDomainLedger } = require("./tracks/domain");
 const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { predictionsReport, formatPredictionsGap } = require("./predictions");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
@@ -142,6 +143,29 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     }
   }
 
+  // Predictions (story 01.04) — same hard-block philosophy as the norm and
+  // artifacts checks above, computed unconditionally regardless of --no-mark.
+  // `predictionsReport` itself encodes retro-compat: `missing` stays 0 for a
+  // project with no predictions.json at all, so this never blocks a legacy
+  // project (plan.md Decisions).
+  const predReport = predictionsReport({ dir, phase });
+
+  if (predReport.missing > 0) {
+    log("\nPrédictions :");
+    log(
+      `  ✗ ${formatPredictionsGap(phase, predReport)}` +
+        (predReport.corrupted ? " (.ai-learn/predictions.json est corrompu)" : ""),
+    );
+    log(`    prédire avant de révéler fait l'apprentissage : \`ai-learn predict --phase ${phase.id} --prediction "..."\``);
+  }
+
+  if (predReport.anomalies.length > 0) {
+    log("\nAntériorité prédiction/révélation :");
+    for (const anomaly of predReport.anomalies) {
+      log(`  ⚠ prédiction ${anomaly.id} enregistrée après sa révélation (at ${anomaly.at} > revealedAt ${anomaly.revealedAt})`);
+    }
+  }
+
   // The empreinte of what this run's proof covers — the learner's own files
   // plus the checkpoint file itself. Written unconditionally, same as
   // normReport/missingArtifacts above: only evidence with `ok: true` is ever
@@ -150,7 +174,11 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
   const sourceHash = computeSourceHash(dir, { checkpointFile: checkpointFilePath(dir, phase.checkpoint) });
 
   const ok =
-    result.ok && (!stressResult || stressResult.ok) && normReport.violations.length === 0 && missingArtifacts.length === 0;
+    result.ok &&
+    (!stressResult || stressResult.ok) &&
+    normReport.violations.length === 0 &&
+    missingArtifacts.length === 0 &&
+    predReport.missing === 0;
 
   const evidence = {
     generatedAt: new Date().toISOString(),
@@ -175,6 +203,14 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
       violations: normReport.violations,
       scannedFiles: normReport.scanned,
       skipped: normReport.skippedFunctionParse,
+    },
+    predictions: {
+      ok: predReport.missing === 0,
+      required: predReport.required,
+      count: predReport.count,
+      missing: predReport.missing,
+      corrupted: predReport.corrupted,
+      anomalies: predReport.anomalies,
     },
   };
 

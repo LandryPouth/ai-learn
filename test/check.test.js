@@ -471,6 +471,25 @@ test("un projet ayant les deux fichiers — le JSON fait foi, même vide, sur un
   assert.match(warning.message, /legacy entries.*takes precedence/);
 });
 
+// Story 01.04: check's message and verify's blocking message are built by
+// the same `formatPredictionsGap(phase, predictionsReport(...))` call — this
+// proves they report the identical count for the identical scenario, not
+// just a similar-looking one.
+test("check's missing-predictions message reports the same count verify's blocking message would", () => {
+  const progress = twoPhaseProgress();
+  progress.phases[1].checkpoint = 'node -e "process.exit(0)"';
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/predictions.json", JSON.stringify(predictionsData(fourEntriesOnPhaseZero())));
+
+  const entry = checkProject(dir);
+  const checkWarning = entry.issues.warnings.find((w) => /^phase 1:/.test(w.message));
+  assert.ok(checkWarning);
+
+  const verifyOut = capture(() => verifyCommand({ dir, phaseId: 1 }));
+
+  assert.match(verifyOut, new RegExp(checkWarning.message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
 test("a checkpoint file written but never verified is an error", () => {
   const progress = sampleProgress();
   progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";

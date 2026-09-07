@@ -9,6 +9,7 @@ const os = require("os");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, runsDir, progressPath } = require("../bin/lib/progress");
 const { readGitTracks } = require("../bin/lib/tracks/git");
+const { recordPrediction } = require("../bin/lib/predictions");
 const { capture, sampleProgress, tmpProject, spawnGit } = require("./helpers");
 
 function tmpHome() {
@@ -400,6 +401,122 @@ test("demoting a done phase does not touch the git or domain ledgers", () => {
 
   assert.deepStrictEqual(gitAfter, gitBefore);
   assert.deepStrictEqual(domainAfter, domainBefore);
+});
+
+// -----------------------------------------------------------------------
+// Predictions (story 01.04) — verify hard-blocks `done` on a phase whose
+// recorded prediction count is short of `predictionsRequired`, symmetric to
+// the norm and artifacts checks above. Retro-compat (no predictions.json at
+// all) never blocks — see plan.md Decisions.
+// -----------------------------------------------------------------------
+
+test("verify blocks on missing predictions: 1/2 recorded does not mark the phase done", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 2;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "one" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Prédictions/);
+  assert.match(out, /phase 0: 1\/2 recorded predictions; 1 missing/);
+  assert.doesNotMatch(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+});
+
+test("verify marks done once the required prediction count is reached", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 2;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "one" });
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "two" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /Prédictions/);
+  assert.match(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
+test("verify never blocks on predictions when predictionsRequired is absent", () => {
+  const progress = sampleProgress();
+  delete progress.phases[0].predictionsRequired;
+  const dir = tmpProject(progress);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+  assert.match(out, /marked done/);
+});
+
+test("verify never blocks on predictions when predictionsRequired is 0", () => {
+  const dir = tmpProject(sampleProgress()); // predictionsRequired: 0 by default
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+  assert.match(out, /marked done/);
+});
+
+test("verify never blocks a legacy project with no predictions.json at all, even with predictionsRequired set", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 3;
+  const dir = tmpProject(progress);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
+test("verify's evidence carries a predictions section symmetric to norm", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 1;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "x" });
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+
+  assert.strictEqual(evidence.predictions.ok, true);
+  assert.strictEqual(evidence.predictions.required, 1);
+  assert.strictEqual(evidence.predictions.count, 1);
+  assert.strictEqual(evidence.predictions.missing, 0);
+});
+
+test("verify --no-mark still computes and logs the predictions gap, without marking done", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 2;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "one" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
+
+  assert.match(out, /phase 0: 1\/2 recorded predictions; 1 missing/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+});
+
+test("a failing stressCheckpoint and missing predictions are both reported, neither masking the other", () => {
+  const progress = sampleProgress();
+  progress.phases[0].stressCheckpoint = 'node -e "process.exit(7)"';
+  progress.phases[0].predictionsRequired = 1;
+  const dir = tmpProject(progress);
+  // An empty but *valid* predictions.json — data exists, so retro-compat
+  // does not suppress the block (unlike the "no file at all" case above).
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".ai-learn", "predictions.json"), JSON.stringify({ version: 1, entries: [] }));
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /\[exit 7\]/);
+  assert.match(out, /phase 0: 0\/1 recorded predictions; 1 missing/);
+  assert.doesNotMatch(out, /marked done/);
+  assert.strictEqual(process.exitCode, 1);
 });
 
 test("evidence records marking: applied for a normal run, skipped for --no-mark", () => {

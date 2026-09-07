@@ -246,6 +246,48 @@ function recordPrediction(dir, config, fields) {
   return { entry, render };
 }
 
+// Story 01.04 — the single source `verify` and `check` both consume so a
+// phase never gets two diverging verdicts about the same count (plan.md
+// Decisions). Retro-compat is load-bearing here: a project that never
+// adopted 01.03 (no predictions.json on disk at all) reports `missing: 0`
+// unconditionally — this mechanism only bites once a project has real
+// prediction data, never on legacy projects with just the `.md`.
+//
+// A corrupted predictions.json is treated as present-but-untrustworthy, not
+// absent: `check` already hard-errors on it project-wide, and letting it
+// silently disable the gate here would make deleting/corrupting the file an
+// easy way to dodge a `predictionsRequired` block.
+//
+// Antériorité (`at > revealedAt`) is reported, never blocking — see plan.md:
+// the field is agent-declared, not observed by the tool.
+function predictionsReport({ dir, phase }) {
+  const required = Number.isFinite(phase.predictionsRequired) && phase.predictionsRequired > 0 ? phase.predictionsRequired : 0;
+  const predictions = readPredictions(dir);
+
+  if (!predictions.exists) {
+    return { required, count: 0, missing: 0, corrupted: false, anomalies: [] };
+  }
+
+  if (!predictions.valid) {
+    return { required, count: 0, missing: required, corrupted: true, issues: predictions.issues, anomalies: [] };
+  }
+
+  const entries = predictions.data.entries.filter((entry) => entry.phaseId === phase.id);
+  const count = entries.length;
+  const anomalies = entries
+    .filter((entry) => entry.revealedAt && entry.at > entry.revealedAt)
+    .map((entry) => ({ id: entry.id, at: entry.at, revealedAt: entry.revealedAt }));
+
+  return { required, count, missing: Math.max(0, required - count), corrupted: false, anomalies };
+}
+
+// Shared by `verify` and `check` so a phase's missing-predictions warning
+// never reads different counts in two places (plan.md Decisions) — the one
+// divergence this story exists to close.
+function formatPredictionsGap(phase, report) {
+  return `phase ${phase.id}: ${report.count}/${report.required} recorded predictions; ${report.missing} missing`;
+}
+
 module.exports = {
   VERSION,
   GENERATED_MARKER,
@@ -257,4 +299,6 @@ module.exports = {
   countIATyped,
   recordPrediction,
   renderJournal,
+  predictionsReport,
+  formatPredictionsGap,
 };

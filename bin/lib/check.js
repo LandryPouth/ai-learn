@@ -24,7 +24,14 @@ const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
-const { journalPath: predictionsJournalPath, readPredictions, countByPhase, countIATyped } = require("./predictions");
+const {
+  journalPath: predictionsJournalPath,
+  readPredictions,
+  countByPhase,
+  countIATyped,
+  predictionsReport,
+  formatPredictionsGap,
+} = require("./predictions");
 
 // A real merged/open PR URL — the only acceptable evidence shape for a tier-6
 // ("read a stranger's diff") phase, same "presence + minimum substance, not
@@ -292,6 +299,11 @@ function checkProject(dir) {
       });
     }
   } else {
+    // Story 01.04: the JSON-source case defers to the same `predictionsReport`
+    // `verify` uses, so the two never diverge on the same phase's count. The
+    // legacy `.md`-only case has no JSON to feed that function, so it keeps
+    // its own count here — informative only (a warning, never a block; see
+    // predictionsReport's own retro-compat contract).
     for (const phase of config.phases || []) {
       const phaseRequired = Number.isFinite(phase.predictionsRequired) ? phase.predictionsRequired : 0;
 
@@ -300,15 +312,18 @@ function checkProject(dir) {
       }
 
       const have = countsByPhase[phase.id] || 0;
+      const report = predictions.valid
+        ? predictionsReport({ dir, phase })
+        : { required: phaseRequired, count: have, missing: Math.max(0, phaseRequired - have) };
 
-      if (have < phaseRequired) {
+      if (report.missing > 0) {
         const legacyHint = jsonEmptyOverNonEmptyLegacy
           ? " (docs/plans/predictions.md has legacy entries, but .ai-learn/predictions.json now takes precedence — record new ones with `ai-learn predict`)"
           : "";
 
         issues.warnings.push({
           file: countsSource,
-          message: `phase ${phase.id}: ${have}/${phaseRequired} recorded predictions; ${phaseRequired - have} missing${legacyHint}`,
+          message: `${formatPredictionsGap(phase, report)}${legacyHint}`,
         });
       }
     }

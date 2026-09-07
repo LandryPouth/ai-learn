@@ -24,40 +24,40 @@ l'horodatage. Cette story les met au service du verdict.
 
 ## Requirements
 
-- [ ] `verify` refuse de marquer `done` une phase dont le nombre de prédictions
+- [x] `verify` refuse de marquer `done` une phase dont le nombre de prédictions
       enregistrées est inférieur à son `predictionsRequired`.
-- [ ] Le manque est affiché comme les violations de norme : précis, actionnable,
+- [x] Le manque est affiché comme les violations de norme : précis, actionnable,
       avec le compte réel et le compte attendu.
-- [ ] L'évidence porte une section prédictions, symétrique de la section norme.
-- [ ] L'antériorité est vérifiée : une prédiction enregistrée **après** la révélation
+- [x] L'évidence porte une section prédictions, symétrique de la section norme.
+- [x] L'antériorité est vérifiée : une prédiction enregistrée **après** la révélation
       qu'elle prédit est signalée.
-- [ ] Une phase avec `predictionsRequired` absent ou à 0 n'est jamais bloquée.
-- [ ] Un projet hérité, sans données de prédictions, n'est jamais bloqué par ce
+- [x] Une phase avec `predictionsRequired` absent ou à 0 n'est jamais bloquée.
+- [x] Un projet hérité, sans données de prédictions, n'est jamais bloqué par ce
       mécanisme — le comptage `.md` reste informatif (warning de `check`), pas bloquant.
-- [ ] La limite est documentée : ce qui est prouvé est **l'ordre d'écriture**, pas
+- [x] La limite est documentée : ce qui est prouvé est **l'ordre d'écriture**, pas
       l'honnêteté de la prédiction.
 
 ## Acceptance Criteria
 
-- [ ] Given une phase exigeant 2 prédictions et n'en ayant qu'une enregistrée, when `ai-learn verify <id>` tourne avec un checkpoint qui passe, then la phase n'est pas marquée `done` et le code de sortie est 1.
-- [ ] Given une phase exigeant 2 prédictions et en ayant 2 enregistrées, when `ai-learn verify <id>` tourne avec un checkpoint qui passe, then la phase est marquée `done`.
-- [ ] Given une phase sans `predictionsRequired`, when `ai-learn verify <id>` tourne avec un checkpoint qui passe, then la phase est marquée `done`.
-- [ ] Given une phase bloquée par des prédictions manquantes, when `ai-learn verify <id>` tourne, then le message indique le compte réel et le compte attendu pour cette phase.
-- [ ] Given une prédiction dont l'horodatage d'écriture est postérieur à sa révélation, when `ai-learn verify <id>` tourne, then l'anomalie d'antériorité est signalée dans la sortie et dans l'évidence.
-- [ ] Given un projet sans `.ai-learn/predictions.json`, when `ai-learn verify <id>` tourne avec un checkpoint qui passe, then la phase est marquée `done` sans blocage.
-- [ ] Given un `verify` réussi, when l'évidence est relue, then elle contient une section prédictions avec le compte et le résultat du contrôle d'antériorité.
+- [x] Given une phase exigeant 2 prédictions et n'en ayant qu'une enregistrée, when `ai-learn verify <id>` tourne avec un checkpoint qui passe, then la phase n'est pas marquée `done` et le code de sortie est 1.
+- [x] Given une phase exigeant 2 prédictions et en ayant 2 enregistrées, when `ai-learn verify <id>` tourne avec un checkpoint qui passe, then la phase est marquée `done`.
+- [x] Given une phase sans `predictionsRequired`, when `ai-learn verify <id>` tourne avec un checkpoint qui passe, then la phase est marquée `done`.
+- [x] Given une phase bloquée par des prédictions manquantes, when `ai-learn verify <id>` tourne, then le message indique le compte réel et le compte attendu pour cette phase.
+- [x] Given une prédiction dont l'horodatage d'écriture est postérieur à sa révélation, when `ai-learn verify <id>` tourne, then l'anomalie d'antériorité est signalée dans la sortie et dans l'évidence.
+- [x] Given un projet sans `.ai-learn/predictions.json`, when `ai-learn verify <id>` tourne avec un checkpoint qui passe, then la phase est marquée `done` sans blocage.
+- [x] Given un `verify` réussi, when l'évidence est relue, then elle contient une section prédictions avec le compte et le résultat du contrôle d'antériorité.
 
 ## Edge Cases
 
-- [ ] `predictionsRequired` supérieur au nombre de prédictions possibles (valeur
+- [x] `predictionsRequired` supérieur au nombre de prédictions possibles (valeur
       absurde saisie par un agent) — bloquer, mais avec un message qui aide.
-- [ ] Prédiction sans `revealedAt` (révélation pas encore faite) — ne compte pas
+- [x] Prédiction sans `revealedAt` (révélation pas encore faite) — ne compte pas
       comme anomalie d'antériorité.
-- [ ] Horodatages égaux à la milliseconde près.
-- [ ] Horloge système reculée entre deux écritures.
-- [ ] Phase avec `stressCheckpoint` : les deux blocages doivent coexister sans que
+- [x] Horodatages égaux à la milliseconde près.
+- [x] Horloge système reculée entre deux écritures.
+- [x] Phase avec `stressCheckpoint` : les deux blocages doivent coexister sans que
       l'un masque l'autre dans la sortie.
-- [ ] `verify --no-mark` : le contrôle s'exécute et s'affiche, mais ne modifie rien.
+- [x] `verify --no-mark` : le contrôle s'exécute et s'affiche, mais ne modifie rien.
 
 ## UX Notes
 
