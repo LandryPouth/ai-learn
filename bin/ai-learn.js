@@ -133,6 +133,19 @@ function main() {
       break;
     }
 
+    case "mutate": {
+      const { mutateCommand } = require("./lib/mutate");
+      const phaseRaw = getFlagValue("--phase", null);
+      const phaseId = phaseRaw !== null ? Number.parseInt(phaseRaw, 10) : NaN;
+
+      if (!Number.isFinite(phaseId)) {
+        fail("mutate requires --phase <id>, ex: ai-learn mutate --phase 0");
+      }
+
+      mutateCommand({ dir, phaseId });
+      break;
+    }
+
     case "predict": {
       const { recordPrediction } = require("./lib/predictions");
       const { readProgress } = require("./lib/progress");
@@ -268,6 +281,7 @@ Usage:
   ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
+  ai-learn mutate --phase <id> [--dir <dir>]
   ai-learn predict --phase <id> --prediction <text> [--gaps <text>] [--score <text>]
              [--strengths <text>] [--weaknesses <text>] [--flash <text>] [--corrected <text>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
@@ -304,6 +318,9 @@ Commands:
            backed by a verifiable resource; --validate refuses an invented
            project with an unsourced stage
   verify   Run a phase checkpoint, record executed evidence, mark it done on success
+  mutate   Mutation testing: break the learner's code one way, run the phase
+           checkpoint against it, report SURVÉCU (the test missed it) or TUÉ
+           (the test caught it) per site — the file is always restored after
   predict  Record a prediction for a phase in .ai-learn/predictions.json (source of
            truth) and regenerate docs/plans/predictions.md from it — unless that
            file has been customized (no generated marker), in which case it is left

@@ -649,6 +649,7 @@ module.exports = {
   detectFunctionsBrace,
   detectFunctionsPython,
   splitTopLevelParams,
+  stripStringsAndComments,
   loadNormConfig,
   resolveThresholds,
   formatViolation,
