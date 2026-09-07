@@ -229,3 +229,27 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 - **Problème** : le plan prévoit des checkpoints de compréhension (« expliquer le cycle de vie d'une requête ») qui ne sont pas exécutables par `verify`. Forcer un test là-dessus serait du théâtre.
 - **Workaround** : séparer — le **comportement** est prouvé par le checkpoint exécutable ; la **compréhension** est prouvée par le journal de prédictions (comptes d'écarts) et les reality checks. Documenté dans le template de plan.
 - **Résolution** : template de plan mis à jour pour clarifier cette séparation.
+
+### `low` — `ai-flow status`/`review capture` : la fraîcheur d'une review est indexée sur tout le dépôt, pas sur les fichiers de la story
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `ai-flow status` (`review: stale`), `computeReviewStatus`/`isStale` (`bin/lib/audit.js`, `bin/lib/status.js` du paquet)
+- **Problème** : la fraîcheur d'une review capturée compare `entry.treeToken` au
+  `currentTreeToken(root)` courant — un hash de **tout l'arbre git**, pas un
+  périmètre par story. Résultat observé plusieurs fois de suite dans cette
+  session : committer la story 01.04 (qui ne touche ni `predictions.js` de
+  01.03, ni `guard.js`/`status.js` de 01.01/01.02/01.06 fonctionnellement) a
+  fait repasser les quatre stories déjà `done`/`review: pass` en
+  `review: stale` — alors qu'aucun de leurs fichiers propres n'avait changé.
+  Même chose après le commit précédent (`f4a3181`, améliorations 01.01/01.02/01.03).
+- **Workaround** : après chaque commit, ré-exécuter `ai-flow verify --story <dir>`
+  puis `ai-flow review capture --story <dir> ...` pour **chaque** story déjà
+  `done` de l'epic, même celles que le commit ne touche pas — sans risque (les
+  deux commandes sont idempotentes et n'éditent que `.coding-flow/runs/`), mais
+  c'est du travail répété proportionnel au nombre de stories déjà closes, pour
+  un commit qui n'a rien cassé chez elles.
+- **Résolution** : ouverte (comportement du paquet `coding-flow`, pas de ce
+  dépôt). Piste : dériver la fraîcheur d'un token scopé aux fichiers réellement
+  associés à la story (son propre `plan.md`/`Implementation Context`, ou les
+  fichiers touchés par ses commits) plutôt que du tree-hash global — dans le
+  même esprit que `bin/lib/source-hash.js#sourceHashScope` de ce dépôt, qui
+  résout exactement ce problème pour l'évidence `verify` d'une phase.
