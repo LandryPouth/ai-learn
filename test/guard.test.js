@@ -197,6 +197,28 @@ test("toRelative resolves a path inside the project and rejects outside", () => 
   assert.strictEqual(toRelative(dir, "/etc/passwd"), null);
 });
 
+// Security fix (story 01.06): `path.relative()` between a directory and its
+// exact parent yields ".." with no trailing "/../..." — `rel.startsWith("../")`
+// alone doesn't match that literal string, so this exact case slipped past
+// the guard before the fix, on any OS. Reachable natively on this host,
+// unlike the Windows cross-drive case below.
+test("toRelative rejects the project's own parent directory (exact '..', not just '../...')", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  assert.strictEqual(toRelative(dir, path.dirname(dir)), null);
+});
+
+// Documents the Windows-specific half of the same fix: `path.relative()` is
+// host-OS-native, so `toRelative()` itself can't be exercised with Windows
+// semantics on Linux CI (same limitation noted for CRLF in story 01.01's
+// plan.md). What's testable here is the assumption the fix relies on —
+// across drives, path.win32.relative() returns the target path unchanged
+// instead of "../..", which is exactly what path.isAbsolute() then catches.
+test("path.win32.relative across drives returns the target unchanged, which toRelative's isAbsolute() check catches", () => {
+  const rel = path.win32.relative("D:\\project", "C:\\Windows\\System32\\config");
+  assert.strictEqual(path.win32.isAbsolute(rel), true);
+  assert.strictEqual(rel.startsWith("../"), false);
+});
+
 test("guardCommand denies with exit 2 and logs the denial; allows with exit 0", () => {
   const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
 
