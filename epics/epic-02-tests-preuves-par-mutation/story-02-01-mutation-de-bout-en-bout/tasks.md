@@ -105,6 +105,19 @@ désormais les candidats à `ALL_SOURCE_EXTS` (import ajouté depuis
 (prose, config) is never chosen`. `node --test test/mutate.test.js` →
 17/17 ; `npm test` → 420/420.
 
+**Amélioration post-review (`/flow-review`, P3).** `findFirstSite` ne
+filtrait pas les fichiers de test du périmètre `learnerFiles`, contrairement
+à `norm.js#normProject` (`detectTests`/`testRels`). Sans effet avec le
+`learnerFiles` par défaut (`src/**`, qui n'inclut aucun `test/**`), mais un
+`learnerFiles` élargi (ex. `**/*.js`) pouvait faire d'un littéral booléen du
+propre fichier de test de l'apprenant le site mutable — demander à un test
+de détecter une mutation de lui-même ne prouve rien. Fix : `findFirstSite`
+exclut désormais les fichiers identifiés par `detectTests` (import ajouté
+depuis `scan.js`), même discipline que `norm.js`. Nouveau test :
+`test/mutate.test.js::detection: a boolean literal in the learner's own
+test file is never chosen`. `node --test test/mutate.test.js` → 18/18 ;
+`npm test` → 421/421.
+
 ### Rollback Notes
 
 Retirer `bin/lib/mutate.js`, l'enregistrement de la sous-commande `mutate`

@@ -85,6 +85,17 @@ test("detection: a boolean literal in a non-source file (prose, config) is never
   assert.strictEqual(findFirstSite(dir), null);
 });
 
+test("detection: a boolean literal in the learner's own test file is never chosen", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["**/*.js"] }));
+  writeFile(dir, "src/index.test.js", "test('is ready', () => { assert.strictEqual(true, true); });\n");
+  writeFile(dir, "src/index.js", "module.exports = { ok: false };\n");
+
+  const site = findFirstSite(dir);
+  assert.ok(site);
+  assert.strictEqual(site.file.rel, "src/index.js");
+});
+
 test("detection: respects a custom learnerFiles scope", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["lib/**"] }));

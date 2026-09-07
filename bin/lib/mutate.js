@@ -16,7 +16,7 @@
 const fs = require("fs");
 const { log, fail } = require("./util");
 const { readProgress, findPhase } = require("./progress");
-const { walkSources, ALL_SOURCE_EXTS } = require("./scan");
+const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const { stripStringsAndComments } = require("./norm");
 const { runCommand } = require("./verify");
@@ -49,15 +49,25 @@ const BOOLEAN_LITERAL_OPERATOR = {
 // a doc file under `src/**`) or in a data file (JSON/YAML config) is never
 // picked as a mutant: it isn't code the checkpoint is meant to protect, and
 // mutating it would only ever produce a misleading SURVÉCU.
+//
+// Test files are excluded the same way `norm.js#normProject` excludes them
+// (`detectTests`) — by default `learnerFiles` is `src/**`, so this rarely
+// bites, but a widened `learnerFiles` (e.g. `**/*.js`) could otherwise let
+// a learner's own test file become the mutant: asking a test to detect a
+// mutation of itself proves nothing.
 function findFirstSite(dir) {
   const walked = walkSources(dir);
   const { learnerFiles } = loadGuardConfig(dir);
+  const testRels = new Set(detectTests(walked.files).files.map((f) => f.rel));
 
   for (const file of walked.files) {
     if (file.binary) {
       continue;
     }
     if (!ALL_SOURCE_EXTS.has(file.ext)) {
+      continue;
+    }
+    if (testRels.has(file.rel)) {
       continue;
     }
     if (!matchesLearnerPath(file.rel, learnerFiles)) {
