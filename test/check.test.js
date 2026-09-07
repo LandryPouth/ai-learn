@@ -463,7 +463,12 @@ test("un projet ayant les deux fichiers — le JSON fait foi, même vide, sur un
 
   // The legacy .md alone would satisfy phase 0's requirement; the (empty but
   // valid) JSON taking precedence means it is reported as missing instead.
-  assert.ok(entry.issues.warnings.some((w) => /phase 0: 0\/1 recorded predictions/.test(w.message)));
+  // Found in review (story 01.03): the warning must explain itself — the
+  // legacy .md's entries didn't vanish, an empty predictions.json just now
+  // outranks them.
+  const warning = entry.issues.warnings.find((w) => /phase 0: 0\/1 recorded predictions/.test(w.message));
+  assert.ok(warning);
+  assert.match(warning.message, /legacy entries.*takes precedence/);
 });
 
 test("a checkpoint file written but never verified is an error", () => {

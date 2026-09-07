@@ -15,13 +15,15 @@ const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 // derived from the same verdict `check` and `next` consume, not re-derived
 // from `phase.status` alone. Only `stale`/`unproven` get a label: the other
 // states are already legible from the mark plus the raw status text below.
-function verdictDisplay(state) {
+// The `stale` label names the exact command to run, same as `check`/`next` —
+// spec.md's UX Note requires a périmé state to say what to do, not just note it.
+function verdictDisplay(state, phaseId) {
   switch (state) {
     case "proven":
     case "proven-unhashed":
       return { mark: "✓", label: null };
     case "stale":
-      return { mark: "⚠", label: "périmé — à re-prouver" };
+      return { mark: "⚠", label: `périmé — re-prouver avec \`ai-learn verify ${phaseId}\`` };
     case "unproven":
       return { mark: "✗", label: "non prouvé" };
     case "in-progress":
@@ -46,11 +48,12 @@ function printStatus(config, { dir }) {
     const ev = latestEvidenceForPhase(dir, phase.id);
     const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
     // Only cost a hash computation (a full walkSources) for a done phase with
-    // evidence to compare it against — phaseVerdict never consults currentHash
-    // for any other status, same guard as check.js/next.js.
-    const currentHash = phase.status === "done" && ev ? computeSourceHash(dir, { checkpointFile }) : null;
+    // evidence that actually carries a sourceHash to compare against —
+    // phaseVerdict never consults currentHash for proven-unhashed or any
+    // other status, same guard as check.js/next.js.
+    const currentHash = phase.status === "done" && ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
     const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
-    const { mark, label } = verdictDisplay(verdict.state);
+    const { mark, label } = verdictDisplay(verdict.state, phase.id);
 
     const evNote = ev ? ` — evidence ${new Date(ev.generatedAt).toISOString().slice(0, 10)}` : "";
     const labelNote = label ? ` (${label})` : "";

@@ -157,6 +157,21 @@ test("status displays the stale state for a phase whose proof no longer covers t
   assert.match(out, /⚠ Phase 0 — Phase zero.*périmé/);
 });
 
+// Found in review (story 01.01): the stale label named the state but not
+// what to do about it, unlike check.js/next.js which both name the exact
+// command — spec.md's UX Note requires a périmé state to say what to do.
+test("status's stale label names the exact verify command to re-prove the phase", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const home = tmpHome();
+  const out = capture(() => statusCommand({ dir, home }));
+  assert.match(out, /ai-learn verify 0/);
+});
+
 test("statusCommand includes the domain summary alongside the git/gh one", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, "src/index.js", 'app.get("/x", async (req, res) => { await Promise.resolve(); res.json({}); });\n');

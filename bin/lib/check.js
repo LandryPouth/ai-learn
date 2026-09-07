@@ -272,6 +272,18 @@ function checkProject(dir) {
     countsSource = "docs/plans/predictions.md";
   }
 
+  // A predictions.json created empty by `update` on a project that already
+  // had a filled-in legacy predictions.md silently outranks it ("JSON fait
+  // foi dès qu'il existe", plan.md Decisions) — the first `check` after that
+  // reports phases as newly missing predictions it used to consider covered.
+  // Named here so the warning explains itself, instead of only being
+  // mentioned once in `update`'s own output (found in review, story 01.03).
+  const jsonEmptyOverNonEmptyLegacy =
+    predictions.valid &&
+    predictions.data.entries.length === 0 &&
+    journalExists &&
+    Object.keys(countJournalEntriesByPhase(journalMdPath)).length > 0;
+
   if (countsSource === null) {
     if (required > 0) {
       issues.warnings.push({
@@ -290,9 +302,13 @@ function checkProject(dir) {
       const have = countsByPhase[phase.id] || 0;
 
       if (have < phaseRequired) {
+        const legacyHint = jsonEmptyOverNonEmptyLegacy
+          ? " (docs/plans/predictions.md has legacy entries, but .ai-learn/predictions.json now takes precedence — record new ones with `ai-learn predict`)"
+          : "";
+
         issues.warnings.push({
           file: countsSource,
-          message: `phase ${phase.id}: ${have}/${phaseRequired} recorded predictions; ${phaseRequired - have} missing`,
+          message: `phase ${phase.id}: ${have}/${phaseRequired} recorded predictions; ${phaseRequired - have} missing${legacyHint}`,
         });
       }
     }
@@ -320,9 +336,10 @@ function checkProject(dir) {
           message: `phase ${phase.id} ("${phase.name}") is done but has no checkpoint — it cannot be proven`,
         });
       } else {
-        // Only cost a hash computation (a full walkSources) when there is
-        // evidence to compare it against — an unproven phase doesn't need it.
-        const currentHash = ev ? computeSourceHash(dir, { checkpointFile }) : null;
+        // Only cost a hash computation (a full walkSources) when the evidence
+        // actually carries a sourceHash to compare against — proven-unhashed
+        // (legacy evidence) and unproven (no evidence) don't need it.
+        const currentHash = ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
         const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
 
         if (verdict.state === "unproven") {

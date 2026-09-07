@@ -30,7 +30,10 @@ function nextCommand({ dir }) {
 
     const ev = latestEvidenceForPhase(dir, phase.id);
     const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
-    const currentHash = ev ? computeSourceHash(dir, { checkpointFile }) : null;
+    // Only cost a hash computation (a full walkSources) when the evidence
+    // actually carries a sourceHash to compare against — proven-unhashed
+    // (legacy evidence) and unproven (no evidence) don't need it.
+    const currentHash = ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
     const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
 
     if (verdict.state === "unproven" || verdict.state === "stale") {
