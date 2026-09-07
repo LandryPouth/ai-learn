@@ -519,6 +519,41 @@ test("a failing stressCheckpoint and missing predictions are both reported, neit
   assert.strictEqual(process.exitCode, 1);
 });
 
+// `recordPrediction` always stamps `at`/`revealedAt` together (story 01.04
+// plan.md: the two-step API doesn't exist yet), so an antériorité anomaly can
+// only be produced today by a hand-written predictions.json — exactly what
+// `predictionsReport`'s own unit tests do. This test proves the wiring
+// `verifyCommand` puts on top of that report (the "Antériorité" log block and
+// evidence.predictions.anomalies) actually fires end-to-end, not just at the
+// predictionsReport() unit level (review finding, story 01.04).
+test("verify signals — never blocks on — a prediction recorded after its own revelation", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 1;
+  const dir = tmpProject(progress);
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, ".ai-learn", "predictions.json"),
+    JSON.stringify({
+      version: 1,
+      entries: [
+        { id: "a", phaseId: 0, at: "2026-01-02T00:00:00.000Z", prediction: "x", revealedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    }),
+  );
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Antériorité prédiction\/révélation/);
+  assert.match(out, /prédiction a enregistrée après sa révélation/);
+  assert.match(out, /marked done/);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+
+  assert.strictEqual(evidence.predictions.anomalies.length, 1);
+  assert.strictEqual(evidence.predictions.anomalies[0].id, "a");
+});
+
 test("evidence records marking: applied for a normal run, skipped for --no-mark", () => {
   const dir = tmpProject(sampleProgress());
   capture(() => verifyCommand({ dir, phaseId: 0 }));

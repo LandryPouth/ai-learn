@@ -63,11 +63,33 @@ sans JSON (`predictionsReport` ne sait pas lire le `.md`).
 ### Tests And Validation
 
 - Command: `npm test`
-  - Result: 374/374 passed
+  - Result: 375/375 passed
 - Command: `node bin/ai-learn.js check --root .`
   - Result: exit 0 (aucun projet d'apprentissage à la racine de ce dépôt)
 - Command: `npx @landry_pouth/coding-flow verify --story <dir>`
   - Result: green (`npm test`), evidence captured
+
+### Post-Review Fixes
+
+La revue de cette story a relevé deux points non-bloquants, corrigés dans la
+foulée :
+
+- **Test gap (P2)** : le chemin antériorité n'était couvert qu'au niveau
+  unitaire (`predictions.test.js::predictionsReport`), jamais à travers
+  `verifyCommand` — l'AC exige pourtant que l'anomalie apparaisse « dans la
+  sortie et dans l'évidence » de `ai-learn verify`. Ajouté
+  `test/verify.test.js::verify signals — never blocks on — a prediction
+  recorded after its own revelation`, qui pose un `predictions.json` écrit à
+  la main (antériorité inversée) et vérifie le bloc de log `Antériorité
+  prédiction/révélation` et `evidence.predictions.anomalies` en bout de
+  chaîne.
+- **Quality (P3)** : `check.js` lisait déjà `predictions.json` une fois
+  (`readPredictions(dir)`), puis `predictionsReport` le relisait et le
+  reparsait à chaque phase exigeant des prédictions dans la boucle —
+  I/O redondante à chaque `check`. `predictionsReport({ dir, phase,
+  predictions })` accepte désormais l'objet déjà lu en paramètre optionnel ;
+  `check.js` passe le sien, `verify.js` (un seul appel par run) continue de
+  laisser `predictionsReport` lire lui-même.
 
 ### Rollback Notes
 

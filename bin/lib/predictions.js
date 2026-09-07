@@ -260,19 +260,24 @@ function recordPrediction(dir, config, fields) {
 //
 // Antériorité (`at > revealedAt`) is reported, never blocking — see plan.md:
 // the field is agent-declared, not observed by the tool.
-function predictionsReport({ dir, phase }) {
+// `predictions` is optional: a caller that already called `readPredictions(dir)`
+// itself (check.js, once per project, before looping over phases) passes it
+// through here instead of paying for a second disk read + JSON.parse per
+// phase that requires predictions. Omitted, this reads it itself — the shape
+// every existing caller (verify.js, the unit tests) relies on.
+function predictionsReport({ dir, phase, predictions }) {
   const required = Number.isFinite(phase.predictionsRequired) && phase.predictionsRequired > 0 ? phase.predictionsRequired : 0;
-  const predictions = readPredictions(dir);
+  const resolved = predictions || readPredictions(dir);
 
-  if (!predictions.exists) {
+  if (!resolved.exists) {
     return { required, count: 0, missing: 0, corrupted: false, anomalies: [] };
   }
 
-  if (!predictions.valid) {
-    return { required, count: 0, missing: required, corrupted: true, issues: predictions.issues, anomalies: [] };
+  if (!resolved.valid) {
+    return { required, count: 0, missing: required, corrupted: true, issues: resolved.issues, anomalies: [] };
   }
 
-  const entries = predictions.data.entries.filter((entry) => entry.phaseId === phase.id);
+  const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id);
   const count = entries.length;
   const anomalies = entries
     .filter((entry) => entry.revealedAt && entry.at > entry.revealedAt)

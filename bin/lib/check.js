@@ -313,7 +313,7 @@ function checkProject(dir) {
 
       const have = countsByPhase[phase.id] || 0;
       const report = predictions.valid
-        ? predictionsReport({ dir, phase })
+        ? predictionsReport({ dir, phase, predictions })
         : { required: phaseRequired, count: have, missing: Math.max(0, phaseRequired - have) };
 
       if (report.missing > 0) {
