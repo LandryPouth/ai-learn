@@ -5,7 +5,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 
-const { checkProject, checkCommand, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
+const { checkProject, checkCommand, buildCheckReport, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
@@ -804,4 +804,71 @@ test("checkCommand scans every learning project under a root", () => {
   assert.strictEqual(process.exitCode, 1);
 
   assert.strictEqual(findLearningProjects(root).length, 2);
+});
+
+// Non-regression: the text renderer must produce the exact same bytes it did
+// before --json existed (story 01.05, plan.md's "sortie texte inchangée").
+test("the text output is unchanged when --json is not passed", () => {
+  const root = fs.mkdtempSync(path.join(require("os").tmpdir(), "ai-learn-root-"));
+  const good = path.join(root, "proj-a");
+  fs.mkdirSync(good, { recursive: true });
+  writeFile(good, "progress.json", JSON.stringify(sampleProgress({ project: "proj-a" }), null, 2));
+
+  const out = capture(() => checkCommand({ root }));
+
+  assert.match(out, /Checking 1 learning project\(s\) under/);
+  assert.match(out, /\nproj-a\n/);
+  assert.match(out, /0\/1 phases done/);
+  assert.match(out, /✓ check passed/);
+  assert.doesNotMatch(out, /[{}[\]]/); // no stray JSON leaking into the text path
+});
+
+test("check --json produces a single valid JSON object on stdout, with the same exit code as text mode", () => {
+  const root = fs.mkdtempSync(path.join(require("os").tmpdir(), "ai-learn-root-"));
+
+  const good = path.join(root, "proj-a");
+  fs.mkdirSync(good, { recursive: true });
+  writeFile(good, "progress.json", JSON.stringify(sampleProgress({ project: "proj-a" }), null, 2));
+
+  const bad = path.join(root, "proj-b");
+  fs.mkdirSync(bad, { recursive: true });
+  const badProgress = sampleProgress({ project: "proj-b" });
+  badProgress.phases[0].status = "done";
+  writeFile(bad, "progress.json", JSON.stringify(badProgress, null, 2));
+
+  const out = capture(() => checkCommand({ root, json: true }));
+
+  const parsed = JSON.parse(out); // throws if this isn't exactly one JSON value
+  assert.strictEqual(parsed.version, 1);
+  assert.strictEqual(parsed.ok, false);
+  assert.strictEqual(parsed.errors, 1);
+  assert.strictEqual(parsed.projects.length, 2);
+  assert.strictEqual(process.exitCode, 1);
+});
+
+test("check --json exits 0 on a clean project, same as text mode", () => {
+  const root = fs.mkdtempSync(path.join(require("os").tmpdir(), "ai-learn-root-"));
+  const good = path.join(root, "proj-a");
+  fs.mkdirSync(good, { recursive: true });
+  writeFile(good, "progress.json", JSON.stringify(sampleProgress({ project: "proj-a" }), null, 2));
+
+  const out = capture(() => checkCommand({ root, json: true }));
+  const parsed = JSON.parse(out);
+
+  assert.strictEqual(parsed.ok, true);
+  assert.strictEqual(process.exitCode, 0);
+});
+
+test("buildCheckReport normalizes paths and reports per-phase counts", () => {
+  const root = fs.mkdtempSync(path.join(require("os").tmpdir(), "ai-learn-root-"));
+  const good = path.join(root, "proj-a");
+  fs.mkdirSync(good, { recursive: true });
+  writeFile(good, "progress.json", JSON.stringify(sampleProgress({ project: "proj-a" }), null, 2));
+
+  const report = buildCheckReport(root);
+
+  assert.strictEqual(report.projects[0].dir, "proj-a");
+  assert.strictEqual(report.projects[0].phasesDone, 0);
+  assert.strictEqual(report.projects[0].phasesTotal, 1);
+  assert.doesNotMatch(report.root, /\\/);
 });

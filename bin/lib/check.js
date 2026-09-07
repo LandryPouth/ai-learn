@@ -8,7 +8,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { log, findLearningProjects, spawnGit } = require("./util");
+const { log, findLearningProjects, spawnGit, normalizePortable } = require("./util");
 const {
   readProgress,
   validateProgress,
@@ -760,7 +760,53 @@ function countGuardBlocks(dir) {
   }
 }
 
-function checkCommand({ root }) {
+// The JSON-facing calc: the same `checkProject` result as the text report,
+// reshaped into a stable, versioned object instead of printed lines. Paths go
+// through `normalizePortable` so a Windows separator never leaks into the
+// contract (see spec.md's edge cases).
+function buildCheckReport(root) {
+  const projects = findLearningProjects(root);
+  const entries = [];
+  let errors = 0;
+  let warnings = 0;
+
+  for (const project of projects) {
+    const entry = checkProject(project);
+
+    if (!entry) {
+      continue;
+    }
+
+    const report = {
+      dir: normalizePortable(path.relative(root, entry.dir) || path.basename(entry.dir)),
+      errorList: entry.issues.errors,
+      warningList: entry.issues.warnings,
+    };
+
+    if (entry.config) {
+      report.phasesDone = entry.config.phases.filter((phase) => phase.status === "done").length;
+      report.phasesTotal = entry.config.phases.length;
+    }
+
+    entries.push(report);
+    errors += entry.issues.errors.length;
+    warnings += entry.issues.warnings.length;
+  }
+
+  return { version: 1, root: normalizePortable(root), projects: entries, errors, warnings, ok: errors === 0 };
+}
+
+function checkCommand({ root, json }) {
+  if (json) {
+    const report = buildCheckReport(root);
+    log(JSON.stringify(report));
+
+    if (!report.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const projects = findLearningProjects(root);
 
   if (projects.length === 0) {
@@ -795,6 +841,7 @@ function checkCommand({ root }) {
 
 module.exports = {
   checkCommand,
+  buildCheckReport,
   checkProject,
   countJournalEntries,
   countIATypedCorrections,

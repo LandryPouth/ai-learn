@@ -253,3 +253,51 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
   fichiers touchés par ses commits) plutôt que du tree-hash global — dans le
   même esprit que `bin/lib/source-hash.js#sourceHashScope` de ce dépôt, qui
   résout exactement ce problème pour l'évidence `verify` d'une phase.
+
+### `low` — `ai-flow worktree place` pointe vers un worktree déjà atterri et supprimé
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `ai-flow worktree place` (`.git/coding-flow/worktree-plan/epic-01-verdict-fiable.json`)
+- **Problème** : au lancement de la story 01.05, `worktree place` a renvoyé la
+  chaîne `s2` comme vivant dans
+  `ai-learn-worktrees/story-01-02-preuve-perimee-a-reprouver` (« current
+  checkout ») — un dossier qui n'existe plus sur le disque. Les stories 01.02
+  à 01.04 de cette même chaîne ont en réalité été livrées directement sur
+  `main` (`autoland` a dû rapatrier et supprimer le worktree en cours de
+  route), mais le fichier de plan n'a pas été mis à jour en conséquence :
+  l'entrée `s2` garde l'ancien chemin au lieu d'être réécrite vers le checkout
+  primaire.
+- **Workaround** : vérifier `git worktree list` avant de suivre l'emplacement
+  rapporté ; si le chemin n'existe pas, continuer dans le checkout courant
+  (celui où l'historique de la chaîne est réellement visible via `git log`)
+  plutôt que de recréer le worktree indiqué.
+- **Résolution** : ouverte (comportement du paquet `coding-flow`, pas de ce
+  dépôt). Piste : `autoland` devrait réécrire l'entrée de la chaîne dans
+  `worktree-plan/*.json` vers le checkout primaire au moment où il atterrit et
+  supprime le worktree, au lieu de laisser une entrée pointant vers un dossier
+  disparu.
+
+### `medium` — plusieurs stories de suite atterrissent sur `main` sans respecter « 1 branche = 1 story »
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `/flow-run` → `/flow-ship` (contrat annoncé : « one feature = one
+  branch = one PR »)
+- **Problème** : sur la chaîne epic-01-verdict-fiable, ce n'est pas un
+  incident isolé : les stories 01.01, 01.03 et 01.04 ont toutes été committées
+  directement sur `main` (`git log` : `67443c5`/`6d2890f`, `afc8895`,
+  `553df4a`/`f4a3181`/`5e2974c` — aucun de ces commits n'est le merge d'une
+  branche dédiée), alors que 01.02 et 01.06 sont bien passées par une branche
+  `story-01-0X-...` suivie d'une PR. La story 01.05 répète le même état au
+  moment de sa review : le travail est de nouveau posé sur `main`, aucune
+  branche ni PR ouverte. C'est au moins la deuxième fois que cette règle
+  n'est pas appliquée sur la même chaîne — cohérent avec l'entrée précédente
+  sur `worktree place` : le worktree attendu pour la story est rapatrié/
+  supprimé en route par l'atterrissage automatique, sans qu'une branche
+  dédiée soit recréée pour la story suivante.
+- **Workaround** : avant `/flow-ship`, vérifier `git status`/`git branch` —
+  si le travail de la story est sur `main` et non sur une branche dédiée,
+  créer la branche manuellement avant de pousser plutôt que de laisser
+  `ship` ouvrir une PR depuis `main`.
+- **Résolution** : ouverte (comportement du paquet `coding-flow`, pas de ce
+  dépôt). Piste : l'atterrissage automatique devrait garantir qu'une story
+  sans PR déjà ouverte reçoit systématiquement une branche dédiée avant tout
+  commit, plutôt que de dépendre d'une relecture de `git log` après coup pour
+  détecter qu'elle a fini sur `main`.

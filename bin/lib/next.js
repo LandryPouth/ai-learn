@@ -5,11 +5,82 @@
 // phases without passing evidence are called out because they are unproven.
 
 const fs = require("fs");
-const { log, fail } = require("./util");
+const { log, fail, normalizePortable } = require("./util");
 const { readProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 
-function nextCommand({ dir }) {
+// Same broken-done detection `nextCommand` prints as text, shared by the
+// JSON builder below so the two can never disagree on which phase is next.
+function findBrokenDone(dir, phases) {
+  const brokenDone = [];
+
+  for (const phase of phases) {
+    if (!phase || phase.status !== "done") {
+      continue;
+    }
+
+    const ev = latestEvidenceForPhase(dir, phase.id);
+    const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
+    const currentHash = ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
+    const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
+
+    if (verdict.state === "unproven" || verdict.state === "stale") {
+      brokenDone.push({ phase, verdict });
+    }
+  }
+
+  return brokenDone;
+}
+
+// The JSON-facing calc: never throws — a missing or corrupt progress.json
+// becomes an `error` field instead of a stack (see spec.md's edge cases).
+// When no phase remains, `done: true` is the dedicated field an agent reads
+// instead of parsing the "All N/N phases done." sentence.
+function buildNextReport(dir) {
+  const { config, exists } = readProgress(dir);
+
+  if (!exists || !config) {
+    return { version: 1, dir: normalizePortable(dir), error: `No progress.json in ${dir}. Run \`ai-learn init\` first.` };
+  }
+
+  const phases = Array.isArray(config.phases) ? config.phases : [];
+  const brokenDone = findBrokenDone(dir, phases);
+  const broken = brokenDone.map(({ phase, verdict }) => ({ id: phase.id, name: phase.name, verdict: verdict.state }));
+  const staleFirst = brokenDone.find((entry) => entry.verdict.state === "stale");
+  const next = staleFirst ? staleFirst.phase : phases.find((phase) => phase && phase.status !== "done");
+
+  if (!next) {
+    return { version: 1, dir: normalizePortable(dir), done: true, phasesTotal: phases.length, broken };
+  }
+
+  return {
+    version: 1,
+    dir: normalizePortable(dir),
+    done: false,
+    broken,
+    next: {
+      id: next.id,
+      name: next.name,
+      status: next.status,
+      checkpoint: next.checkpoint || null,
+      mustReprove: Boolean(staleFirst),
+      predictionsRequired: next.predictionsRequired || 0,
+      artifacts: Array.isArray(next.artifacts) ? next.artifacts : [],
+    },
+  };
+}
+
+function nextCommand({ dir, json }) {
+  if (json) {
+    const report = buildNextReport(dir);
+    log(JSON.stringify(report));
+
+    if (report.error) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -21,25 +92,7 @@ function nextCommand({ dir }) {
   // Done phases whose proof does not actually hold — never proven, or once
   // proven and now stale — are drift the learner should know about before
   // moving on. `check` fails on both; `next` should not hide either.
-  const brokenDone = [];
-
-  for (const phase of phases) {
-    if (!phase || phase.status !== "done") {
-      continue;
-    }
-
-    const ev = latestEvidenceForPhase(dir, phase.id);
-    const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
-    // Only cost a hash computation (a full walkSources) when the evidence
-    // actually carries a sourceHash to compare against — proven-unhashed
-    // (legacy evidence) and unproven (no evidence) don't need it.
-    const currentHash = ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
-    const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
-
-    if (verdict.state === "unproven" || verdict.state === "stale") {
-      brokenDone.push({ phase, verdict });
-    }
-  }
+  const brokenDone = findBrokenDone(dir, phases);
 
   for (const { phase, verdict } of brokenDone) {
     if (verdict.state === "stale") {
@@ -90,4 +143,4 @@ function nextCommand({ dir }) {
   log(`  ai-learn verify ${next.id}`);
 }
 
-module.exports = { nextCommand };
+module.exports = { nextCommand, buildNextReport };

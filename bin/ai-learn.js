@@ -109,19 +109,21 @@ function main() {
 
     case "status": {
       const { statusCommand } = require("./lib/status");
-      statusCommand({ dir });
+      statusCommand({ dir, json: flags.has("--json") });
       break;
     }
 
     case "next": {
       const { nextCommand } = require("./lib/next");
-      nextCommand({ dir });
+      nextCommand({ dir, json: flags.has("--json") });
       break;
     }
 
     case "verify": {
       const { verifyCommand } = require("./lib/verify");
-      const phaseId = Number.parseInt(commandArgs.find((arg) => !arg.startsWith("--")) || "", 10);
+      const { parseArgs } = require("./lib/args");
+      const { positionals } = parseArgs(commandArgs, { valueFlags: ["--dir"] });
+      const phaseId = Number.parseInt(positionals[0] || "", 10);
 
       if (!Number.isFinite(phaseId)) {
         fail("verify requires a phase id, ex: ai-learn verify 0");
@@ -196,7 +198,7 @@ function main() {
     case "check": {
       const { checkCommand } = require("./lib/check");
       const root = resolveDir(getFlagValue("--root"));
-      checkCommand({ root });
+      checkCommand({ root, json: flags.has("--json") });
       break;
     }
 
@@ -244,8 +246,10 @@ function main() {
 
     case "install": {
       const { installCommand } = require("./lib/install");
-      const platform = commandArgs.find((arg) => !arg.startsWith("--")) || null;
-      const home = getFlagValue("--home", null);
+      const { parseArgs } = require("./lib/args");
+      const { positionals, flags: installFlags } = parseArgs(commandArgs, { valueFlags: ["--home"] });
+      const platform = positionals[0] || null;
+      const home = typeof installFlags["--home"] === "string" ? installFlags["--home"] : null;
       installCommand({ platform, ...(home ? { home } : {}) });
       break;
     }
@@ -258,8 +262,8 @@ Usage:
   ai-learn version | --version | -v
   ai-learn init --technology <name> [--project <name>] [--doc-source <path|url>] [--phases '<json>']
              [--platform <claude|codex|gemini|opencode|antigravity>]
-  ai-learn status [--dir <dir>]
-  ai-learn next [--dir <dir>]
+  ai-learn status [--dir <dir>] [--json]
+  ai-learn next [--dir <dir>] [--json]
   ai-learn scan [--dir <dir>]
   ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
@@ -267,7 +271,7 @@ Usage:
   ai-learn predict --phase <id> --prediction <text> [--gaps <text>] [--score <text>]
              [--strengths <text>] [--weaknesses <text>] [--flash <text>] [--corrected <text>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
-  ai-learn check [--root <dir>]
+  ai-learn check [--root <dir>] [--json]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
@@ -283,6 +287,10 @@ missing — a learner resuming on a different platform than the project was
 init'ed on self-heals on its very next command, no separate step to
 remember. Claude Code also self-heals with no flag at all (CLAUDECODE=1,
 the one verified auto-detect signal) — see bin/lib/platforms/ensure.js.
+
+--json (check, status, next only) prints one machine-readable JSON object on
+stdout instead of the human report, for an agent to parse — it never mixes
+with the text output.
 
 Commands:
   init     Scaffold a learning project (progress.json, docs/plans/, checkpoint/, predictions journal).

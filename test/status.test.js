@@ -10,7 +10,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { statusCommand, printGitTracksSummary, printDomainSummary, printNormSummary } = require("../bin/lib/status");
+const { statusCommand, buildStatusReport, printGitTracksSummary, printDomainSummary, printNormSummary } = require("../bin/lib/status");
 const { verifyCommand } = require("../bin/lib/verify");
 const { defaultGitTracks, writeGitTracks } = require("../bin/lib/tracks/git");
 const { defaultDomainLedger, writeDomainLedger } = require("../bin/lib/tracks/domain");
@@ -184,4 +184,61 @@ test("statusCommand includes the domain summary alongside the git/gh one", () =>
 
   const out = capture(() => statusCommand({ dir, home }));
   assert.match(out, /Maîtrise de domaine \(javascript\)/);
+});
+
+// Non-regression: the text renderer must be byte-identical to before --json
+// existed (story 01.05, plan.md's "sortie texte inchangée").
+test("the text output is unchanged when --json is not passed", () => {
+  const dir = tmpProject(sampleProgress());
+  const home = tmpHome();
+
+  const out = capture(() => statusCommand({ dir, home }));
+
+  assert.match(out, /^Project: demo · Node\n/);
+  assert.match(out, /Phases: 0\/1 done/);
+  assert.doesNotMatch(out, /[{}[\]]/); // no stray JSON leaking into the text path
+});
+
+test("status --json expose le verdict par phase", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const out = capture(() => statusCommand({ dir, json: true }));
+  const parsed = JSON.parse(out);
+
+  assert.strictEqual(parsed.version, 1);
+  assert.strictEqual(parsed.phases.length, 1);
+  assert.strictEqual(parsed.phases[0].verdict, "proven");
+  assert.notStrictEqual(process.exitCode, 1);
+});
+
+test("status --json marks a stale phase, same as the text label", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => statusCommand({ dir, json: true }));
+  const parsed = JSON.parse(out);
+
+  assert.strictEqual(parsed.phases[0].verdict, "stale");
+});
+
+test("status --json on a missing progress.json is a JSON error object, not a crash, and exits 1 like text mode", () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-status-empty-"));
+
+  const out = capture(() => statusCommand({ dir: empty, json: true }));
+  const parsed = JSON.parse(out);
+
+  assert.strictEqual(parsed.version, 1);
+  assert.match(parsed.error, /No progress\.json/);
+  assert.strictEqual(process.exitCode, 1);
+  process.exitCode = 0;
+});
+
+test("buildStatusReport normalizes the dir path", () => {
+  const dir = tmpProject(sampleProgress());
+  const report = buildStatusReport(dir);
+  assert.doesNotMatch(report.dir, /\\/);
 });

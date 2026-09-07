@@ -4,7 +4,7 @@
 // latest passing evidence date when one exists. Read-only.
 
 const path = require("path");
-const { log, fail } = require("./util");
+const { log, fail, normalizePortable } = require("./util");
 const { readProgress, validateProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
@@ -129,7 +129,57 @@ function printNormSummary({ dir }) {
   }
 }
 
-function statusCommand({ dir, home }) {
+// The JSON-facing calc: same per-phase verdict `printStatus` prints as text,
+// reshaped into a stable, versioned object. Never throws — a missing or
+// corrupt progress.json becomes an `error` field on the object instead of a
+// stack, so --json always produces valid JSON (see spec.md's edge cases).
+function buildStatusReport(dir) {
+  const { config, exists } = readProgress(dir);
+
+  if (!exists || !config) {
+    return { version: 1, dir: normalizePortable(dir), error: `No progress.json in ${dir}. Run \`ai-learn init\` first.` };
+  }
+
+  const phases = (config.phases || []).map((phase) => {
+    const ev = latestEvidenceForPhase(dir, phase.id);
+    const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
+    const currentHash =
+      phase.status === "done" && ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
+    const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
+
+    return {
+      id: phase.id,
+      name: phase.name,
+      status: phase.status,
+      checkpoint: phase.checkpoint || null,
+      verdict: verdict.state,
+      evidenceDate: ev ? new Date(ev.generatedAt).toISOString() : null,
+    };
+  });
+
+  return {
+    version: 1,
+    dir: normalizePortable(dir),
+    project: config.project || path.basename(dir),
+    technology: config.technology || null,
+    phasesDone: phases.filter((phase) => phase.status === "done").length,
+    phasesTotal: phases.length,
+    phases,
+    progressIssues: validateProgress(config).map((issue) => issue.message),
+  };
+}
+
+function statusCommand({ dir, home, json }) {
+  if (json) {
+    const report = buildStatusReport(dir);
+    log(JSON.stringify(report));
+
+    if (report.error) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -152,4 +202,11 @@ function statusCommand({ dir, home }) {
   printNormSummary({ dir });
 }
 
-module.exports = { statusCommand, latestEvidenceForPhase, printGitTracksSummary, printDomainSummary, printNormSummary };
+module.exports = {
+  statusCommand,
+  buildStatusReport,
+  latestEvidenceForPhase,
+  printGitTracksSummary,
+  printDomainSummary,
+  printNormSummary,
+};

@@ -335,3 +335,22 @@ test("docsCommand ignores the global --dir flag inside the subcommand args", () 
   assert.match(out, /Added generated source "gen"/);
   assert.match(out, /RECRÉER la doc localement depuis https:\/\/roadmap\.sh\/backend/);
 });
+
+test("docsCommand keeps the positionals correct when --dir/--path come before them (story 01.05 review)", () => {
+  // Regression guard: the old `positional()` filter only dropped `--flag`
+  // tokens, never their value, so `--path <value>` placed *before* the
+  // positionals leaked <value> into `[nameArg, source]` — e.g. `add --path
+  // docs name source` used to resolve nameArg to the --path value instead of
+  // "name". parseArgs must consume the value flag's token, wherever it sits.
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  const source = path.join(fs.mkdtempSync(path.join(require("os").tmpdir(), "ai-learn-docs-src-")), "src");
+  fs.mkdirSync(path.join(source, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(source, "docs", "guide.md"), "# Guide\n");
+
+  const out = capture(() =>
+    docsCommand({ dir, args: ["add", "--path", "docs", "livre", source] }),
+  );
+
+  assert.match(out, /Added local source "livre"/);
+  assert.ok(fs.existsSync(path.join(dir, "docs", "sources", "livre", "guide.md")));
+});
