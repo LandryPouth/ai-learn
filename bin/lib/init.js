@@ -13,6 +13,7 @@ const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
 const { ensureNormConfig } = require("./norm");
+const { ensureMutateConfig } = require("./mutate");
 const { ensurePredictionsFile, predictionsPath } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
@@ -133,6 +134,15 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
 
   if (normConfig.created) {
     created.push(normalizePortable(path.relative(abs, path.join(abs, ".ai-learn", "norm.json"))));
+  }
+
+  // The mutation testing config (.ai-learn/mutate.json) — auto-created once
+  // with the detected stack's active operators, same precedent as
+  // norm.json above (story 02.02).
+  const mutateConfig = ensureMutateConfig(abs, detectedLanguage);
+
+  if (mutateConfig.created) {
+    created.push(normalizePortable(path.relative(abs, path.join(abs, ".ai-learn", "mutate.json"))));
   }
 
   // The prediction journal's source of truth (story 01.03) — created empty so

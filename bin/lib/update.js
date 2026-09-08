@@ -21,6 +21,7 @@ const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
 const { ensureNormConfig } = require("./norm");
+const { ensureMutateConfig } = require("./mutate");
 const { ensurePredictionsFile, journalPath: predictionsJournalPath } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
@@ -198,6 +199,7 @@ function updateCommand({ root, platform }) {
       // best-effort — falls back to generic defaults
     }
     const normConfig = ensureNormConfig(project, detectedLanguage);
+    const mutateConfig = ensureMutateConfig(project, detectedLanguage);
     const predictionsData = syncPredictionsData(project);
 
     log(`\n${path.basename(project)}`);
@@ -211,6 +213,7 @@ function updateCommand({ root, platform }) {
     log(`  checkpoint README: checkpoint/README.md ${checkpointReadme}`);
     log(`  commit-msg hook: ${commitHook.skipped ? "no .git yet — skipped" : `.githooks/commit-msg ${commitHook.file}, core.hooksPath ${commitHook.hooksPath}`}`);
     log(`  norm config: .ai-learn/norm.json ${normConfig.created ? "created" : "already present — not touched"}`);
+    log(`  mutate config: .ai-learn/mutate.json ${mutateConfig.created ? "created" : "already present — not touched"}`);
 
     if (predictionsData.action === "created") {
       log(

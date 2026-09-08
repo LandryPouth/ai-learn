@@ -121,4 +121,10 @@ const stresses = [
 // punish reasonably-structured code. See bin/lib/norm.js.
 const norm = { maxFileLines: 400, maxFunctionLines: 50, maxNestingDepth: 4, maxParams: 5 };
 
-module.exports = { concepts, directions, recipes, stresses, norm };
+// Active mutation operators for `ai-learn mutate` — boolean literal only,
+// the one universal operator safe for any language's syntax (no
+// language-specific comparison-operator regex tuned for C/JS punctuation).
+// See javascript.js/c.js and bin/lib/mutate.js#MUTATION_OPERATORS.
+const mutators = ["boolean-literal"];
+
+module.exports = { concepts, directions, recipes, stresses, norm, mutators };

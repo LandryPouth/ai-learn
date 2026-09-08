@@ -1,78 +1,207 @@
 "use strict";
 
-// `ai-learn mutate --phase <id>` — mutation testing, walking skeleton (story
-// 02.01). Breaks the learner's code in one precise, reversible way and asks
-// the phase's own checkpoint whether it notices. A test that stays green
-// while the code underneath it changed behavior is a test that protects
-// nothing — this is the mechanical way to see that, instead of trusting that
-// "the test passed" means "the test works".
+// `ai-learn mutate --phase <id>` — mutation testing. Breaks the learner's code
+// in precise, reversible ways and asks the phase's own checkpoint whether it
+// notices. A test that stays green while the code underneath it changed
+// behavior is a test that protects nothing — this is the mechanical way to
+// see that, instead of trusting that "the test passed" means "the test
+// works".
 //
 // Isolation is in-place + backup (in memory) + restoration, never a copy of
 // the whole project — see docs/roadmap.md (locked decision) and
 // epics/epic-02-tests-preuves-par-mutation/index.md (Decisions). The
 // restoration is guaranteed by a `finally`, even if the checkpoint command
 // itself throws.
+//
+// Story 02.01 shipped a single hardcoded operator and the first mutable site
+// only. Story 02.02 generalizes both: a per-stack bank of operators
+// (MUTATION_OPERATORS, selected per stack pack via its `mutators` field,
+// mirroring `norm`), and every mutable site in the learner's scope — not just
+// the first — mutated and tested one at a time.
 
 const fs = require("fs");
-const { log, fail } = require("./util");
+const path = require("path");
+const { log, fail, readJson, writeJson } = require("./util");
 const { readProgress, findPhase } = require("./progress");
-const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
+const { walkSources, detectStack, detectTests, stackKey, loadStack, ALL_SOURCE_EXTS } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const { stripStringsAndComments } = require("./norm");
 const { runCommand } = require("./verify");
 
+const DEFAULT_MAX_MUTANTS_PER_RUN = 50;
+
+// Used when a detected stack has no `mutators` field at all (a third-party or
+// future pack) — boolean literal is the one operator safe for any language's
+// syntax, same fallback spirit as generic.js.
+const FALLBACK_MUTATORS = ["boolean-literal"];
+
+// `comparison-operator`'s lone `<`/`>` alternatives cannot tell a real
+// comparison from a JSX tag delimiter (`<div>`, `</div>`) — regex has no
+// notion of "this angle bracket opens markup" the way it can spot `=>`/`->`
+// immediately to one side of `>`. Rather than guess, JSX-bearing files are
+// excluded from this operator entirely (boolean-literal still applies) —
+// same under-detect-over-guess discipline as the rest of this codebase (see
+// module header). Plain `.ts`/`.js` generics (`Array<string>`) are a
+// narrower, accepted residual risk — see plan.md Decisions.
+const JSX_EXTS = new Set([".jsx", ".tsx"]);
+
 // Word-bounded so `truely`/`falsey` never match — same discipline as
 // `norm.js`'s brace strategy: under-detect rather than guess.
-const BOOLEAN_LITERAL_RE = /\b(?:true|false)\b/;
-
 function invertBoolean(text) {
   return text === "true" ? "false" : "true";
 }
 
-// The single mutation operator of this story's skeleton. Story 02.02
-// generalizes this into a per-stack bank; this one stays hardcoded on
-// purpose (see plan.md Decisions).
-const BOOLEAN_LITERAL_OPERATOR = {
-  id: "boolean-literal",
-  pattern: BOOLEAN_LITERAL_RE,
-  mutate: invertBoolean,
+// Boundary-condition mutation (`<` ↔ `<=`, `>` ↔ `>=`) — the classic mutator
+// that reveals an off-by-one comparison, not a direction flip. The `>` of an
+// arrow function (`=>`) is excluded by the pattern's negative lookbehind
+// below, never by this function: by the time `mutate` runs, the matched text
+// is always a real comparison operator.
+function invertComparison(text) {
+  switch (text) {
+    case "<":
+      return "<=";
+    case "<=":
+      return "<";
+    case ">":
+      return ">=";
+    case ">=":
+      return ">";
+    default:
+      return text;
+  }
+}
+
+// Canonical bank of mutation operators, keyed by id. Stack packs only select
+// which ids apply to them (`mutators: [...]`, a plain string list — same
+// JSON-serializable shape `.ai-learn/mutate.json` persists); the actual
+// pattern/mutate implementation lives here once, never duplicated per stack.
+const MUTATION_OPERATORS = {
+  "boolean-literal": {
+    id: "boolean-literal",
+    pattern: /\b(?:true|false)\b/,
+    mutate: invertBoolean,
+  },
+  // `<=`/`>=` tried before the lone `<`/`>` alternatives so a compound
+  // operator is never split. The lone `>` excludes the one immediately
+  // preceded by `=` (an arrow function's `=>`) or by `-` (C's pointer/struct
+  // access `->`) — otherwise every arrow function or struct dereference in
+  // the scanned scope would be "mutable" into a syntax error, producing
+  // meaningless SURVÉCU/TUÉ verdicts on code that was never a real
+  // comparison. JSX tag brackets (`<div>`) are not excludable this way — a
+  // JSX file's sites for this operator are dropped entirely, see JSX_EXTS.
+  "comparison-operator": {
+    id: "comparison-operator",
+    pattern: /<=|>=|<|(?<![=-])>/,
+    mutate: invertComparison,
+  },
 };
 
-// Finds the first mutable site in the learner's own files (`learnerFiles`,
-// same scope as `norm.js#normProject` and the epic 01 source hash — never a
-// hardcoded `src/**`). Detection runs on `stripStringsAndComments`'s output,
-// which preserves length and newlines exactly, so an index found there maps
-// 1:1 onto the real source text.
-//
-// Scanned candidates are restricted to `ALL_SOURCE_EXTS` — same filter as
-// `norm.js#normProject` — so a boolean literal sitting in prose (README.md,
-// a doc file under `src/**`) or in a data file (JSON/YAML config) is never
-// picked as a mutant: it isn't code the checkpoint is meant to protect, and
-// mutating it would only ever produce a misleading SURVÉCU.
-//
-// Test files are excluded the same way `norm.js#normProject` excludes them
-// (`detectTests`) — by default `learnerFiles` is `src/**`, so this rarely
-// bites, but a widened `learnerFiles` (e.g. `**/*.js`) could otherwise let
-// a learner's own test file become the mutant: asking a test to detect a
-// mutation of itself proves nothing.
-function findFirstSite(dir) {
+function mutateConfigPath(dir) {
+  return path.join(dir, ".ai-learn", "mutate.json");
+}
+
+function loadMutateConfig(dir) {
+  const config = readJson(mutateConfigPath(dir), null);
+
+  return {
+    mutators: config && Array.isArray(config.mutators) ? config.mutators : null,
+    maxMutantsPerRun: config && Number.isFinite(config.maxMutantsPerRun) ? config.maxMutantsPerRun : DEFAULT_MAX_MUTANTS_PER_RUN,
+    ignore: config && Array.isArray(config.ignore) ? config.ignore : [],
+  };
+}
+
+// Auto-created once by init/update, mirroring ensureNormConfig exactly:
+// concrete resolved operator ids written so the file is immediately
+// discoverable/editable, never rewritten once present.
+function ensureMutateConfig(dir, language) {
+  const configPath = mutateConfigPath(dir);
+  if (fs.existsSync(configPath)) return { created: false };
+
+  const stack = loadStack(stackKey(language));
+  const bankIds = Array.isArray(stack.mutators) ? stack.mutators : FALLBACK_MUTATORS;
+
+  writeJson(configPath, {
+    version: 1,
+    mutators: bankIds,
+    maxMutantsPerRun: DEFAULT_MAX_MUTANTS_PER_RUN,
+    ignore: [],
+  });
+
+  return { created: true };
+}
+
+// Resolves the active operator objects for this project: config override (if
+// present) filtered against the canonical bank, falling back to the detected
+// stack's own bank, falling back to FALLBACK_MUTATORS — same three-level
+// fallback shape as `norm.js#resolveThresholds`. An id the bank/canonical map
+// no longer recognizes is silently dropped rather than erroring — a stale
+// `.ai-learn/mutate.json` referencing a removed operator should not block
+// `mutate`.
+function resolveMutators(dir, language) {
+  const stack = loadStack(stackKey(language));
+  const bankIds = Array.isArray(stack.mutators) ? stack.mutators : FALLBACK_MUTATORS;
+  const { mutators: overrideIds } = loadMutateConfig(dir);
+  const activeIds = Array.isArray(overrideIds) ? overrideIds : bankIds;
+
+  return activeIds.map((id) => MUTATION_OPERATORS[id]).filter(Boolean);
+}
+
+// Finds every mutable site in one already-whitened source text, across every
+// active operator, in first-occurrence order. Whitened text preserves length
+// and newlines exactly (`stripStringsAndComments`), so an index found here
+// maps 1:1 onto the real source text.
+function detectAllSites(clean, mutators) {
+  const sites = [];
+
+  for (const operator of mutators) {
+    const flags = operator.pattern.flags.includes("g") ? operator.pattern.flags : `${operator.pattern.flags}g`;
+    const re = new RegExp(operator.pattern.source, flags);
+    let match = re.exec(clean);
+
+    while (match !== null) {
+      sites.push({
+        index: match.index,
+        length: match[0].length,
+        matchedText: match[0],
+        operator: operator.id,
+        mutate: operator.mutate,
+      });
+
+      if (match[0].length === 0) {
+        re.lastIndex += 1;
+      }
+
+      match = re.exec(clean);
+    }
+  }
+
+  sites.sort((a, b) => a.index - b.index);
+  return sites;
+}
+
+// Walks the learner's own files (`learnerFiles`, same scope as
+// `norm.js#normProject` and the epic 01 source hash — never a hardcoded
+// `src/**`), restricted to `ALL_SOURCE_EXTS` and excluding test files
+// (`detectTests`) exactly like `norm.js#normProject` — a boolean literal or
+// comparison sitting in prose, a data file, or the learner's own test file is
+// never picked as a mutant: it isn't code the checkpoint is meant to protect.
+// `.ai-learn/mutate.json#ignore` follows the same glob as `norm.json#ignore`.
+function findAllSites(dir) {
   const walked = walkSources(dir);
+  const stack = detectStack(dir, walked.files);
+  const mutators = resolveMutators(dir, stack.language);
   const { learnerFiles } = loadGuardConfig(dir);
   const testRels = new Set(detectTests(walked.files).files.map((f) => f.rel));
+  const { ignore } = loadMutateConfig(dir);
+
+  const sites = [];
 
   for (const file of walked.files) {
-    if (file.binary) {
-      continue;
-    }
-    if (!ALL_SOURCE_EXTS.has(file.ext)) {
-      continue;
-    }
-    if (testRels.has(file.rel)) {
-      continue;
-    }
-    if (!matchesLearnerPath(file.rel, learnerFiles)) {
-      continue;
-    }
+    if (file.binary) continue;
+    if (!ALL_SOURCE_EXTS.has(file.ext)) continue;
+    if (testRels.has(file.rel)) continue;
+    if (!matchesLearnerPath(file.rel, learnerFiles)) continue;
+    if (ignore.length > 0 && matchesLearnerPath(file.rel, ignore)) continue;
 
     let original;
 
@@ -83,30 +212,27 @@ function findFirstSite(dir) {
     }
 
     const clean = stripStringsAndComments(original);
-    const match = BOOLEAN_LITERAL_OPERATOR.pattern.exec(clean);
+    const fileMutators = JSX_EXTS.has(file.ext) ? mutators.filter((op) => op.id !== "comparison-operator") : mutators;
 
-    if (!match) {
-      continue;
+    for (const site of detectAllSites(clean, fileMutators)) {
+      sites.push({
+        file,
+        original,
+        index: site.index,
+        length: site.length,
+        matchedText: site.matchedText,
+        mutate: site.mutate,
+        operator: site.operator,
+        line: clean.slice(0, site.index).split("\n").length,
+      });
     }
-
-    const line = clean.slice(0, match.index).split("\n").length;
-
-    return {
-      file,
-      original,
-      index: match.index,
-      length: match[0].length,
-      matchedText: match[0],
-      line,
-      operator: BOOLEAN_LITERAL_OPERATOR.id,
-    };
   }
 
-  return null;
+  return sites;
 }
 
 function applyMutant(site) {
-  const mutatedText = BOOLEAN_LITERAL_OPERATOR.mutate(site.matchedText);
+  const mutatedText = site.mutate(site.matchedText);
   const content = site.original.slice(0, site.index) + mutatedText + site.original.slice(site.index + site.length);
   fs.writeFileSync(site.file.abs, content);
 }
@@ -115,24 +241,69 @@ function restoreOriginal(site) {
   fs.writeFileSync(site.file.abs, site.original);
 }
 
+function mutateLockPath(dir) {
+  return path.join(dir, ".ai-learn", "mutate.lock.json");
+}
+
+// A `.ai-learn/mutate.lock.json` present at startup means a previous
+// `mutate` was interrupted (`kill -9`, a crash) while a mutant was in place —
+// the in-memory backup a run keeps while it is alive is gone with the
+// process, but this file (written just before the mutation, deleted just
+// after a successful restore) survives it. Restoring here, before this run's
+// own detection even starts, means the learner never has to notice a mutated
+// file by hand. A missing or unreadable original target is recreated rather
+// than treated as an error — the crash already happened, this is repair.
+function recoverOrphanLock(dir) {
+  const lockPath = mutateLockPath(dir);
+  const lock = readJson(lockPath, null);
+
+  if (!lock || typeof lock.file !== "string" || typeof lock.original !== "string") {
+    return null;
+  }
+
+  const target = path.join(dir, lock.file);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, lock.original);
+  fs.unlinkSync(lockPath);
+
+  return lock.file;
+}
+
 // Applies the mutant, runs the checkpoint against it, and restores the
 // original file unconditionally — success, a failing checkpoint, or an
-// exception thrown by `execute` itself. `execute` is injectable (same
-// testability seam as `{ home = os.homedir() }` elsewhere in this codebase)
-// so a test can force the exception path without depending on a real command
-// crashing mid-run.
+// exception thrown by `execute` itself. The recovery lock is written just
+// before the mutation and removed only after a successful restore, so a
+// crash anywhere in between leaves exactly the trail `recoverOrphanLock`
+// expects. `execute` is injectable (same testability seam as
+// `{ home = os.homedir() }` elsewhere in this codebase) so a test can force
+// the exception path without depending on a real command crashing mid-run.
 function testMutant(site, phase, dir, { execute = runCommand } = {}) {
+  const lockPath = mutateLockPath(dir);
+  writeJson(lockPath, { file: site.file.rel, original: site.original });
   applyMutant(site);
 
   try {
     return execute(phase.checkpoint, dir);
   } finally {
     restoreOriginal(site);
+    if (fs.existsSync(lockPath)) {
+      fs.unlinkSync(lockPath);
+    }
   }
 }
 
 function formatSiteResult(site, verdict) {
   return `${site.file.rel}:${site.line} — ${site.operator} — ${verdict}`;
+}
+
+// `total = 0` never happens here (mutateCommand returns early on zero sites)
+// but stays a named case rather than a naked division so a future caller
+// cannot silently render "0%"/"100%" for "nothing was measured".
+function formatScore(killed, total) {
+  if (total === 0) {
+    return "aucun site mutable — rien à mesurer";
+  }
+  return `${Math.round((killed / total) * 100)}%`;
 }
 
 function mutateCommand({ dir, phaseId }) {
@@ -155,6 +326,12 @@ function mutateCommand({ dir, phaseId }) {
   log(`Mutating phase ${phase.id} — ${phase.name}`);
   log(`Checkpoint: ${phase.checkpoint}\n`);
 
+  const recovered = recoverOrphanLock(dir);
+
+  if (recovered) {
+    log(`Un run précédent a été interrompu : ${recovered} a été restauré à son état d'origine — rien n'est perdu.\n`);
+  }
+
   // Mutating code whose test already fails proves nothing — a checkpoint
   // that never passes cannot "notice" anything a mutation would do to it.
   const baseline = runCommand(phase.checkpoint, dir);
@@ -165,37 +342,67 @@ function mutateCommand({ dir, phaseId }) {
     return;
   }
 
-  const site = findFirstSite(dir);
+  const allSites = findAllSites(dir);
 
-  if (!site) {
+  if (allSites.length === 0) {
     log("Aucun mutant à tester : aucun site mutable trouvé dans le périmètre de l'apprenant.");
     process.exitCode = 0;
     return;
   }
 
-  const result = testMutant(site, phase, dir);
-  const survived = result.ok;
-  const verdict = survived ? "SURVÉCU" : "TUÉ";
+  const { maxMutantsPerRun } = loadMutateConfig(dir);
+  const sites = allSites.slice(0, maxMutantsPerRun);
 
-  log(formatSiteResult(site, verdict));
+  if (allSites.length > sites.length) {
+    log(
+      `Plafond de ${maxMutantsPerRun} mutant(s) par run atteint — ${allSites.length - sites.length} site(s) supplémentaire(s) non testé(s) cette fois.\n`,
+    );
+  }
+
+  let killed = 0;
+  let anySurvived = false;
+
+  for (const site of sites) {
+    const result = testMutant(site, phase, dir);
+    const survived = result.ok;
+
+    if (survived) {
+      anySurvived = true;
+    } else {
+      killed += 1;
+    }
+
+    log(formatSiteResult(site, survived ? "SURVÉCU" : "TUÉ"));
+  }
+
   log("");
+  log(`Score de mutation : ${formatScore(killed, sites.length)}`);
 
-  if (survived) {
-    log("Un mutant a SURVÉCU : le test est passé malgré la mutation — il ne protège pas ce code.");
+  if (anySurvived) {
+    log("Au moins un mutant a SURVÉCU : un test est passé malgré une mutation — il ne protège pas ce code.");
     process.exitCode = 1;
   } else {
-    log("Le mutant a été TUÉ : le test a échoué face à la mutation — il protège ce code.");
+    log("Tous les mutants ont été TUÉS : les tests protègent ce code.");
     process.exitCode = 0;
   }
 }
 
 module.exports = {
   mutateCommand,
-  findFirstSite,
+  findAllSites,
+  detectAllSites,
   applyMutant,
   restoreOriginal,
   testMutant,
   formatSiteResult,
+  formatScore,
   invertBoolean,
-  BOOLEAN_LITERAL_RE,
+  invertComparison,
+  mutateConfigPath,
+  loadMutateConfig,
+  ensureMutateConfig,
+  resolveMutators,
+  mutateLockPath,
+  recoverOrphanLock,
+  MUTATION_OPERATORS,
 };

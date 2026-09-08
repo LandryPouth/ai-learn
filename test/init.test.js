@@ -69,6 +69,15 @@ test("init scaffolds the expected structure", () => {
   const normConfig = readJson(normConfigPath, null);
   assert.strictEqual(normConfig.maxFunctionLines, 50);
 
+  // The mutation testing config — auto-created once, generic defaults
+  // (boolean-literal only) for a fresh project with no source files yet to
+  // detect a stack from (story 02.02).
+  const mutateConfigPath = path.join(dir, ".ai-learn", "mutate.json");
+  assert.ok(fs.existsSync(mutateConfigPath));
+  assert.ok(created.includes(".ai-learn/mutate.json"));
+  const mutateConfig = readJson(mutateConfigPath, null);
+  assert.deepStrictEqual(mutateConfig.mutators, ["boolean-literal"]);
+
   // The prediction journal's source of truth (story 01.03) — created empty,
   // versioned like every other data file the tool scaffolds.
   const predictionsDataPath = path.join(dir, ".ai-learn", "predictions.json");
@@ -89,6 +98,9 @@ test("init writes the detected stack's norm thresholds when real source already 
   const normConfig = readJson(path.join(dir, ".ai-learn", "norm.json"), null);
   assert.strictEqual(normConfig.maxFunctionLines, 30);
   assert.strictEqual(normConfig.maxParams, 4);
+
+  const mutateConfig = readJson(path.join(dir, ".ai-learn", "mutate.json"), null);
+  assert.deepStrictEqual(mutateConfig.mutators, ["boolean-literal", "comparison-operator"]);
 });
 
 test("init never overwrites an existing dogfood journal", () => {

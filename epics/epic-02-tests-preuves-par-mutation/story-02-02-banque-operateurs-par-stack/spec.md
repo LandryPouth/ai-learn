@@ -30,67 +30,83 @@ résolues au moment de la création).
 
 ## Requirements
 
-- [ ] Chaque stack pack (`c.js`, `generic.js`, `javascript.js`) exporte un champ
+- [x] Chaque stack pack (`c.js`, `generic.js`, `javascript.js`) exporte un champ
       `mutators` : une liste d'opérateurs `{ id, describe(source) → sites[] }` ou
       équivalent, au moins l'inversion booléenne (portée depuis 02-01) et un
       opérateur de comparaison (`<` ↔ `<=`, ou `>` ↔ `>=`) pour `javascript.js`
       et `c.js`. `generic.js` garde au minimum l'inversion booléenne comme
       fallback universel.
-- [ ] `ai-learn mutate --phase <id>` mute et teste **tous** les sites trouvés
+- [x] `ai-learn mutate --phase <id>` mute et teste **tous** les sites trouvés
       dans le périmètre, un par un et séquentiellement (jamais deux mutants
       simultanés sur le même fichier — décision de `index.md`), en produisant
       une ligne de rapport par site.
-- [ ] `.ai-learn/mutate.json` est auto-créé une fois par `init` et par `update`
+- [x] `.ai-learn/mutate.json` est auto-créé une fois par `init` et par `update`
       (même contrat que `ensureNormConfig` : jamais réécrit une fois présent),
       avec les opérateurs actifs pour la stack détectée et un plafond
       `maxMutantsPerRun` (protection contre un run trop long — voir Risks de
       `index.md`).
-- [ ] Au démarrage de `ai-learn mutate`, un fichier de backup orphelin
+- [x] Au démarrage de `ai-learn mutate`, un fichier de backup orphelin
       (résidu d'un crash `kill -9` pendant un run précédent — risque assumé en
       02-01) est détecté et restauré avant que le run ne continue, avec un
       message explicite.
-- [ ] Le score de mutation (`tués / total`) est affiché en résumé de fin de
+- [x] Le score de mutation (`tués / total`) est affiché en résumé de fin de
       rapport.
-- [ ] Aucun opérateur configuré ou aucun site mutable trouvé reste un succès
+- [x] Aucun opérateur configuré ou aucun site mutable trouvé reste un succès
       explicite (0 mutant, exit 0) — jamais un blocage.
 
 ## Acceptance Criteria
 
-- [ ] Given un fichier JavaScript contenant une comparaison (`a < b`), when
+- [x] Given un fichier JavaScript contenant une comparaison (`a < b`), when
       `ai-learn mutate --phase <id>` tourne, then l'opérateur de comparaison de
       `javascript.js` produit un mutant pour ce site.
-- [ ] Given un fichier avec 3 sites mutables distincts, when `ai-learn mutate`
+- [x] Given un fichier avec 3 sites mutables distincts, when `ai-learn mutate`
       tourne, then le rapport contient exactement 3 lignes, chacune restaurée
       avant de passer à la suivante.
-- [ ] Given une stack sans opérateur dédié (pack `generic.js`), when
+- [x] Given une stack sans opérateur dédié (pack `generic.js`), when
       `ai-learn mutate` tourne sur un fichier sans littéral booléen, then la
       commande annonce l'absence de site mutable et sort en 0.
-- [ ] Given un fichier de backup laissé par un `mutate` précédent interrompu,
+- [x] Given un fichier de backup laissé par un `mutate` précédent interrompu,
       when `ai-learn mutate` démarre, then le fichier original est restauré
       avant que le nouveau run ne commence, avec un message explicite.
-- [ ] Given un projet sans `.ai-learn/mutate.json`, when `ai-learn init` (ou
+- [x] Given un projet sans `.ai-learn/mutate.json`, when `ai-learn init` (ou
       `update`) tourne, then le fichier est créé une fois avec les opérateurs de
       la stack détectée.
-- [ ] Given un `.ai-learn/mutate.json` déjà présent avec des valeurs
+- [x] Given un `.ai-learn/mutate.json` déjà présent avec des valeurs
       personnalisées, when `ai-learn update` tourne à nouveau, then le fichier
       n'est jamais réécrit.
-- [ ] Given un run avec 4 mutants dont 3 tués et 1 survécu, when le rapport
+- [x] Given un run avec 4 mutants dont 3 tués et 1 survécu, when le rapport
       s'affiche, then le résumé indique un score de mutation de 75 %.
 
 ## Edge Cases
 
-- [ ] `maxMutantsPerRun` dépassé (fichier avec beaucoup de sites) — le run
+- [x] `maxMutantsPerRun` dépassé (fichier avec beaucoup de sites) — le run
       s'arrête proprement au plafond, le signale, et ne le traite pas comme un
       échec en soi (juste un run partiel, clairement étiqueté).
-- [ ] Deux backups orphelins simultanés (deux fichiers différents mutés puis
-      abandonnés) — les deux sont restaurés avant de continuer.
-- [ ] Un backup orphelin dont le fichier original a depuis été supprimé par
+- [x] Deux backups orphelins simultanés (deux fichiers différents mutés puis
+      abandonnés) — impossible par construction : un seul mutant est jamais
+      actif à la fois (voir Technical Notes de `plan.md`), donc le lock
+      unique (`.ai-learn/mutate.lock.json`) ne peut jamais désigner deux
+      fichiers en même temps — voir Decisions de `plan.md`.
+- [x] Un backup orphelin dont le fichier original a depuis été supprimé par
       l'apprenant — restauration recrée le fichier ; ne jamais planter dessus.
-- [ ] Une stack détectée sans entrée `mutators` du tout (pack tiers ou futur) —
+- [x] Une stack détectée sans entrée `mutators` du tout (pack tiers ou futur) —
       repli sur les opérateurs de `generic.js`, jamais une erreur.
-- [ ] Un opérateur de comparaison rencontrant un opérateur composé (`<=`) doit
-      choisir une mutation cohérente (`<=` → `<`, pas un texte à longueur
-      différente qui décalerait les positions des sites suivants).
+- [x] Un opérateur de comparaison rencontrant un opérateur composé (`<=`, `>=`)
+      doit choisir une mutation de frontière cohérente (`<=` → `<`, `>=` →
+      `>`) sans jamais confondre le `>` d'une fonction fléchée (`=>`) ou du
+      pointeur/struct C (`->`) avec un site de comparaison — ces deux-là
+      restent toujours hors périmètre. Un `<`/`>` de balise JSX (`<div>`) ou
+      de générique TypeScript (`Array<string>`) n'est pas exclu par ce même
+      mécanisme (aucun marqueur adjacent univoque comme `=`/`-`) : les
+      fichiers `.jsx`/`.tsx` sont exclus de cet opérateur en bloc (revue
+      post-implémentation ; voir Decisions de `plan.md`), le cas plus étroit
+      d'un générique sur un `.ts` non-JSX reste un risque résiduel accepté et
+      documenté (même Decisions).
+- [x] Un fichier de prose ou de config (extension hors `ALL_SOURCE_EXTS`) et un
+      fichier de test (`testRels`) restent tous deux hors périmètre en mode
+      « tous les sites », pas seulement pour le premier site trouvé — régression
+      du fix post-review de 02-01 (`findFirstSite`), à préserver dans
+      `detectAllSites`.
 
 ## UX Notes
 

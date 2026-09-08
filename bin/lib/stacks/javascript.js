@@ -143,4 +143,11 @@ const stresses = [
 // stays independently tunable later. See bin/lib/norm.js.
 const norm = { maxFileLines: 400, maxFunctionLines: 50, maxNestingDepth: 4, maxParams: 5 };
 
-module.exports = { concepts, directions, recipes, stresses, norm };
+// Active mutation operators for `ai-learn mutate` — ids resolved against the
+// canonical bank in bin/lib/mutate.js#MUTATION_OPERATORS, same
+// symmetric-to-`norm` shape. Boolean literal (portée depuis 02-01) plus a
+// boundary comparison mutator, since off-by-one comparisons are a common
+// real bug in JS/TS code.
+const mutators = ["boolean-literal", "comparison-operator"];
+
+module.exports = { concepts, directions, recipes, stresses, norm, mutators };
