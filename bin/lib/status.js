@@ -68,6 +68,10 @@ function formatMutationLine(phase, ev) {
 // plan.md's Technical Notes locks — `null` only when `phase.mutation` isn't
 // declared, otherwise always the same four fields, never half-filled, so a
 // script never has to branch on which fields happen to be present.
+// `required` is always `true` in the non-null cases below — the caller
+// already got `null` above when the phase doesn't require mutation, so
+// there is no live path where this object exists with `required: false`.
+// Kept as a literal field (not hoisted) to match the locked JSON shape.
 function mutationSummary(phase, ev) {
   if (phase.mutation !== true) {
     return null;
