@@ -14,7 +14,7 @@ const { syncDomainLedger } = require("./tracks/domain");
 const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
-const { mutationReport, formatMutationGap, emptyMutationReport } = require("./mutate");
+const { mutationReport, formatMutationGap, emptyMutationReport, recoverOrphanLockAndLog } = require("./mutate");
 const { runCommand } = require("./exec");
 
 function captureEnvironment() {
@@ -67,6 +67,16 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
   if (!phase.checkpoint) {
     fail(`Phase ${phase.id} ("${phase.name}") has no checkpoint command. Add "checkpoint" to progress.json.`);
   }
+
+  // `verifyCommand` itself now mutates and restores files one mutant at a
+  // time (via `mutationReport`, story 02.03) — the exact same window
+  // `ai-learn mutate` guards with `.ai-learn/mutate.lock.json`. Recovering
+  // here, before the base checkpoint even runs, means an interrupted prior
+  // `verify` (Ctrl+C, kill, crash mid-mutation) never leaves the learner's
+  // source silently mutated for this run to check against — same self-heal
+  // `mutateCommand` already does at its own start, same shared helper
+  // (review finding, story 02.03).
+  recoverOrphanLockAndLog(dir);
 
   log(`Verifying phase ${phase.id} — ${phase.name}`);
   log(`Command: ${phase.checkpoint}\n`);

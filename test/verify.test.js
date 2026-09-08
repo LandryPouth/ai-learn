@@ -10,7 +10,7 @@ const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, runsDir, progressPath } = require("../bin/lib/progress");
 const { readGitTracks } = require("../bin/lib/tracks/git");
 const { recordPrediction } = require("../bin/lib/predictions");
-const { mutateConfigPath } = require("../bin/lib/mutate");
+const { mutateConfigPath, mutateLockPath } = require("../bin/lib/mutate");
 const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
 
 // A checkpoint that never inspects the return value of the mutated function —
@@ -733,6 +733,53 @@ test("verify signals a truncated mutation run for transparency, without blocking
   const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
   assert.strictEqual(evidence.mutation.truncated, true);
   assert.strictEqual(evidence.mutation.ok, true);
+});
+
+test("verify: a maxMutantsPerRun of 0 in .ai-learn/mutate.json never bypasses mutation testing (review finding, story 02.03)", () => {
+  const dir = tmpProject(mutationPhase(WEAK_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(mutateConfigPath(dir), JSON.stringify({ version: 1, mutators: ["boolean-literal"], maxMutantsPerRun: 0, ignore: [] }));
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  // The weak checkpoint never inspects the mutated return value: if the
+  // config's non-positive maxMutantsPerRun had been honored literally
+  // (slicing the site list down to zero), no mutant would ever have been
+  // tested and this run would have wrongly reported ok: true.
+  assert.match(out, /\nMutation :/);
+  assert.doesNotMatch(out, /marked done/);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.ok, false);
+  assert.strictEqual(evidence.mutation.mutants, 1);
+  assert.strictEqual(evidence.mutation.survived.length, 1);
+});
+
+test("verify recovers an orphan mutation lock left by a prior interrupted run before running the checkpoint (review finding, story 02.03)", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  const originalContent = "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n";
+  writeFile(dir, "src/index.js", originalContent);
+
+  // Simulate a crash mid-mutation (Ctrl+C, kill) during a prior `verify`:
+  // the file is left mutated on disk, the lock still points at the pristine
+  // content — same trail `ai-learn mutate` already self-heals from.
+  fs.writeFileSync(path.join(dir, "src/index.js"), originalContent.replace("true", "false"));
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(mutateLockPath(dir), JSON.stringify({ file: "src/index.js", original: originalContent }));
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /run précédent a été interrompu/);
+  assert.strictEqual(fs.existsSync(mutateLockPath(dir)), false);
+  // Recovered before the base checkpoint ran, so verify proceeds normally
+  // against the real (restored) source instead of the leftover mutant.
+  assert.match(out, /marked done/);
+  assert.strictEqual(fs.readFileSync(path.join(dir, "src/index.js"), "utf8"), originalContent);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
 });
 
 test("evidence records marking: applied for a normal run, skipped for --no-mark", () => {

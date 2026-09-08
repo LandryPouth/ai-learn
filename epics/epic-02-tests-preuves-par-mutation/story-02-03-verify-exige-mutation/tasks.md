@@ -131,6 +131,35 @@ assertion préexistante changée.
     truncated: false }`, fichier source restauré à l'identique, aucun
     `.ai-learn/mutate.lock.json` résiduel.
 
+**Addendum — corrections post-revue (`/flow-review`, 2026-09-08).** Deux
+trous relevés en revue sur cette story, corrigés dans le même périmètre :
+
+- `bin/lib/mutate.js#loadMutateConfig` — `maxMutantsPerRun` est désormais
+  plancher à 1 (`Number.isFinite(rawMax) && rawMax >= 1`, sinon la valeur par
+  défaut). Un `maxMutantsPerRun: 0` (ou négatif) dans
+  `.ai-learn/mutate.json` tronquait silencieusement la liste des sites à
+  tester à zéro tout en rapportant `ok: true` — aucun mutant testé, mais le
+  blocage dur que cette story ajoute était de fait désactivable via un
+  fichier de config. Preuve négative : sans le plancher, 3 tests échouent
+  (`loadMutateConfig floors a maxMutantsPerRun of 0/negative…`,
+  `mutationReport: a maxMutantsPerRun of 0…`).
+- `bin/lib/verify.js#verifyCommand` — appelle désormais le même self-heal
+  d'orphan lock que `mutateCommand` (`recoverOrphanLockAndLog`, extrait dans
+  `mutate.js`, voir ci-dessous) avant même de lancer le checkpoint de base.
+  `verifyCommand` mute et restaure des fichiers un mutant à la fois
+  (`mutationReport`) exactement dans la même fenêtre que `ai-learn mutate` —
+  sans ce fix, un `verify` interrompu (Ctrl+C, kill, crash mi-mutation)
+  laissait le code de l'apprenant muté sur disque, invisible pour le run
+  suivant. Preuve négative : sans l'appel, le test `verify recovers an
+  orphan mutation lock…` échoue.
+- Amélioration non bloquante appliquée : les deux appels ci-dessus
+  dupliquaient le même log de récupération (`Un run précédent a été
+  interrompu…`) dans `mutate.js` et `verify.js`. Extrait en
+  `recoverOrphanLockAndLog(dir)` (`mutate.js`), appelé par les deux — même
+  concept, un seul endroit à faire évoluer si le message change.
+- Tests ajoutés : `test/mutate.test.js` (+5), `test/verify.test.js` (+2).
+  `npm test` → 465/465, 0 échec (aucune régression).
+
 ### Rollback Notes
 
 Retirer `mutationReport`/`formatMutationGap`/`emptyMutationReport` de

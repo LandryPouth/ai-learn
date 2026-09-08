@@ -21,6 +21,7 @@ const {
   mutationReport,
   formatMutationGap,
   emptyMutationReport,
+  loadMutateConfig,
 } = require("../bin/lib/mutate");
 const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
 
@@ -493,6 +494,35 @@ test("mutate respects maxMutantsPerRun and signals the truncation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// loadMutateConfig — maxMutantsPerRun floor (review finding, story 02.03): a
+// non-positive value must never disable mutation testing outright.
+// ---------------------------------------------------------------------------
+
+test("loadMutateConfig floors a maxMutantsPerRun of 0 to the default cap", () => {
+  const dir = tmpProject(sampleProgress());
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(mutateConfigPath(dir), JSON.stringify({ version: 1, mutators: ["boolean-literal"], maxMutantsPerRun: 0, ignore: [] }));
+
+  assert.strictEqual(loadMutateConfig(dir).maxMutantsPerRun, 50);
+});
+
+test("loadMutateConfig floors a negative maxMutantsPerRun to the default cap", () => {
+  const dir = tmpProject(sampleProgress());
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(mutateConfigPath(dir), JSON.stringify({ version: 1, mutators: ["boolean-literal"], maxMutantsPerRun: -5, ignore: [] }));
+
+  assert.strictEqual(loadMutateConfig(dir).maxMutantsPerRun, 50);
+});
+
+test("loadMutateConfig accepts a positive maxMutantsPerRun as-is", () => {
+  const dir = tmpProject(sampleProgress());
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(mutateConfigPath(dir), JSON.stringify({ version: 1, mutators: ["boolean-literal"], maxMutantsPerRun: 3, ignore: [] }));
+
+  assert.strictEqual(loadMutateConfig(dir).maxMutantsPerRun, 3);
+});
+
+// ---------------------------------------------------------------------------
 // Orphan lock recovery.
 // ---------------------------------------------------------------------------
 
@@ -652,6 +682,22 @@ test("mutationReport: maxMutantsPerRun truncation with a survivor among the test
   assert.strictEqual(report.truncated, true);
   assert.strictEqual(report.ok, false);
   assert.strictEqual(report.survived.length, 1);
+});
+
+test("mutationReport: a maxMutantsPerRun of 0 in config never disables mutation testing (review finding, story 02.03)", () => {
+  const dir = projectWithBooleanLiteral(WEAK_CHECKPOINT);
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(mutateConfigPath(dir), JSON.stringify({ version: 1, mutators: ["boolean-literal"], maxMutantsPerRun: 0, ignore: [] }));
+
+  const report = mutationReport({ dir, phase: { id: 0, checkpoint: WEAK_CHECKPOINT, mutation: true } });
+
+  // A literal maxMutantsPerRun: 0 would have sliced the site list to zero,
+  // testing nothing and reporting ok: true for a phase that in fact has an
+  // untested, survivable mutant.
+  assert.strictEqual(report.mutants, 1);
+  assert.strictEqual(report.ok, false);
+  assert.strictEqual(report.survived.length, 1);
+  assert.strictEqual(report.score, 0);
 });
 
 test("emptyMutationReport returns the stable not-computed shape for both required values", () => {

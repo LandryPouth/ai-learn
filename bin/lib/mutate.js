@@ -103,9 +103,17 @@ function mutateConfigPath(dir) {
 function loadMutateConfig(dir) {
   const config = readJson(mutateConfigPath(dir), null);
 
+  // `maxMutantsPerRun <= 0` would slice every run's site list down to zero
+  // mutants tested while still reporting `ok: true` (nothing survived because
+  // nothing ran) — silently defeating the whole hard block story 02.03 adds.
+  // Floored at 1 so the field can only ever narrow a run, never disable
+  // mutation testing outright (review finding, story 02.03).
+  const rawMax = config && config.maxMutantsPerRun;
+  const maxMutantsPerRun = Number.isFinite(rawMax) && rawMax >= 1 ? rawMax : DEFAULT_MAX_MUTANTS_PER_RUN;
+
   return {
     mutators: config && Array.isArray(config.mutators) ? config.mutators : null,
-    maxMutantsPerRun: config && Number.isFinite(config.maxMutantsPerRun) ? config.maxMutantsPerRun : DEFAULT_MAX_MUTANTS_PER_RUN,
+    maxMutantsPerRun,
     ignore: config && Array.isArray(config.ignore) ? config.ignore : [],
   };
 }
@@ -269,6 +277,20 @@ function recoverOrphanLock(dir) {
   return lock.file;
 }
 
+// Shared by both callers that must self-heal from an orphan lock before
+// doing anything else (`mutateCommand` and `verify.js#verifyCommand`) — same
+// recovery, same announcement to the learner, one place to change the
+// wording if it ever needs to (review finding, story 02.03).
+function recoverOrphanLockAndLog(dir) {
+  const recovered = recoverOrphanLock(dir);
+
+  if (recovered) {
+    log(`Un run précédent a été interrompu : ${recovered} a été restauré à son état d'origine — rien n'est perdu.\n`);
+  }
+
+  return recovered;
+}
+
 // Applies the mutant, runs the checkpoint against it, and restores the
 // original file unconditionally — success, a failing checkpoint, or an
 // exception thrown by `execute` itself. The recovery lock is written just
@@ -363,7 +385,11 @@ function mutationReport({ dir, phase }) {
     mutants: sites.length,
     killed,
     survived,
-    score: Math.round((killed / sites.length) * 100),
+    // `sites.length` is guaranteed >= 1 by the `maxMutantsPerRun` floor in
+    // `loadMutateConfig` — this guard is defense in depth for the contract
+    // itself (`score: null` when nothing was measured), not for a path
+    // currently reachable.
+    score: sites.length === 0 ? null : Math.round((killed / sites.length) * 100),
     truncated,
   };
 }
@@ -398,11 +424,7 @@ function mutateCommand({ dir, phaseId }) {
   log(`Mutating phase ${phase.id} — ${phase.name}`);
   log(`Checkpoint: ${phase.checkpoint}\n`);
 
-  const recovered = recoverOrphanLock(dir);
-
-  if (recovered) {
-    log(`Un run précédent a été interrompu : ${recovered} a été restauré à son état d'origine — rien n'est perdu.\n`);
-  }
+  recoverOrphanLockAndLog(dir);
 
   // Mutating code whose test already fails proves nothing — a checkpoint
   // that never passes cannot "notice" anything a mutation would do to it.
@@ -476,6 +498,7 @@ module.exports = {
   resolveMutators,
   mutateLockPath,
   recoverOrphanLock,
+  recoverOrphanLockAndLog,
   MUTATION_OPERATORS,
   mutationReport,
   formatMutationGap,
