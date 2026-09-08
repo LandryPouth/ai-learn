@@ -372,9 +372,21 @@ function checkProject(dir) {
               ? `${changed.length} file(s) changed since \`ai-learn verify ${phase.id}\` last passed (${previewFileList(changed)})`
               : `learner files changed since \`ai-learn verify ${phase.id}\` last passed`;
 
+          // `check` never recomputes mutation itself (spec.md Requirements —
+          // a checkpoint-per-mutant run would break its read-only, fast
+          // contract); the existing sourceHash staleness already covers it
+          // indirectly, since evidence.mutation is part of the same stale
+          // proof. This clause only makes that indirection explicit so a
+          // learner doesn't read "stale" as clean-code-only (plan.md
+          // Technical Notes).
+          const mutationClause =
+            phase.mutation === true
+              ? " (inclut la preuve de mutation — un mutant qui survivait ou non n'est plus garanti)"
+              : "";
+
           issues.errors.push({
             file: "progress.json",
-            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}. Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
+            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}.${mutationClause} Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
           });
         }
       }

@@ -33,6 +33,53 @@ function verdictDisplay(state, phaseId) {
   }
 }
 
+// Story 02.04: `status`/`check` never recompute mutation themselves (a
+// checkpoint-per-mutant run is too costly for a read-only, repeatedly-called
+// command — spec.md Requirements) — this only reads `evidence.mutation`,
+// already written by `verify` (story 02.03), off the latest *passing*
+// evidence for the phase. `ev.mutation.required` distinguishes "measured,
+// zero mutable sites" (`required: true`, real evidence) from "never
+// measured for this phase" (evidence predates this story, or predates the
+// phase's own `mutation: true` — `required` would be `false` on it) — both
+// collapse to `score: null` for a script consuming --json, but only the
+// former is worth a line in the human-readable text (edge cases, spec.md).
+function measuredMutation(phase, ev) {
+  if (phase.mutation !== true) {
+    return null;
+  }
+
+  return ev && ev.mutation && ev.mutation.required ? ev.mutation : null;
+}
+
+function formatMutationLine(phase, ev) {
+  const measured = measuredMutation(phase, ev);
+
+  if (!measured) {
+    return null;
+  }
+
+  return measured.score === null
+    ? "mutation : aucun site mutable"
+    : `mutation : ${measured.score} % (${measured.killed} tués / ${measured.mutants})`;
+}
+
+// The --json counterpart of `formatMutationLine`: same source (`ev.mutation`
+// on the latest passing evidence), reshaped into the stable schema
+// plan.md's Technical Notes locks — `null` only when `phase.mutation` isn't
+// declared, otherwise always the same four fields, never half-filled, so a
+// script never has to branch on which fields happen to be present.
+function mutationSummary(phase, ev) {
+  if (phase.mutation !== true) {
+    return null;
+  }
+
+  const measured = measuredMutation(phase, ev);
+
+  return measured
+    ? { required: true, score: measured.score, killed: measured.killed, mutants: measured.mutants }
+    : { required: true, score: null, killed: 0, mutants: 0 };
+}
+
 function printStatus(config, { dir }) {
   const done = config.phases.filter((phase) => phase.status === "done").length;
 
@@ -60,6 +107,11 @@ function printStatus(config, { dir }) {
     log(`  ${mark} Phase ${phase.id} — ${phase.name}${evNote}${labelNote}`);
     if (phase.checkpoint) {
       log(`      ${phase.checkpoint}`);
+    }
+
+    const mutationLine = formatMutationLine(phase, ev);
+    if (mutationLine) {
+      log(`      ${mutationLine}`);
     }
   }
 }
@@ -154,6 +206,7 @@ function buildStatusReport(dir) {
       checkpoint: phase.checkpoint || null,
       verdict: verdict.state,
       evidenceDate: ev ? new Date(ev.generatedAt).toISOString() : null,
+      mutation: mutationSummary(phase, ev),
     };
   });
 
@@ -209,4 +262,6 @@ module.exports = {
   printGitTracksSummary,
   printDomainSummary,
   printNormSummary,
+  formatMutationLine,
+  mutationSummary,
 };

@@ -24,6 +24,21 @@ function commitNoVerify(dir, message) {
   spawnGit(["-C", dir, "commit", "--no-verify", "-m", message]);
 }
 
+// A checkpoint that fails when the mutated literal flips — the one mutant
+// found (`src/index.js`'s `true`) is killed, so a real `verify` marks the
+// phase done. A checkpoint that never inspects the return value instead
+// leaves the mutant surviving (same fixtures as test/verify.test.js).
+const STRONG_CHECKPOINT = "node -e \"const { isReady } = require('./src/index.js'); if (isReady() !== true) process.exit(1)\"";
+const WEAK_CHECKPOINT = 'node -e "require(\'./src/index.js\')"';
+
+function mutationPhase(checkpoint, overrides = {}) {
+  return sampleProgress({
+    phases: [
+      { id: 0, name: "Phase zero", status: "pending", checkpoint, artifacts: [], predictionsRequired: 0, mutation: true, ...overrides },
+    ],
+  });
+}
+
 beforeEach(() => {
   process.exitCode = 0;
 });
@@ -886,4 +901,91 @@ test("buildCheckReport normalizes paths and reports per-phase counts", () => {
   assert.strictEqual(report.projects[0].phasesDone, 0);
   assert.strictEqual(report.projects[0].phasesTotal, 1);
   assert.doesNotMatch(report.root, /\\/);
+});
+
+// ---------------------------------------------------------------------------
+// Mutation audit (story 02.04) — `check` never recomputes mutation itself
+// (spec.md Requirements); it only enriches the existing sourceHash staleness
+// message when `phase.mutation === true`.
+// ---------------------------------------------------------------------------
+
+test("check reports nothing for a phase whose mutation proof is still valid (code unchanged)", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.deepStrictEqual(entry.issues.errors, []);
+});
+
+test("check's stale message names the mutation proof as part of what's périmé when phase.mutation is required", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nfunction extra() {}\nmodule.exports = { isReady };\n");
+
+  const entry = checkProject(dir);
+  const stale = entry.issues.errors.find((e) => /is done but its proof is stale/.test(e.message));
+
+  assert.ok(stale);
+  assert.match(stale.message, /inclut la preuve de mutation/);
+});
+
+test("check's stale message has no mutation clause for a phase that never required mutation (non-regression)", () => {
+  const progress = sampleProgress();
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const entry = checkProject(dir);
+  const stale = entry.issues.errors.find((e) => /is done but its proof is stale/.test(e.message));
+
+  assert.ok(stale);
+  assert.doesNotMatch(stale.message, /inclut la preuve de mutation/);
+});
+
+// Defense-in-depth (plan.md Test Plan): a `progress.json` hand-edited to
+// force `done` on a phase whose only evidence has `mutation.ok: false` (so
+// the whole verify run is `ok: false`, and never returned by
+// `latestEvidenceForPhase`) must stay coherent — the existing "no passing
+// evidence" error, not a crash or a mutation-specific special case.
+test("check stays coherent when done is forced by hand despite a failing mutation proof", () => {
+  const dir = tmpProject(mutationPhase(WEAK_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+
+  const { config } = readProgress(dir);
+  config.phases[0].status = "done";
+  fs.writeFileSync(path.join(dir, "progress.json"), `${JSON.stringify(config, null, 2)}\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /marked done but has no passing evidence/.test(e.message)));
+});
+
+test("check never launches a checkpoint command to audit mutation (fast, read-only contract)", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const childProcess = require("child_process");
+  const original = childProcess.spawnSync;
+  let calls = 0;
+  childProcess.spawnSync = (...args) => {
+    calls += 1;
+    return original(...args);
+  };
+
+  try {
+    checkProject(dir);
+  } finally {
+    childProcess.spawnSync = original;
+  }
+
+  assert.strictEqual(calls, 0);
 });
