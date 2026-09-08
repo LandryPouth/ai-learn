@@ -83,6 +83,21 @@ test("an out-of-range gitTier is a warning, not an error; a valid one is silent"
   assert.ok(!entryValid.issues.warnings.some((w) => /gitTier/.test(w.message)));
 });
 
+test("a non-boolean phase.mutation is a warning, not an error; a real boolean is silent", () => {
+  const progress = sampleProgress();
+  progress.phases[0].mutation = "true";
+  const dir = tmpProject(progress);
+
+  const entry = checkProject(dir);
+  assert.strictEqual(entry.issues.errors.length, 0);
+  assert.ok(entry.issues.warnings.some((w) => /non-boolean mutation flag/.test(w.message)));
+
+  progress.phases[0].mutation = true;
+  const dirValid = tmpProject(progress);
+  const entryValid = checkProject(dirValid);
+  assert.ok(!entryValid.issues.warnings.some((w) => /mutation flag/.test(w.message)));
+});
+
 test("a done phase with a green evidence passes", () => {
   const progress = sampleProgress();
   const dir = tmpProject(progress);

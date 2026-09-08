@@ -7,7 +7,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const { spawnSync } = require("child_process");
 const { log, fail } = require("./util");
 const { readProgress, runsDir, findPhase, setPhaseStatus } = require("./progress");
 const { syncGitTrack } = require("./tracks/git");
@@ -15,33 +14,11 @@ const { syncDomainLedger } = require("./tracks/domain");
 const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
+const { mutationReport, formatMutationGap, emptyMutationReport } = require("./mutate");
+const { runCommand } = require("./exec");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
-}
-
-function runCommand(command, cwd, { timeoutMs = 120000 } = {}) {
-  const started = Date.now();
-  const result = spawnSync(command, [], {
-    cwd,
-    shell: true,
-    encoding: "utf8",
-    timeout: timeoutMs,
-    maxBuffer: 256 * 1024 * 1024,
-  });
-
-  const timedOut = Boolean(result.error && result.error.code === "ETIMEDOUT");
-  const exitCode = result.status != null ? result.status : timedOut ? 124 : result.error ? 127 : 1;
-
-  return {
-    command,
-    exitCode,
-    ok: exitCode === 0,
-    timedOut,
-    durationMs: Date.now() - started,
-    stdoutTail: (result.stdout || "").slice(-4000),
-    stderrTail: (result.stderr || "").slice(-4000),
-  };
 }
 
 function logResult(command, result) {
@@ -166,6 +143,29 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     }
   }
 
+  // Mutation testing (story 02.03) — only for a phase that explicitly opts
+  // in (`phase.mutation === true`, checked inside mutationReport itself,
+  // strictly, so a non-boolean value never turns it on by accident). Only
+  // computed when the base checkpoint already passed: mutating code whose
+  // test is already red proves nothing (02-01), and running the full mutant
+  // loop for a red checkpoint would cost real time for zero information —
+  // this guard is explicit here, not hidden inside mutationReport (plan.md
+  // Decisions).
+  const mutReport = result.ok ? mutationReport({ dir, phase }) : emptyMutationReport(phase.mutation === true);
+
+  if (!mutReport.ok) {
+    log("\nMutation :");
+    log(`  ✗ ${formatMutationGap(phase, mutReport)}`);
+    for (const site of mutReport.survived) {
+      log(`    ${site.file}:${site.line} — ${site.operator} — SURVÉCU`);
+    }
+    log(`    rejouer l'investigation : \`ai-learn mutate --phase ${phase.id}\``);
+  }
+
+  if (mutReport.truncated) {
+    log(`\n⚠ Mutation : plafond de mutants atteint (${mutReport.mutants} testé(s)) — score partiel, pas un blocage.`);
+  }
+
   // The empreinte of what this run's proof covers — the learner's own files
   // plus the checkpoint file itself. Written unconditionally, same as
   // normReport/missingArtifacts above: only evidence with `ok: true` is ever
@@ -178,7 +178,8 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     (!stressResult || stressResult.ok) &&
     normReport.violations.length === 0 &&
     missingArtifacts.length === 0 &&
-    predReport.missing === 0;
+    predReport.missing === 0 &&
+    mutReport.ok;
 
   const evidence = {
     generatedAt: new Date().toISOString(),
@@ -211,6 +212,15 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
       missing: predReport.missing,
       corrupted: predReport.corrupted,
       anomalies: predReport.anomalies,
+    },
+    mutation: {
+      ok: mutReport.ok,
+      required: mutReport.required,
+      mutants: mutReport.mutants,
+      killed: mutReport.killed,
+      survived: mutReport.survived,
+      score: mutReport.score,
+      truncated: mutReport.truncated,
     },
   };
 

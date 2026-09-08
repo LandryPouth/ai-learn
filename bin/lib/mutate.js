@@ -26,7 +26,7 @@ const { readProgress, findPhase } = require("./progress");
 const { walkSources, detectStack, detectTests, stackKey, loadStack, ALL_SOURCE_EXTS } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const { stripStringsAndComments } = require("./norm");
-const { runCommand } = require("./verify");
+const { runCommand } = require("./exec");
 
 const DEFAULT_MAX_MUTANTS_PER_RUN = 50;
 
@@ -306,6 +306,78 @@ function formatScore(killed, total) {
   return `${Math.round((killed / total) * 100)}%`;
 }
 
+// Stable "not computed" shape, shared by two callers: `mutationReport` itself
+// when `phase.mutation` was never requested (`required: false`), and
+// `verify.js` when it *was* requested but the base checkpoint had already
+// failed, so the mutation engine was never invoked (`required: true`,
+// `ok` still `true` — the base checkpoint's own failure is what fails verify,
+// never an unmeasured mutation score; see plan.md Decisions).
+function emptyMutationReport(required) {
+  return { required, ok: true, mutants: 0, killed: 0, survived: [], score: null, truncated: false };
+}
+
+// `verify.js`'s pure fact-gathering call, mirroring
+// `predictions.js#predictionsReport` exactly: reads/mutates the filesystem to
+// produce a report object, never logs anything itself. Story 02.03: reuses
+// the full 02-02 engine (bank, config, lock) one mutant at a time, exactly
+// like `mutateCommand`, but returns a fact object instead of writing to the
+// console/exit code. Assumes the base checkpoint already passed — that guard
+// belongs to the caller (verify.js), explicitly, not hidden here (plan.md
+// Decisions: "passer ce garde-fou explicitement, pas implicitement").
+//
+// `phase.mutation` is checked with strict `=== true`, not a truthiness
+// coercion: a non-boolean value (a mistake `progress.js#validateProgress`
+// already warns about) must never accidentally turn mutation on for a phase
+// that didn't ask for it (spec.md Acceptance Criteria).
+function mutationReport({ dir, phase }) {
+  if (phase.mutation !== true) {
+    return emptyMutationReport(false);
+  }
+
+  const allSites = findAllSites(dir);
+
+  if (allSites.length === 0) {
+    return emptyMutationReport(true);
+  }
+
+  const { maxMutantsPerRun } = loadMutateConfig(dir);
+  const sites = allSites.slice(0, maxMutantsPerRun);
+  const truncated = allSites.length > sites.length;
+
+  let killed = 0;
+  const survived = [];
+
+  for (const site of sites) {
+    const result = testMutant(site, phase, dir);
+
+    if (result.ok) {
+      survived.push({ file: site.file.rel, line: site.line, operator: site.operator });
+    } else {
+      killed += 1;
+    }
+  }
+
+  return {
+    required: true,
+    ok: survived.length === 0,
+    mutants: sites.length,
+    killed,
+    survived,
+    score: Math.round((killed / sites.length) * 100),
+    truncated,
+  };
+}
+
+// Shared by `verify` so its blocking message never reads different words than
+// `ai-learn mutate`'s own report for the same site — same discipline as
+// `predictions.js#formatPredictionsGap`. The per-site detail line reuses the
+// exact `fichier:ligne — opérateur — SURVÉCU` vocabulary `formatSiteResult`
+// already prints (UX Notes, plan.md): never a second vocabulary for the same
+// fact.
+function formatMutationGap(phase, report) {
+  return `phase ${phase.id}: ${report.killed}/${report.mutants} mutants tués, ${report.survived.length} survécu(s)`;
+}
+
 function mutateCommand({ dir, phaseId }) {
   const { config, exists } = readProgress(dir);
 
@@ -405,4 +477,7 @@ module.exports = {
   mutateLockPath,
   recoverOrphanLock,
   MUTATION_OPERATORS,
+  mutationReport,
+  formatMutationGap,
+  emptyMutationReport,
 };

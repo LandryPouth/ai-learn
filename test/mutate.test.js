@@ -18,6 +18,9 @@ const {
   mutateConfigPath,
   mutateLockPath,
   recoverOrphanLock,
+  mutationReport,
+  formatMutationGap,
+  emptyMutationReport,
 } = require("../bin/lib/mutate");
 const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
 
@@ -543,4 +546,136 @@ test("mutate recovers an orphan lock at startup and reassures before continuing 
   assert.strictEqual(process.exitCode, 0);
   const finalContent = fs.readFileSync(path.join(dir, "src/index.js"), "utf8");
   assert.strictEqual(finalContent, originalContent);
+});
+
+// ---------------------------------------------------------------------------
+// mutationReport / formatMutationGap / emptyMutationReport — the pure fact
+// object `verify.js` consumes (story 02.03), mirroring
+// predictions.js#predictionsReport's split of calcul-pur vs formatage.
+// ---------------------------------------------------------------------------
+
+test("mutationReport: a phase without mutation short-circuits without running the mutation engine", () => {
+  const dir = projectWithBooleanLiteral(WEAK_CHECKPOINT);
+  const report = mutationReport({ dir, phase: { id: 0, checkpoint: WEAK_CHECKPOINT } });
+
+  assert.deepStrictEqual(report, { required: false, ok: true, mutants: 0, killed: 0, survived: [], score: null, truncated: false });
+  // The engine never ran: the file is untouched (never mutated then restored).
+  const content = fs.readFileSync(path.join(dir, "src/index.js"), "utf8");
+  assert.match(content, /return true;/);
+});
+
+test("mutationReport: a non-boolean phase.mutation value is never treated as required (strict === true)", () => {
+  const dir = projectWithBooleanLiteral(WEAK_CHECKPOINT);
+  const report = mutationReport({ dir, phase: { id: 0, checkpoint: WEAK_CHECKPOINT, mutation: "true" } });
+
+  assert.strictEqual(report.required, false);
+});
+
+test("mutationReport: every mutant killed → ok true, 100% score", () => {
+  const dir = projectWithBooleanLiteral(STRONG_CHECKPOINT);
+  const report = mutationReport({ dir, phase: { id: 0, checkpoint: STRONG_CHECKPOINT, mutation: true } });
+
+  assert.strictEqual(report.required, true);
+  assert.strictEqual(report.ok, true);
+  assert.strictEqual(report.mutants, 1);
+  assert.strictEqual(report.killed, 1);
+  assert.deepStrictEqual(report.survived, []);
+  assert.strictEqual(report.score, 100);
+  assert.strictEqual(report.truncated, false);
+});
+
+test("mutationReport: a survived mutant → ok false, survived lists the site", () => {
+  const dir = projectWithBooleanLiteral(WEAK_CHECKPOINT);
+  const report = mutationReport({ dir, phase: { id: 0, checkpoint: WEAK_CHECKPOINT, mutation: true } });
+
+  assert.strictEqual(report.ok, false);
+  assert.strictEqual(report.survived.length, 1);
+  assert.strictEqual(report.survived[0].file, "src/index.js");
+  assert.strictEqual(report.survived[0].operator, "boolean-literal");
+});
+
+test("mutationReport: no mutable site found → ok true, score null, never blocking", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "module.exports = { add: (a, b) => a + b };\n");
+
+  const report = mutationReport({ dir, phase: { id: 0, checkpoint: 'node -e "process.exit(0)"', mutation: true } });
+
+  assert.deepStrictEqual(report, { required: true, ok: true, mutants: 0, killed: 0, survived: [], score: null, truncated: false });
+});
+
+test("mutationReport: maxMutantsPerRun truncation with every tested mutant killed stays ok true", () => {
+  const checkpoint =
+    "node -e \"" +
+    "const { isReady, inRange } = require('./src/index.js');" +
+    "if (isReady() !== true) process.exit(1);" +
+    "if (inRange(10) !== false) process.exit(1);" +
+    "\"";
+  const dir = tmpProject(
+    sampleProgress({ phases: [{ id: 0, name: "Phase zero", status: "pending", checkpoint, artifacts: [], predictionsRequired: 0 }] }),
+  );
+  writeFile(
+    dir,
+    "src/index.js",
+    "function isReady() {\n  return true;\n}\nfunction inRange(x) {\n  return x < 10;\n}\nmodule.exports = { isReady, inRange };\n",
+  );
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(
+    mutateConfigPath(dir),
+    JSON.stringify({ version: 1, mutators: ["boolean-literal", "comparison-operator"], maxMutantsPerRun: 1, ignore: [] }),
+  );
+
+  const report = mutationReport({ dir, phase: { id: 0, checkpoint, mutation: true } });
+
+  assert.strictEqual(report.truncated, true);
+  assert.strictEqual(report.mutants, 1);
+  assert.strictEqual(report.ok, true);
+});
+
+test("mutationReport: maxMutantsPerRun truncation with a survivor among the tested mutants stays ok false", () => {
+  const checkpoint = 'node -e "process.exit(0)"'; // never inspects return values: every mutant survives
+  const dir = tmpProject(
+    sampleProgress({ phases: [{ id: 0, name: "Phase zero", status: "pending", checkpoint, artifacts: [], predictionsRequired: 0 }] }),
+  );
+  writeFile(
+    dir,
+    "src/index.js",
+    "function isReady() {\n  return true;\n}\nfunction inRange(x) {\n  return x < 10;\n}\nmodule.exports = { isReady, inRange };\n",
+  );
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(
+    mutateConfigPath(dir),
+    JSON.stringify({ version: 1, mutators: ["boolean-literal", "comparison-operator"], maxMutantsPerRun: 1, ignore: [] }),
+  );
+
+  const report = mutationReport({ dir, phase: { id: 0, checkpoint, mutation: true } });
+
+  assert.strictEqual(report.truncated, true);
+  assert.strictEqual(report.ok, false);
+  assert.strictEqual(report.survived.length, 1);
+});
+
+test("emptyMutationReport returns the stable not-computed shape for both required values", () => {
+  assert.deepStrictEqual(emptyMutationReport(false), {
+    required: false,
+    ok: true,
+    mutants: 0,
+    killed: 0,
+    survived: [],
+    score: null,
+    truncated: false,
+  });
+  assert.deepStrictEqual(emptyMutationReport(true), {
+    required: true,
+    ok: true,
+    mutants: 0,
+    killed: 0,
+    survived: [],
+    score: null,
+    truncated: false,
+  });
+});
+
+test("formatMutationGap summarizes the kill count", () => {
+  const report = { killed: 2, mutants: 3, survived: [{ file: "src/index.js", line: 2, operator: "boolean-literal" }] };
+  assert.strictEqual(formatMutationGap({ id: 0 }, report), "phase 0: 2/3 mutants tués, 1 survécu(s)");
 });

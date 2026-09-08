@@ -136,6 +136,16 @@ function validateProgress(config) {
     if (phase.stressCheckpoint !== undefined && phase.stressCheckpoint !== null && typeof phase.stressCheckpoint !== "string") {
       issues.push({ level: "warning", message: `phase ${phase.id} has a non-string stressCheckpoint` });
     }
+
+    // Optional: whether `ai-learn verify` must kill every mutant found in
+    // this phase's scope before marking it done (story 02.03). Same lenient
+    // discipline as gitTier/stressCheckpoint above — a non-boolean value is a
+    // mistake worth flagging, not a reason to refuse an otherwise valid
+    // ledger; `mutate.js#mutationReport` also checks `=== true` strictly, so
+    // a non-boolean value never accidentally turns mutation on.
+    if (phase.mutation !== undefined && phase.mutation !== null && typeof phase.mutation !== "boolean") {
+      issues.push({ level: "warning", message: `phase ${phase.id} has a non-boolean mutation flag` });
+    }
   }
 
   return issues;
