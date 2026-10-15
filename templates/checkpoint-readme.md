@@ -22,3 +22,14 @@ administrative avant.
   à la commande `checkpoint` déclarée dans `progress.json`.
 - `ai-learn verify <id>` exécute cette commande telle quelle, depuis la racine
   du projet — vérifiez qu'elle marche sans étape manuelle avant.
+
+## `checkpoint/` vs `test/**` — qui juge quoi
+
+- `checkpoint/` : la preuve exécutée par `ai-learn verify` — la commande
+  `checkpoint` de la phase pointe ici (le plus souvent).
+- `test/**` : vos éventuels tests de travail. L'outil ne les exécute que si la
+  commande `checkpoint` les appelle explicitement.
+- `ai-learn mutate` mute `src/**` (jamais `test/**` ni `checkpoint/**`) puis
+  relance **la commande `checkpoint` de la phase** : un mutant est **tué** si
+  elle échoue, **survécu** si elle passe. Pour qu'un test de `test/**` compte
+  comme protection, la commande `checkpoint` doit donc le lancer.

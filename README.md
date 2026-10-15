@@ -27,6 +27,7 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 | `ai-learn guard` | Hook PreToolUse qui bloque l'IA dans `src/**` **et sur toute commande git/gh** (lecture incluse) — l'apprenant tape tout ça lui-même ; `update`/`init` le câblent automatiquement |
 | `ai-learn` (module git/gh) | Ledger cross-projet `~/.ai-learn/tracks/git.json` (jamais remis à zéro), hook `commit-msg` mécanique (Conventional Commits), tiers 1-6 de la banque git/gh — voir `AGENTS.md` §3bis |
 | `ai-learn norm` | Vérifie la norme clean-code (longueur fichier/fonction, imbrication, params) — bloque `verify`/`check` sur violation, lecture seule et standalone pour un retour rapide |
+| `ai-learn mutate` | Mutation testing : casse `src/**` d'une façon précise puis relance le checkpoint de la phase — un mutant **survécu** prouve qu'un test ne protège rien ; `verify` bloque sur les phases `mutation: true`, protocole de prédiction en `AGENTS.md` §3quinquies |
 
 ## Install / usage
 

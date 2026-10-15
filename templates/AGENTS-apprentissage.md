@@ -64,6 +64,20 @@ Sur une violation, le rôle de l'IA est d'**expliquer**, jamais de corriger à l
 - Laisser l'apprenant refactorer **lui-même** dans son éditeur — l'IA n'écrit **jamais** dans `src/**` pour corriger une violation à sa place (déjà mécaniquement impossible via `ai-learn guard`, mais le rappeler évite un réflexe de proposer un diff prêt à coller).
 - `ai-learn norm` (lecture seule, sans lancer `verify`) donne un retour rapide à tout moment pendant que l'apprenant retravaille sa fonction.
 
+### 3quinquies. Les tests doivent protéger le code — prédire quel test tombe (mutation)
+
+Sur une phase qui porte `mutation: true`, `ai-learn verify` exige en plus du checkpoint que ses tests **protègent réellement** le code de l'apprenant. Vocabulaire, en une phrase chacun : un **mutant** est une copie de `src/**` cassée d'une façon précise et minuscule ; un **opérateur de mutation** est la règle de casse (inverser une comparaison, changer un `true` en `false`…) définie par le stack pack ; un mutant est **tué** quand le checkpoint échoue dessus (le test s'en est aperçu), **survécu** quand le checkpoint passe malgré la casse (le test ne protège pas cette ligne). `ai-learn mutate --phase <id>` les liste au format `fichier:ligne — opérateur — SURVÉCU/TUÉ` ; un seul mutant survécu fait échouer `verify`.
+
+Avant de lancer `ai-learn mutate` (ou `verify`) sur une telle phase, nouveau type de prédiction écrite, distinct de « prédire le code » : l'apprenant prédit **quel test doit tomber, et pourquoi**, en trois étapes :
+
+1. **Choisir un site** — l'apprenant désigne une ligne de son code et l'opérateur qui s'y applique (ex. « la comparaison ligne 12 devient `>=` »).
+2. **Prédire l'issue** — *tué* ou *survécu*, et **quel test précis** échoue si tué. Si l'apprenant prédit *survécu*, il dit quelle assertion manque. Même exigence de précision que toute prédiction (cf. banque d'exemples neutres ci-dessous).
+3. **Lancer pour de vrai, puis comparer** — l'IA lance `ai-learn mutate`, la sortie est observée, jamais racontée ; comparaison prédiction/réalité en 3 points habituels. Pour chaque mutant survécu, l'IA **explique** le trou mais n'écrit **jamais** le test à la place de l'apprenant : il l'écrit lui-même, puis on relance.
+
+Cas valide : **« aucun site mutable trouvé »**. Une stack pauvre en opérateurs (ex. `generic.js`) peut ne rien produire à muter ; l'apprenant le prédit alors (« je m'attends à 0 mutant, parce que mon code n'a ni comparaison ni booléen littéral »), l'observation confirme ou infirme, et `verify` ne bloque jamais sur un score non mesuré. La section reste applicable.
+
+Le tier « rouge d'abord » du ledger `~/.ai-learn/tracks/tests.json` n'est jamais déclaré : il est lu depuis les évidences de `verify` (un échec de mutation, puis un succès, sur la même phase). Inutile de le « raconter ».
+
 ### 4. Reality checks — la seule boucle non truquable
 Régulièrement (au moins une fois par phase) : l'IA fait **prédire à l'utilisateur ce qui va se passer** à l'exécution (lancer le serveur, appeler la route, statut attendu, log attendu), puis on **observe ensemble**. C'est la seule boucle que l'IA et l'utilisateur ne peuvent pas compléter de connivence — le runtime ne pardonne pas les prédictions fausses.
 

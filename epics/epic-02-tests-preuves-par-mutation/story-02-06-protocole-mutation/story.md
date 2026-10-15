@@ -32,22 +32,22 @@ existant ne change.
 
 ## Acceptance Criteria
 
-- [ ] Given `templates/AGENTS-apprentissage.md`, when on cherche `3quinquies`,
+- [x] Given `templates/AGENTS-apprentissage.md`, when on cherche `3quinquies`,
       then la section existe, suit immédiatement `3quater`, et décrit un
       protocole de prédiction (quel site va survivre/être tué, et pourquoi) —
       pas un simple rappel du mécanisme déjà documenté ailleurs.
-- [ ] Given un projet fraîchement scaffoldé par `ai-learn init`, when
+- [x] Given un projet fraîchement scaffoldé par `ai-learn init`, when
       `AGENTS.md` est généré, then il contient la nouvelle section (vérifier
       que la génération copie le template intégralement, sans filtrer les
       sections nouvelles).
-- [ ] Given `commands/learn.md`, when on le lit, then la mutation apparaît dans
+- [x] Given `commands/learn.md`, when on le lit, then la mutation apparaît dans
       le flux décrit, avec le même vocabulaire que `AGENTS-apprentissage.md`
       (« mutant survécu/tué », pas un synonyme inventé).
-- [ ] Given `templates/checkpoint-readme.md`, when on le lit, then la
+- [x] Given `templates/checkpoint-readme.md`, when on le lit, then la
       distinction `checkpoint/` vs `test/**` est explicite et actionnable.
-- [ ] Given `README.md`, when on cherche `mutate`, then une mention existe,
+- [x] Given `README.md`, when on cherche `mutate`, then une mention existe,
       cohérente en ton et en longueur avec la mention existante de `ai-learn norm`.
-- [ ] Given la suite de tests du dépôt, when elle tourne après cette story,
+- [x] Given la suite de tests du dépôt, when elle tourne après cette story,
       then aucun test n'est modifié ni cassé.
 
 ## Notes
@@ -76,4 +76,15 @@ existant ne change.
   `AGENTS.md`
   - Expected: la section `3quinquies` est présente dans le fichier généré.
 
+## Status: done
+
 ## Result
+
+Documentation seule : §3quinquies ajoutée à `templates/AGENTS-apprentissage.md`
+(vocabulaire mutant/opérateur/tué/survécu défini à la première occurrence, cas
+« aucun site mutable » couvert, tier « rouge d'abord » lu depuis les évidences) ;
+champ de phase `mutation` ajouté à `commands/learn.md` ; distinction
+`checkpoint/` vs `test/**` dans `templates/checkpoint-readme.md` ; ligne
+`ai-learn mutate` dans le tableau du `README.md`. `init` copie le template
+intégralement : `AGENTS.md` généré contient la section (vérifié sur un projet
+temporaire). Aucun fichier `bin/lib/**` ni test touché ; `npm test` inchangé.
