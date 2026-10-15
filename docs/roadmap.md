@@ -83,7 +83,42 @@ juger est prouvée. Sinon c'est le tutoriel avec un diff à la place de la vidé
 
 **Dépend de l'epic 02** entièrement.
 
+## Epics issus du journal de friction (2026-10-16)
+
+Source : `.ai-learn/dogfood.md` du premier projet appris
+(`~/dev/learning/tech-experiments/fastify-traducteur-api`, outil 0.4.0) + les
+entrées ouvertes de `docs/DOGFOODING.md`. Chaque story est adossée à une entrée
+observée — rien d'imaginé. **Ordre d'exécution recommandé : 04 → 05 → 06 → 07 → 03**
+(les numéros ne suivent pas l'ordre : l'epic 03, mode dirigeant, garde son numéro
+parce que le dépôt s'y réfère partout). Le mode dirigeant passe en dernier parce qu'il
+s'appuie sur un protocole et un `next` déjà dignes de confiance.
+
+| Epic | Problème observé | Stories |
+|---|---|---|
+| `epic-04-le-protocole-atteint-toute-session` | `AGENTS.md` non chargé hors `/learn` (high) ; `next` éclipse la suite par des phases périmées ; aucun rappel de commit ; commandes sans préfixe | 5 |
+| `epic-05-protocole-pedagogique-norme-et-compte` | 7 règles de session dictées par l'apprenant ; reality check sans compteur ; aide et preuve non configurables | 5 |
+| `epic-06-lire-moins-apprendre-plus` | pré-lecture 2-3 jours pour 1 h budgétée (high) ; plafond de 3 sources | 3 |
+| `epic-07-retention-et-qualite-au-fil-de-leau` | aucune reprise espacée ; `norm` jamais déclenché au fil de l'eau | 3 |
+| `epic-03-le-mode-dirigeant` | détaillé (4 stories, 2 `STRICT`) maintenant que l'epic 02 est livré | 4 |
+
+Non repris dans le dépôt : trois entrées sur le comportement du paquet
+`@landry_pouth/coding-flow` (placement de worktree, fraîcheur de review, 1 branche =
+1 story) — à remonter au paquet, pas à planifier ici. L'entrée « rien ne resurgit
+après un `/clear` » se règle par un hook `SessionStart` dans `.claude/settings.json`
+de ce dépôt (une modification de config, pas une story), après avoir vérifié que
+`SessionStart` se redéclenche bien après `/clear`.
+
 ## Ligne rouge produit
 
 Le mode dirigeant n'est pas un raccourci, c'est un statut prouvé. Le jour où le
 README écrit « plus besoin de coder », l'outil devient le tutoriel qu'il combat.
+
+## Hors roadmap
+
+`docs/plans/pistes-non-mesurees.md` garde quatre pistes **envisagées et non
+mesurées** (module debug par injection de faute, tier « juger le code d'autrui »,
+reality check compté, rétrogradation de `norm`), plus deux idées écartées et leur
+motif. Elles ne sont pas sur cette roadmap et ne doivent pas y monter tant que le
+journal de friction ou un `progress.json` réel n'a pas montré le manque qu'elles
+prétendent combler — chacune porte sa condition de promotion. Ce pointeur existe
+pour qu'elles ne se reperdent pas, pas pour les décider.

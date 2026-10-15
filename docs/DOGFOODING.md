@@ -46,6 +46,53 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### Remontées du projet `fastify-traducteur-api` (outil 0.4.0, triées le 2026-10-16)
+Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées déjà `résolu` côté outil n'y figurent pas. Détail complet : ce fichier-là.
+
+- `high` — `AGENTS.md` n'est chargé par aucune session généraliste (aucun fichier mémoire natif). **Surface** : init/update. **Résolution** : planifiée, story-04-01.
+- `medium` — `next`/`status` répondent par une phase périmée avant la vraie suite. **Surface** : next, status. **Résolution** : planifiée, story-04-02.
+- `medium` — `stale` recouvre faux positif et régression réelle, sans moyen de les distinguer. **Surface** : verify, check. **Résolution** : planifiée, story-04-03.
+- `medium` — aucun rappel de commit entre deux réponses ; commande git donnée sans explication. **Surface** : status, verify. **Résolution** : planifiée, story-04-04.
+- `medium` — commandes `/…` sans préfixe commun, non découvrables. **Surface** : install. **Résolution** : planifiée, story-04-05.
+- `high` — règles de session dictées à la main : synthèse ciblée, relecture de `src/**`, cas d'échec, pas de solution avant la frappe, révélation dans le chat. **Surface** : AGENTS.md §1-§3. **Résolution** : planifiée, stories 05-02 à 05-04.
+- `low` — le reality check n'a pas de compteur (déjà listé ci-dessous) ; aide et preuve non configurables par apprenant. **Surface** : predictions, verify. **Résolution** : planifiée, stories 05-01, 05-05.
+- `high` — pré-lecture : 2-3 jours pour 1 h budgétée, ~1 % réutilisé ; plafond de 3 sources de `docs add`. **Surface** : docs, plan. **Résolution** : planifiée, epic-06.
+- `medium` — `norm` jamais déclenché au fil de l'eau. **Surface** : norm. **Résolution** : planifiée, story-07-03.
+
+
+### `medium` — aucun mécanisme de reprise espacée : une phase prouvée n'est jamais rejouée
+- **Repo** : ai-learn (revue externe du protocole, pas un incident d'exécution)
+- **Surface** : `progress.json` / `verify` / `next` — cycle de vie d'une phase après `done`
+- **Problème** : une phase passe `pending` → `done` et n'est plus jamais revisitée. Le
+  protocole prouve l'acquisition au moment T, jamais la rétention à T+3 semaines. Or c'est
+  la reprise espacée — refaire une phase plus tard **sans relire ses notes ni son journal de
+  prédictions** — qui transforme une compréhension ponctuelle en compétence durable. Rien dans
+  `progress.json` ne porte une date de revisite, `next` ne propose jamais une phase déjà `done`,
+  et `check` ne signale pas une phase verte depuis trop longtemps. C'est le seul trou
+  pédagogique réel de l'outil : tout le reste du protocole (prédiction falsifiable, comptage
+  d'écarts, checkpoint exécuté, frappe protégée) est solide et mécaniquement tenu.
+- **Sévérité** : `medium` — n'empêche pas d'avancer, mais laisse l'oubli invisible ;
+  un parcours entièrement vert peut recouvrir des phases qu'on ne saurait plus refaire.
+- **Workaround** : aucun côté outil. À la main : relancer `verify` sur une phase ancienne,
+  ce qui rejoue le checkpoint mais teste le code déjà écrit, pas la mémoire de l'apprenant.
+- **Résolution** :
+
+### `low` — le reality check est une règle écrite, pas un mur mécanique
+- **Repo** : ai-learn (revue externe du protocole, pas un incident d'exécution)
+- **Surface** : `templates/predictions.md` (« un reality check par phase ») / `verify`
+- **Problème** : le protocole demande d'écrire, **avant chaque exécution**, ce qu'on attend en
+  sortie — puis d'observer l'écart. C'est le mécanisme qui enseigne le débogage, davantage que
+  les prédictions de code : prédire un comportement d'exécution et se tromper est exactement
+  l'exercice qu'on refait ensuite en production sur une stack trace. Mais contrairement aux
+  prédictions de code (dont `verify` compte les entrées via `predictionsRequired`), le reality
+  check n'est adossé à aucun compteur : il n'existe que comme phrase dans les règles. Une phase
+  peut donc partir `done` avec zéro reality check enregistré, sans un warning.
+- **Sévérité** : `low` — la règle est lue et globalement suivie ; c'est l'asymétrie avec les
+  prédictions de code qui interroge, pas un blocage.
+- **Workaround** : le consigner à la main dans le journal de prédictions, en confondant les deux
+  types d'entrée — ce qui rend le compte `predictionsRequired` moins lisible.
+- **Résolution** :
+
 ### `medium` — rien ne resurgit un travail prouvé-mais-pas-atterri après un `/clear`
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
 - **Surface** : `/flow-run` (fin de story) + cycle `/clear` + reprise en session fraîche
