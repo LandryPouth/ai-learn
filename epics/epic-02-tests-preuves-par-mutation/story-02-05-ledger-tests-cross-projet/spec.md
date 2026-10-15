@@ -60,23 +60,23 @@ définir explicitement avant d'écrire le ledger.
 
 ## Acceptance Criteria
 
-- [ ] Given une phase `mutation: true` dont deux évidences successives
+- [x] Given une phase `mutation: true` dont deux évidences successives
       existent dans `.ai-learn/runs/` — la plus ancienne avec `mutation.ok:
       false`, la plus récente avec `mutation.ok: true` — when `ai-learn verify`
       tourne à nouveau avec succès, then le tier « rouge d'abord » de
       `~/.ai-learn/tracks/tests.json` passe à `achieved: true`.
-- [ ] Given une phase dont la seule évidence est déjà `mutation.ok: true` (pas
+- [x] Given une phase dont la seule évidence est déjà `mutation.ok: true` (pas
       d'échec antérieur observé), when `ai-learn verify` tourne, then le tier
       « rouge d'abord » **n'est pas** marqué atteint pour cette phase — l'ordre
       observé doit être réel, pas supposé.
-- [ ] Given un tier déjà `achieved: true` dans le ledger, when un `verify`
+- [x] Given un tier déjà `achieved: true` dans le ledger, when un `verify`
       ultérieur ne retouche pas ce tier, then il reste `achieved: true` (jamais
       remis à zéro).
-- [ ] Given deux projets différents utilisant le même `$HOME`, when chacun
+- [x] Given deux projets différents utilisant le même `$HOME`, when chacun
       exécute `ai-learn verify` avec succès sur une phase `mutation: true`, then
       les deux contribuent au même ledger cross-projet, avec chaque projet listé
       séparément dans `config.projects`.
-- [ ] Given un ledger `tests.json` corrompu ou de version inconnue, when
+- [x] Given un ledger `tests.json` corrompu ou de version inconnue, when
       `ai-learn verify` tourne, then le sync échoue silencieusement (n'interrompt
       jamais `verify`) et repart d'un ledger par défaut au prochain sync réussi
       — même discipline que `syncGitTrack`/`syncDomainLedger`.

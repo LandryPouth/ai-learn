@@ -588,7 +588,7 @@ test("mutationReport: a phase without mutation short-circuits without running th
   const dir = projectWithBooleanLiteral(WEAK_CHECKPOINT);
   const report = mutationReport({ dir, phase: { id: 0, checkpoint: WEAK_CHECKPOINT } });
 
-  assert.deepStrictEqual(report, { required: false, ok: true, mutants: 0, killed: 0, survived: [], score: null, truncated: false });
+  assert.deepStrictEqual(report, { required: false, ok: true, mutants: 0, killed: 0, survived: [], killedOperators: [], score: null, truncated: false });
   // The engine never ran: the file is untouched (never mutated then restored).
   const content = fs.readFileSync(path.join(dir, "src/index.js"), "utf8");
   assert.match(content, /return true;/);
@@ -630,7 +630,7 @@ test("mutationReport: no mutable site found → ok true, score null, never block
 
   const report = mutationReport({ dir, phase: { id: 0, checkpoint: 'node -e "process.exit(0)"', mutation: true } });
 
-  assert.deepStrictEqual(report, { required: true, ok: true, mutants: 0, killed: 0, survived: [], score: null, truncated: false });
+  assert.deepStrictEqual(report, { required: true, ok: true, mutants: 0, killed: 0, survived: [], killedOperators: [], score: null, truncated: false });
 });
 
 test("mutationReport: maxMutantsPerRun truncation with every tested mutant killed stays ok true", () => {
@@ -707,6 +707,7 @@ test("emptyMutationReport returns the stable not-computed shape for both require
     mutants: 0,
     killed: 0,
     survived: [],
+    killedOperators: [],
     score: null,
     truncated: false,
   });
@@ -716,6 +717,7 @@ test("emptyMutationReport returns the stable not-computed shape for both require
     mutants: 0,
     killed: 0,
     survived: [],
+    killedOperators: [],
     score: null,
     truncated: false,
   });

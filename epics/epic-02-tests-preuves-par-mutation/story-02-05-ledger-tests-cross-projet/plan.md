@@ -100,6 +100,15 @@ transition s'est produite sur des runs antérieurs jamais synchronisés.
     `bin/lib/tracks/tests.js` avec le même commentaire de traçabilité que
     `git.js` fait vers son plan (ici vers cette story, faute de plan dédié
     préexistant).
+- Décision : ajouter `killedOperators` (ids triés des mutants tués) à
+  `mutationReport`/`emptyMutationReport` (`mutate.js`) et à `evidence.mutation`
+  (`verify.js`).
+  - Raison : le tier 4 (diversité d'opérateurs) doit être observé depuis les
+    évidences ; or `evidence.mutation` n'exposait que les opérateurs des mutants
+    survécus.
+  - Conséquence : écart au « à éviter » de `mutate.js` ; champ additif, aucun
+    consommateur existant n'en dépend ; trois assertions de `mutate.test.js`
+    mises à jour pour la nouvelle forme exacte.
 - Décision : aucun affichage nouveau dans `status`/`check` pour ce ledger, par
   symétrie avec `tracks/git.js` qui n'en a pas non plus.
   - Raison : vérifié dans le Context — si `git.json` (le ledger le plus ancien

@@ -335,7 +335,7 @@ function formatScore(killed, total) {
 // `ok` still `true` — the base checkpoint's own failure is what fails verify,
 // never an unmeasured mutation score; see plan.md Decisions).
 function emptyMutationReport(required) {
-  return { required, ok: true, mutants: 0, killed: 0, survived: [], score: null, truncated: false };
+  return { required, ok: true, mutants: 0, killed: 0, survived: [], killedOperators: [], score: null, truncated: false };
 }
 
 // `verify.js`'s pure fact-gathering call, mirroring
@@ -368,6 +368,7 @@ function mutationReport({ dir, phase }) {
 
   let killed = 0;
   const survived = [];
+  const killedOperators = new Set();
 
   for (const site of sites) {
     const result = testMutant(site, phase, dir);
@@ -376,6 +377,7 @@ function mutationReport({ dir, phase }) {
       survived.push({ file: site.file.rel, line: site.line, operator: site.operator });
     } else {
       killed += 1;
+      killedOperators.add(site.operator);
     }
   }
 
@@ -385,6 +387,9 @@ function mutationReport({ dir, phase }) {
     mutants: sites.length,
     killed,
     survived,
+    // Operator ids of the killed mutants (story 02.05 tier "diversité") — the
+    // ledger reads operator diversity from evidence, never from a declaration.
+    killedOperators: [...killedOperators].sort(),
     // `sites.length` is guaranteed >= 1 by the `maxMutantsPerRun` floor in
     // `loadMutateConfig` — this guard is defense in depth for the contract
     // itself (`score: null` when nothing was measured), not for a path

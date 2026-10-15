@@ -65,6 +65,34 @@ function latestAnyEvidenceForPhase(dir, phaseId) {
   return findEvidence(dir, phaseId, () => true);
 }
 
+// Every readable evidence for a phase, oldest first (the reverse of
+// `findEvidence`) — for callers that need to observe a transition over time
+// (tracks/tests.js), not just the latest state. Chronological order relies on
+// the same lexicographic file-name sort `findEvidence` already trusts.
+function allEvidenceForPhase(dir, phaseId) {
+  const runs = runsDir(dir);
+
+  if (!fs.existsSync(runs)) {
+    return [];
+  }
+
+  const found = [];
+
+  for (const name of fs.readdirSync(runs).filter((n) => n.endsWith("-verify.json")).sort()) {
+    try {
+      const ev = JSON.parse(fs.readFileSync(path.join(runs, name), "utf8"));
+
+      if (ev.phaseId === phaseId) {
+        found.push(ev);
+      }
+    } catch {
+      // Unreadable evidence is not proof; skip it.
+    }
+  }
+
+  return found;
+}
+
 function readProgress(dir) {
   const filePath = progressPath(dir);
 
@@ -229,5 +257,6 @@ module.exports = {
   setPhaseStatus,
   latestEvidenceForPhase,
   latestAnyEvidenceForPhase,
+  allEvidenceForPhase,
   phaseVerdict,
 };

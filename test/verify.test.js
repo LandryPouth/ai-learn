@@ -797,3 +797,53 @@ test("evidence records marking: applied for a normal run, skipped for --no-mark"
   evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir2), runs[0]), "utf8"));
   assert.strictEqual(evidence.marking, "skipped");
 });
+
+// Story 02.05 — the cross-project tests ledger is fed by a passing verify, and
+// can never make verify itself fail.
+// -----------------------------------------------------------------------
+
+test("verify feeds ~/.ai-learn/tracks/tests.json from a passing mutation phase", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+  const home = tmpHome();
+
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+
+  const { readTestsTracks } = require("../bin/lib/tracks/tests");
+  const { config } = readTestsTracks({ home });
+  assert.strictEqual(config.tiers["1"].achieved, true);
+  assert.strictEqual(config.tiers["2"].achieved, true);
+  assert.ok(config.projects[dir]);
+});
+
+test("verify observes rouge d'abord across a failing then a passing run", () => {
+  const dir = tmpProject(mutationPhase(WEAK_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+  const home = tmpHome();
+
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+  process.exitCode = 0;
+
+  const progress = readProgress(dir).config;
+  progress.phases[0].checkpoint = STRONG_CHECKPOINT;
+  fs.writeFileSync(progressPath(dir), `${JSON.stringify(progress, null, 2)}\n`);
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+
+  const { readTestsTracks } = require("../bin/lib/tracks/tests");
+  assert.strictEqual(readTestsTracks({ home }).config.tiers["3"].achieved, true);
+});
+
+test("verify réussit même si le sync tests.json échoue", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+  const brokenHome = path.join(tmpHome(), "a-file");
+  fs.writeFileSync(brokenHome, "not a directory");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, home: brokenHome }));
+
+  assert.match(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+});

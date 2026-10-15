@@ -10,6 +10,7 @@ const path = require("path");
 const { log, fail } = require("./util");
 const { readProgress, runsDir, findPhase, setPhaseStatus } = require("./progress");
 const { syncGitTrack } = require("./tracks/git");
+const { syncTestsTrack } = require("./tracks/tests");
 const { syncDomainLedger } = require("./tracks/domain");
 const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
@@ -229,6 +230,7 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
       mutants: mutReport.mutants,
       killed: mutReport.killed,
       survived: mutReport.survived,
+      killedOperators: mutReport.killedOperators,
       score: mutReport.score,
       truncated: mutReport.truncated,
     },
@@ -251,6 +253,12 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
 
       try {
         syncDomainLedger({ dir, verifyEvidence: evidence, home });
+      } catch {
+        // same isolated failure domain as the git ledger sync above
+      }
+
+      try {
+        syncTestsTrack({ dir, phase, verifyEvidence: evidence, home });
       } catch {
         // same isolated failure domain as the git ledger sync above
       }
