@@ -23,6 +23,7 @@ const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
+const { guardConfigIssues } = require("./guard");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 const {
   journalPath: predictionsJournalPath,
@@ -125,6 +126,17 @@ function checkProject(dir) {
     }
   }
 
+  // A hand-edited `guard.json` is a data file: a typo'd `mode` silently falls
+  // back to `apprenti` in the guard (fail-safe, by design), so the only place
+  // the learner can see it is here. A project that believes it runs in
+  // `dirigeant` while the guard enforces `apprenti` is exactly the silent
+  // misconfiguration this check exists to surface.
+  if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json"))) {
+    for (const issue of guardConfigIssues(dir)) {
+      issues.warnings.push({ file: ".ai-learn/guard.json", message: issue.message });
+    }
+  }
+
   // The learner-file block ("blocage apprenant") is enforced by the `ai-learn
   // guard` PreToolUse hook. If the policy (.ai-learn/guard.json) exists but the
   // hook is not wired into .claude/settings.json, the block is configured yet
@@ -217,7 +229,7 @@ function checkProject(dir) {
   // in docs/solutions/ is meant to be "non-collable" — written with holes
   // ([...], an incomplete line, a comment to finish) so a blind Cmd+A cannot
   // pass the checkpoint (see templates/AGENTS-apprentissage.md and the
-  // SOLUTIONS_README in guard.js). That rule lived only as prose: nothing
+  // solutions README in guard.js). That rule lived only as prose: nothing
   // checked it was actually followed. This is the same structural, not
   // semantic, guarantee as checkGeneratedSource below — it cannot tell a
   // thoughtfully-holed reveal from a lazily-holed one, it only catches the
@@ -746,7 +758,7 @@ function printProjectReport(entry) {
   if (fs.existsSync(path.join(entry.dir, ".ai-learn", "guard.json"))) {
     const blocks = countGuardBlocks(entry.dir);
     const wired = guardHookWired(entry.dir);
-    log(`  guard (claude): ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers solution` : "configuré mais hook non câblé"}`);
+    log(`  guard (claude): ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers de l'apprenant` : "configuré mais hook non câblé"}`);
     log(`  guard (codex): ${codexGuardWired(entry.dir) ? "actif (bac à sable OS)" : "configuré mais profil non câblé"}`);
   }
 

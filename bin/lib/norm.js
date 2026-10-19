@@ -579,9 +579,11 @@ function ensureNormConfig(dir, language) {
 }
 
 // ---------------------------------------------------------------------------
-// Project scan — scoped to the learner's own files (same `learnerFiles`
-// glob the guard uses), test files excluded by default (setup-heavy test
-// code produces noisy false positives on these metrics).
+// Project scan — scoped to the implementation (`implementationFiles`, the same
+// glob the source hash uses), test files excluded by default (setup-heavy test
+// code produces noisy false positives on these metrics). `implementationFiles`
+// rather than `learnerFiles`: in `dirigeant` the latter is the learner's
+// specification, which is not the code this checker is meant to police.
 // ---------------------------------------------------------------------------
 
 function normProject(dir) {
@@ -589,14 +591,14 @@ function normProject(dir) {
   const stack = detectStack(dir, walked.files);
   const tests = detectTests(walked.files);
   const testRels = new Set(tests.files.map((f) => f.rel));
-  const { learnerFiles } = loadGuardConfig(dir);
+  const { implementationFiles } = loadGuardConfig(dir);
   const { ignore, includeTests } = loadNormConfig(dir);
   const thresholds = resolveThresholds(dir, stack.language);
 
   const candidates = walked.files.filter((f) => {
     if (f.binary) return false;
     if (!ALL_SOURCE_EXTS.has(f.ext)) return false;
-    if (!matchesLearnerPath(f.rel, learnerFiles)) return false;
+    if (!matchesLearnerPath(f.rel, implementationFiles)) return false;
     if (ignore.length > 0 && matchesLearnerPath(f.rel, ignore)) return false;
     if (!includeTests && testRels.has(f.rel)) return false;
     return true;

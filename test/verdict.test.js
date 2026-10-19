@@ -124,7 +124,7 @@ test("computeSourceHash: a path with a simulated Windows backslash normalizes to
   assert.strictEqual(normalizePortable("checkpoint\\phase-0.test.mjs"), normalizePortable("checkpoint/phase-0.test.mjs"));
 });
 
-test("computeSourceHash: the checkpoint file is included in the scope even though it's outside learnerFiles", () => {
+test("computeSourceHash: the checkpoint file is included in the scope even though it's outside implementationFiles", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, "src/index.js", "console.log('hi');\n");
   const checkpointFile = writeFile(dir, "checkpoint/phase-0.test.mjs", "// stub\n");
@@ -137,6 +137,40 @@ test("computeSourceHash: the checkpoint file is included in the scope even thoug
   assert.notStrictEqual(withoutCheckpoint.digest, withCheckpoint.digest);
 });
 
+
+test("computeSourceHash: in dirigeant the scope is the implementation, not the learner's specification", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  writeFile(dir, "src/index.js", "console.log('a');\n");
+  writeFile(dir, "test/index.test.js", "test('a', () => {});\n");
+
+  const before = computeSourceHash(dir);
+  assert.strictEqual(before.files, 1, "only src/** is in scope");
+
+  // Editing the specification must NOT stale the evidence...
+  writeFile(dir, "test/index.test.js", "test('b', () => {});\n");
+  assert.strictEqual(computeSourceHash(dir).digest, before.digest);
+
+  // ...but editing the implementation the AI wrote must.
+  writeFile(dir, "src/index.js", "console.log('b');\n");
+  assert.notStrictEqual(computeSourceHash(dir).digest, before.digest);
+});
+
+test("computeSourceHash: apprenti keeps hashing the learner's own scope, even when it is not src/**", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["lib/**"] }));
+  writeFile(dir, "lib/index.js", "console.log('a');\n");
+  writeFile(dir, "src/index.js", "console.log('a');\n");
+
+  const before = computeSourceHash(dir);
+  assert.strictEqual(before.files, 1, "only the learner's lib/** is in scope");
+
+  writeFile(dir, "src/index.js", "console.log('b');\n");
+  assert.strictEqual(computeSourceHash(dir).digest, before.digest);
+
+  writeFile(dir, "lib/index.js", "console.log('b');\n");
+  assert.notStrictEqual(computeSourceHash(dir).digest, before.digest);
+});
 
 test("computeSourceHash: empty scope gives a stable digest with files: 0", () => {
   const dir = tmpProject(sampleProgress());

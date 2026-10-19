@@ -187,18 +187,20 @@ function detectAllSites(clean, mutators) {
   return sites;
 }
 
-// Walks the learner's own files (`learnerFiles`, same scope as
-// `norm.js#normProject` and the epic 01 source hash — never a hardcoded
-// `src/**`), restricted to `ALL_SOURCE_EXTS` and excluding test files
+// Walks the implementation the AI is allowed to write (`implementationFiles`,
+// same scope as `norm.js#normProject` and the epic 01 source hash — never a
+// hardcoded `src/**`), restricted to `ALL_SOURCE_EXTS` and excluding test files
 // (`detectTests`) exactly like `norm.js#normProject` — a boolean literal or
 // comparison sitting in prose, a data file, or the learner's own test file is
 // never picked as a mutant: it isn't code the checkpoint is meant to protect.
+// `implementationFiles` (not `learnerFiles`): in `dirigeant` the latter is the
+// learner's specification, and mutating tests would measure nothing.
 // `.ai-learn/mutate.json#ignore` follows the same glob as `norm.json#ignore`.
 function findAllSites(dir) {
   const walked = walkSources(dir);
   const stack = detectStack(dir, walked.files);
   const mutators = resolveMutators(dir, stack.language);
-  const { learnerFiles } = loadGuardConfig(dir);
+  const { implementationFiles } = loadGuardConfig(dir);
   const testRels = new Set(detectTests(walked.files).files.map((f) => f.rel));
   const { ignore } = loadMutateConfig(dir);
 
@@ -208,7 +210,7 @@ function findAllSites(dir) {
     if (file.binary) continue;
     if (!ALL_SOURCE_EXTS.has(file.ext)) continue;
     if (testRels.has(file.rel)) continue;
-    if (!matchesLearnerPath(file.rel, learnerFiles)) continue;
+    if (!matchesLearnerPath(file.rel, implementationFiles)) continue;
     if (ignore.length > 0 && matchesLearnerPath(file.rel, ignore)) continue;
 
     let original;

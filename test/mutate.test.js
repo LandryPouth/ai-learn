@@ -121,6 +121,17 @@ test("detection: respects a custom learnerFiles scope", () => {
   assert.strictEqual(sites[0].file.rel, "lib/index.js");
 });
 
+test("detection: in dirigeant the implementation (src/**) is mutated, not the learner's specification", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  writeFile(dir, "src/index.js", "module.exports = { ok: false };\n");
+  writeFile(dir, "test/index.test.js", "test('ok', () => { assert.strictEqual(true, true); });\n");
+
+  const sites = findAllSites(dir);
+  assert.strictEqual(sites.length, 1);
+  assert.strictEqual(sites[0].file.rel, "src/index.js");
+});
+
 test("findAllSites excludes non-source and test files even when other files in scope have valid sites", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["**/*.js", "**/*.md", "**/*.json"] }));

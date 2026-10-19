@@ -29,6 +29,9 @@ L'IA présente la **section doc ciblée** + un exemple, puis **s'arrête**. **L'
 
 ### 3. L'apprenant tape le code — blocage mécanique
 Le code de révélation est déposé par l'IA dans **`docs/solutions/<brique>.md`** (la référence). L'IA **n'écrit jamais** dans les fichiers solution de l'apprenant (`src/**`, liste configurable dans `.ai-learn/guard.json`) : le hook PreToolUse **`ai-learn guard`** refuse mécaniquement toute écriture de l'IA sur ces chemins — un `.md` peut être contourné, une permission refusée ne peut pas.
+
+> **Mode `dirigeant`.** `.ai-learn/guard.json` → `mode: "dirigeant"` inverse la propriété : l'apprenant garde la **spécification** (tests et checkpoints — `test/**`, `tests/**`, `__tests__/**`, `*.test.*`, `*.spec.*`, `checkpoint/**`) et l'IA écrit l'implémentation (`src/**`). Le guard bloque alors l'IA sur ces chemins ; `docs/solutions/` reste la référence où l'apprenant **juge** le code écrit, il ne le retape plus. Les sections ci-dessous décrivent le mode `apprenti` (défaut) ; en `dirigeant`, lire « l'apprenant tape » comme « l'apprenant spécifie et juge ».
+
 - **L'apprenant tape le vrai code** dans son éditeur, de mémoire ou en copiant la référence (l'effort demandé est la frappe, pas la dérivation).
 - **La référence est non-collable** : `docs/solutions/<brique>.md` est écrit **avec des trous** à compléter (`[...]`, lignes incomplètes, commentaires à finir). Un Cmd+A aveugle produit un code qui échoue au checkpoint — l'apprenant doit retaper et compléter pour que ça passe. Second garde-fou après le guard : le guard prouve « pas l'IA », les trous forcent « l'apprenant a refait ».
 - **Le debug est mené par l'apprenant** : test rouge, checkpoint qui échoue, stack trace → l'apprenant lit, diagnostique, corrige. L'IA guide (pose des questions), ne touche pas aux fichiers.
@@ -142,9 +145,9 @@ anomalie à combler.
 | `ai-learn docs update <nom>` | Rafraîchit une source locale depuis son origine |
 | `ai-learn docs remove <nom>` | Retire une source (copie locale + entrée du ledger) |
 | `ai-learn verify <id>` | Prouve une phase : exécute le checkpoint, marque `done` seulement si ça passe (automatique en clôture de phase) |
-| `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé, et toute violation de la norme clean-code dans `src/**` |
+| `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé, et toute violation de la norme clean-code dans le code que l'IA a le droit d'écrire (`implementationFiles`, par défaut `src/**`) |
 | `ai-learn norm` | Vérifie la norme clean-code (longueur fichier/fonction, imbrication, params) — lecture seule, retour rapide sans attendre `verify` |
-| `ai-learn guard` | Hook interne (PreToolUse) : refuse à l'IA toute écriture dans les fichiers solution (`src/**`) **et toute commande git/gh** (lecture incluse) — câblé automatiquement par `init`/`update` |
+| `ai-learn guard` | Hook interne (PreToolUse) : refuse à l'IA toute écriture dans les fichiers de l'apprenant (`src/**` en apprenti ; `test/**`, `tests/**`, `__tests__/**`, `*.test.*`, `*.spec.*`, `checkpoint/**` en dirigeant) **et toute commande git/gh** (lecture incluse) — câblé automatiquement par `init`/`update` |
 | `ai-learn traps` | Régénère la banque de pièges depuis les docs embarquées (zones de friction, citées fichier:ligne) |
 | `ai-learn update [--platform <claude\|codex\|gemini\|opencode\|antigravity>]` | Propage le protocole + la banque de pièges à tous les projets installés sous `--root` ; `--platform` (re)installe aussi les commandes `/…` de **ta** plateforme si besoin |
 | `ai-learn upgrade` | Met à jour l'outil `ai-learn` lui-même vers la dernière version (pas les projets — `update` s'en charge séparément) |
@@ -171,12 +174,13 @@ appel séparé) déclenche la même réparation — tu connais ta plateforme,
 inutile de la deviner. Sans ce flag sur ces plateformes-là, rien ne casse :
 `ai-learn <commande>` fonctionne toujours, seules les commandes `/…` restent
 absentes jusqu'à ce que `--platform` soit passé une fois. Le garde-fou
-(`src/**`) n'est de toute façon jamais concerné par ce changement : il est
-câblé pour toutes les plateformes dès `init`, indépendamment de celle utilisée.
+(fichiers de l'apprenant : `src/**` en apprenti, la spécification en dirigeant) n'est de toute
+façon jamais concerné par ce changement : il est câblé pour toutes les
+plateformes dès `init`, indépendamment de celle utilisée.
 
 ## Règle d'or
 
-L'utilisateur ne tape aucune commande : l'IA les exécute pour lui. En revanche, il tape **tout le code** de son projet (`src/**`) — `ai-learn guard` y bloque l'IA. L'IA ne marque jamais une phase `done` elle-même.
+L'utilisateur ne tape aucune commande : l'IA les exécute pour lui. En mode `apprenti` (défaut), il tape **tout le code** de son projet (`src/**`) — `ai-learn guard` y bloque l'IA. En mode `dirigeant`, la propriété s'inverse : il garde la **spécification** (`test/**`, `checkpoint/**`) et l'IA écrit l'implémentation (`src/**`). Dans les deux cas, l'IA ne marque jamais une phase `done` elle-même.
 
 ## Doc embarquée (hors-ligne)
 

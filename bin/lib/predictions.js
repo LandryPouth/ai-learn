@@ -4,7 +4,7 @@
 // is the source of truth once it exists and is valid; `docs/plans/predictions.md`
 // becomes a render of it, same "generated unless customized" convention as
 // AGENTS.md (update.js#PROTOCOL_MARKER) and the solutions README
-// (guard.js#SOLUTIONS_README). A project with no predictions.json yet keeps
+// (guard.js#renderSolutionsReadme). A project with no predictions.json yet keeps
 // being counted from its hand-typed `.md` — see check.js.
 
 const fs = require("fs");

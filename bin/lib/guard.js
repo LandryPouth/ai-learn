@@ -28,6 +28,42 @@ const { renderConfig: renderCodexConfig, MARKER: CODEX_MARKER } = require("./pla
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 const DEFAULT_LEARNER_FILES = ["src/**"];
 const DEFAULT_BLOCKED_COMMANDS = ["git", "gh"];
+
+// The learning mode, stored in `.ai-learn/guard.json`. `apprenti` (default):
+// the learner types the implementation (`src/**`), the AI never writes it.
+// `dirigeant`: the property inverts — the learner keeps the specification
+// (`test/**`, `checkpoint/**`) and the AI writes the implementation.
+const MODE_APPRENTI = "apprenti";
+const MODE_DIRIGEANT = "dirigeant";
+// The learner-owned files in `dirigeant` mode: the block set the guard applies.
+// This must cover every test convention `scan.js#detectTests` recognizes, not
+// just `test/**`: a project laying its tests out in `tests/`, `__tests__/`, or
+// colocated `*.test.ts` files would otherwise let the AI rewrite the very
+// specification the learner is supposed to own. `**/` requires a slash in the
+// glob matcher, hence the root-level variants.
+const DIRIGEANT_LEARNER_FILES = [
+  "test/**",
+  "tests/**",
+  "__tests__/**",
+  "**/test/**",
+  "**/tests/**",
+  "**/__tests__/**",
+  "**/*.test.*",
+  "*.test.*",
+  "**/*.spec.*",
+  "*.spec.*",
+  "**/test_*",
+  "test_*",
+  "**/*_test.*",
+  "*_test.*",
+  "**/*-test.*",
+  "*-test.*",
+  "**/*_spec.*",
+  "*_spec.*",
+  "**/*-spec.*",
+  "*-spec.*",
+  "checkpoint/**",
+];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
 
 // Commands that merely wrap another command — unwrapped so `sudo git log` or
@@ -84,11 +120,76 @@ function targetPath(toolInput) {
 }
 
 // The learner-file policy lives in `.ai-learn/guard.json`
-// (`{ version: 1, learnerFiles: ["src/**"] }`). Missing or corrupt config falls
-// back to the default — a project that never ran `init`/`update` is still guarded
-// against writing into `src/`.
+// (`{ version: 1, mode: "apprenti", learnerFiles: ["src/**"] }`). Missing or
+// corrupt config falls back to the default — a project that never ran
+// `init`/`update` is still guarded against writing into `src/`.
+//
+// `validateGuardConfig` follows the data-file convention (docs/conventions.md):
+// a hand-edited file is signalled, never silently accepted. The one decision
+// that must never depend on a valid file is the mode: it falls back to
+// `apprenti`, the most restrictive, so a typo cannot open `src/**`.
+function validateGuardConfig(config) {
+  const issues = [];
+
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    issues.push({ level: "warning", message: "unreadable or non-object config — falling back to apprenti" });
+    return issues;
+  }
+
+  if (config.version !== 1) {
+    issues.push({ level: "warning", message: `version is ${JSON.stringify(config.version)}, expected 1` });
+  }
+
+  if (config.mode !== undefined && config.mode !== MODE_APPRENTI && config.mode !== MODE_DIRIGEANT) {
+    issues.push({
+      level: "warning",
+      message: `mode ${JSON.stringify(config.mode)} is unknown — falling back to "${MODE_APPRENTI}" ` +
+        `(expected "${MODE_APPRENTI}" or "${MODE_DIRIGEANT}")`,
+    });
+  }
+
+  if (config.implementationFiles !== undefined) {
+    issues.push({
+      level: "warning",
+      message: "implementationFiles is derived from mode and ignored — remove it from guard.json",
+    });
+  }
+
+  for (const field of ["learnerFiles", "blockedCommands", "gitAliases"]) {
+    if (config[field] !== undefined && !Array.isArray(config[field])) {
+      issues.push({ level: "warning", message: `${field} is not an array — ignored` });
+    }
+  }
+
+  return issues;
+}
+
+// Issues found in the raw `.ai-learn/guard.json`, for `ai-learn check`. The
+// loader itself stays fail-safe and silent (a hot path must not warn), so the
+// visibility of a hand-edited or typo'd file lives here. No file → no issue.
+function guardConfigIssues(root) {
+  const configFile = path.join(root, ".ai-learn", "guard.json");
+
+  if (!fs.existsSync(configFile)) {
+    return [];
+  }
+
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(configFile, "utf8"));
+  } catch {
+    return [{ level: "warning", message: "unreadable or invalid JSON — falling back to apprenti" }];
+  }
+
+  return validateGuardConfig(config);
+}
+
 function loadGuardConfig(root) {
-  const defaults = { learnerFiles: DEFAULT_LEARNER_FILES, blockedCommands: DEFAULT_BLOCKED_COMMANDS, gitAliases: [] };
+  const defaults = {
+    learnerFiles: DEFAULT_LEARNER_FILES,
+    blockedCommands: DEFAULT_BLOCKED_COMMANDS,
+    gitAliases: [],
+  };
   const configFile = path.join(root, ".ai-learn", "guard.json");
 
   let config = null;
@@ -100,18 +201,42 @@ function loadGuardConfig(root) {
     config = null;
   }
 
+  // `dirigeant` is selected only by the exact string. Anything else — absent,
+  // misspelled, wrong type, a corrupt file — resolves to `apprenti`, the most
+  // restrictive mode: a broken config must never open the implementation
+  // (`src/**`) to the AI. `check` surfaces the unknown value (validateGuardConfig).
+  const mode = config && config.mode === MODE_DIRIGEANT ? MODE_DIRIGEANT : MODE_APPRENTI;
+
+  // In `dirigeant` the block set inverts outright to the specification, so a
+  // hand-set `learnerFiles` cannot half-apply the inversion.
+  const learnerFiles =
+    mode === MODE_DIRIGEANT
+      ? DIRIGEANT_LEARNER_FILES.slice()
+      : config && Array.isArray(config.learnerFiles) && config.learnerFiles.length > 0
+        ? config.learnerFiles.slice()
+        : defaults.learnerFiles.slice();
+
   return {
-    learnerFiles:
-      config && Array.isArray(config.learnerFiles) && config.learnerFiles.length > 0
-        ? config.learnerFiles
-        : defaults.learnerFiles,
+    mode,
+    learnerFiles,
+    // The mutation/norm/hash target, kept distinct from `learnerFiles` once the
+    // mode inverts it: in `dirigeant` mutation must test the implementation the
+    // AI wrote (`src/**`), not the specification the learner now owns; in
+    // `apprenti` it stays the learner's own files (a project that scoped
+    // `learnerFiles` to `lib/**` must not start mutating `src/**`).
+    //
+    // Derived from the mode only, never read back from the file: a stored value
+    // would survive a mode switch and silently point the consumers at the
+    // wrong half of the project (see the story decisions).
+    implementationFiles:
+      mode === MODE_DIRIGEANT ? DEFAULT_LEARNER_FILES.slice() : learnerFiles.slice(),
     // Unlike learnerFiles above, an explicit `[]` IS honored here (not treated
     // as "unset") — it is the documented escape valve to turn the git/gh block
     // off entirely for a project where it's genuinely wrong. Only a missing/
     // corrupt config falls back to the default block list.
     blockedCommands:
-      config && Array.isArray(config.blockedCommands) ? config.blockedCommands : defaults.blockedCommands,
-    gitAliases: config && Array.isArray(config.gitAliases) ? config.gitAliases : defaults.gitAliases,
+      config && Array.isArray(config.blockedCommands) ? config.blockedCommands.slice() : defaults.blockedCommands.slice(),
+    gitAliases: config && Array.isArray(config.gitAliases) ? config.gitAliases.slice() : defaults.gitAliases.slice(),
   };
 }
 
@@ -364,6 +489,33 @@ function detectGitOrGh(command, blockedCommands) {
   return null;
 }
 
+// The denial text is read by the agent verbatim, so it must name the right
+// remedy for the mode: in `apprenti` the refused path is the implementation
+// (`src/**`) and the reveal goes to `docs/solutions/`; in `dirigeant` it is the
+// specification (`test/**`, `checkpoint/**`) and the AI is expected to write
+// the implementation instead. A mode-blind message would send a dirigeant
+// agent to deposit a "reveal" for tests the learner is supposed to own.
+function learnerDenialReason({ mode, rel, learnerFiles, viaShell }) {
+  const scope = learnerFiles.join(", ");
+
+  if (mode === MODE_DIRIGEANT) {
+    return viaShell
+      ? `cette commande écrit dans ${rel}, un fichier de la spécification de l'apprenant (${scope}). ` +
+          "En mode dirigeant, l'IA écrit l'implémentation (`src/**`), pas les tests ni les checkpoints : " +
+          "propose la modification à l'apprenant, qui met à jour sa spécification lui-même (cf. AGENTS.md §3)."
+      : `${rel} appartient à la spécification de l'apprenant (${scope}). ` +
+          "En mode dirigeant, l'IA écrit l'implémentation (`src/**`), pas les tests ni les checkpoints : " +
+          "propose la modification à l'apprenant, qui met à jour sa spécification lui-même (cf. AGENTS.md §3).";
+  }
+
+  return viaShell
+    ? `cette commande écrit dans ${rel}, un fichier solution de l'apprenant (${scope}). ` +
+        "`ai-learn guard` refuse l'écriture de l'IA ici : l'apprenant tape ce code (cf. AGENTS.md §3)."
+    : `${rel} est un fichier solution de l'apprenant (${scope}). ` +
+        "L'IA n'écrit pas ici : déposer le code de révélation dans `docs/solutions/`, " +
+        "l'apprenant tape le vrai code (cf. AGENTS.md §3).";
+}
+
 function decide(hook, root) {
   if (!hook || typeof hook !== "object") {
     return { decision: "allow", reason: "no parseable hook input" };
@@ -401,10 +553,7 @@ function decide(hook, root) {
       if (rel && matchesLearnerPath(rel, config.learnerFiles)) {
         return {
           decision: "deny",
-          reason:
-            `cette commande écrit dans ${rel}, un fichier solution de l'apprenant ` +
-            `(${config.learnerFiles.join(", ")}). \`ai-learn guard\` refuse l'écriture de l'IA ici : ` +
-            "l'apprenant tape ce code (cf. AGENTS.md §3).",
+          reason: learnerDenialReason({ mode: config.mode, rel, learnerFiles: config.learnerFiles, viaShell: true }),
           path: rel,
         };
       }
@@ -424,10 +573,7 @@ function decide(hook, root) {
   if (rel && matchesLearnerPath(rel, config.learnerFiles)) {
     return {
       decision: "deny",
-      reason:
-        `${rel} est un fichier solution de l'apprenant (${config.learnerFiles.join(", ")}). ` +
-        "L'IA n'écrit pas ici : déposer le code de révélation dans `docs/solutions/`, " +
-        "l'apprenant tape le vrai code (cf. AGENTS.md §3).",
+      reason: learnerDenialReason({ mode: config.mode, rel, learnerFiles: config.learnerFiles, viaShell: false }),
       path: rel,
     };
   }
@@ -514,7 +660,42 @@ function guardCommand({ inputFile = null } = {}) {
 
 // --- wiring (used by `init` and `update`, not the hot path) -----------------
 
-const SOLUTIONS_README = `# Solutions de référence — où l'IA dépose le code, jamais dans \`src/\`
+// The generated README describes the mode's property. It is refreshed on
+// `update` (title marker), so a project that switches mode gets prose matching
+// its guard — leaving the apprenti text in a dirigeant project would document
+// the exact opposite of what the hook enforces.
+const SOLUTIONS_README_TITLE = "# Solutions de référence";
+
+function renderSolutionsReadme(mode) {
+  if (mode === MODE_DIRIGEANT) {
+    return `${SOLUTIONS_README_TITLE} — ce que l'IA écrit, ce que l'apprenant garde
+
+En mode **dirigeant**, la propriété est inversée : **l'apprenant garde la
+spécification** (\`test/**\`, \`checkpoint/**\`) et **l'IA écrit l'implémentation**
+(\`src/**\`). Le hook PreToolUse \`ai-learn guard\` refuse mécaniquement toute
+écriture de l'IA dans les fichiers de spécification (liste dans
+\`.ai-learn/guard.json\` → \`learnerFiles\`).
+
+Ce dossier reste la référence de révélation : l'IA y dépose le code qu'elle a
+écrit, expliqué brique par brique, pour que l'apprenant puisse **juger** le diff
+plutôt que le taper.
+
+- **L'IA écrit** : \`src/**\` (l'implémentation), ce dossier, \`docs/\`, la config
+  de support (tsconfig, package.json, docker-compose.yml, migrations, scripts).
+- **L'apprenant écrit seul** : \`test/**\` et \`checkpoint/**\` — la spécification
+  que l'IA ne peut pas réécrire pour faire passer son code.
+- **La référence reste non-collable** : \`docs/solutions/<brique>.md\` est écrit
+  **avec des trous** à compléter (\`[...]\`, lignes incomplètes, commentaires à
+  finir). L'apprenant la lit pour juger, pas pour recopier.
+- **Debug** : l'apprenant lit le test rouge, le checkpoint qui échoue, la stack
+  trace et décide de la correction attendue ; l'IA implémente dans \`src/**\`.
+- **Échappatoire visible** : si l'apprenant est vraiment coincé, noter
+  \`Corrigé par : IA\` dans le journal — une exception enregistrée que
+  \`ai-learn check\` signale, jamais un saut silencieux.
+`;
+  }
+
+  return `${SOLUTIONS_README_TITLE} — où l'IA dépose le code, jamais dans \`src/\`
 
 Dans ce parcours, **l'apprenant tape tout le code de son projet** (\`src/**\`). L'IA
 en est mécaniquement empêchée : le hook PreToolUse \`ai-learn guard\` refuse toute
@@ -541,6 +722,7 @@ dans son éditeur.
   \`Corrigé par : IA\` dans le journal — une exception enregistrée que
   \`ai-learn check\` signale, jamais un saut silencieux.
 `;
+}
 
 // Wire the guard into a learning project: write the learner-file policy, the
 // solutions directory, and merge the PreToolUse hook into `.claude/settings.json`
@@ -562,7 +744,13 @@ function ensureGuardHook(dir) {
     fs.writeFileSync(
       guardJsonPath,
       `${JSON.stringify(
-        { version: 1, learnerFiles: DEFAULT_LEARNER_FILES, blockedCommands: DEFAULT_BLOCKED_COMMANDS, gitAliases: [] },
+        {
+          version: 1,
+          mode: MODE_APPRENTI,
+          learnerFiles: DEFAULT_LEARNER_FILES,
+          blockedCommands: DEFAULT_BLOCKED_COMMANDS,
+          gitAliases: [],
+        },
         null,
         2,
       )}\n`,
@@ -570,18 +758,20 @@ function ensureGuardHook(dir) {
     created.push(normalizePortable(path.relative(dir, guardJsonPath)));
   }
 
-  const learnerFiles = loadGuardConfig(dir).learnerFiles;
-  const codexResult = ensureCodexGuard(dir, learnerFiles);
+  const config = loadGuardConfig(dir);
+  const codexResult = ensureCodexGuard(dir, config.learnerFiles);
   created.push(...codexResult.created);
 
   // guard.json is learner-customizable (learnerFiles) — never overwritten here.
-  // The solutions README is pure generated content (its title is the marker).
+  // The solutions README is pure generated content (its title is the marker),
+  // and its body follows the mode: switching to dirigeant must flip the prose.
   const readmeText = fs.existsSync(solutionsReadme) ? fs.readFileSync(solutionsReadme, "utf8") : null;
-  const isGeneratedReadme = readmeText === null || readmeText.trimStart().startsWith("# Solutions de référence");
+  const readme = renderSolutionsReadme(config.mode);
+  const isGeneratedReadme = readmeText === null || readmeText.trimStart().startsWith(SOLUTIONS_README_TITLE);
 
-  if (isGeneratedReadme && readmeText !== SOLUTIONS_README) {
+  if (isGeneratedReadme && readmeText !== readme) {
     fs.mkdirSync(path.dirname(solutionsReadme), { recursive: true });
-    fs.writeFileSync(solutionsReadme, SOLUTIONS_README);
+    fs.writeFileSync(solutionsReadme, readme);
     const rel = normalizePortable(path.relative(dir, solutionsReadme));
     (readmeText === null ? created : refreshed).push(rel);
   }
@@ -655,6 +845,8 @@ module.exports = {
   ensureCodexGuard,
   decide,
   loadGuardConfig,
+  validateGuardConfig,
+  guardConfigIssues,
   matchesLearnerPath,
   shellWriteTargets,
   detectGitOrGh,
