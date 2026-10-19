@@ -39,6 +39,26 @@ function mutationPhase(checkpoint, overrides = {}) {
   });
 }
 
+// Long enough to clear the citation content floor (200 chars) without ever
+// containing a `file:line` or a decision word — the scaffold the dirigeant
+// review tests add one ingredient to at a time.
+const REVIEW_FILLER =
+  "Cette revue détaille le raisonnement du relecteur sur le diff de la brique : " +
+  "ce qu'il a vérifié, ce qui tient, ce qui ne tient pas, et pourquoi. ".repeat(2);
+
+// A done phase in dirigeant mode with real passing evidence and a one-line
+// source file, so a citation to line 1-3 resolves. The review file is left to
+// each test — its absence is itself a case under test.
+function dirigeantProject() {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["src/**"] }));
+  writeFile(dir, "src/index.js", "const one = 1;\nconst two = 2;\nconst three = 3;\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  return dir;
+}
+
 beforeEach(() => {
   process.exitCode = 0;
 });
@@ -220,6 +240,114 @@ test("gitTier 6 done phase with a real, well-substantiated PR citation passes cl
 
   const entry = checkProject(dir);
   assert.ok(!entry.issues.errors.some((e) => /gitTier 6/.test(e.message)));
+});
+
+// -----------------------------------------------------------------------
+// Dirigeant review tier (story 03.03): docs/reviews/<brique>.md must cite a
+// real file:line and state a decision — presence + minimum substance, same
+// contract as a tier-6 PR URL. Absent in apprenti.
+// -----------------------------------------------------------------------
+
+test("dirigeant: a done phase with a sourced review (real file:line + decision) passes", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:3\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => /dirigeant mode but/.test(e.message)));
+  assert.ok(!entry.issues.errors.some((e) => /no real file:line|states no decision/.test(e.message)));
+});
+
+test("dirigeant: a done phase without its review is an error", () => {
+  const dir = dirigeantProject();
+
+  const entry = checkProject(dir);
+  assert.ok(
+    entry.issues.errors.some((e) =>
+      /phase 0 \("Phase zero"\) is done in dirigeant mode but docs\/reviews\/phase-zero\.md is missing/.test(e.message),
+    ),
+  );
+});
+
+test("dirigeant: a review with no citation is an error (presence, not only substance)", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nDécision : rejeter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: a review citing a line that does not exist is an error", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:99\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: citing the line right after the last real line is an error (trailing newline)", () => {
+  const dir = dirigeantProject();
+  // src/index.js has three lines and ends with a newline: line 4 does not exist.
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:4\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: a citation outside implementationFiles is an error", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "README.md", "readme\n");
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`README.md:1\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: the citation scope follows implementationFiles, not a hard-coded src/**", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
+  writeFile(dir, "lib/app.js", "const one = 1;\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`lib/app.js:1\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => /dirigeant mode but/.test(e.message)));
+});
+
+test("dirigeant: a citation escaping the project root is an error", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`../outside.js:1\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: a review citing a real line but stating no decision is an error", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:1\`\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /states no decision/.test(e.message)));
+});
+
+test("dirigeant: a review with a bare citation and no substance is an error (degenerate case)", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", "Citation : `src/index.js:1`\n\nDécision : accepter.\n");
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /too little content around its citation/.test(e.message)));
+});
+
+test("apprenti never requires the dirigeant reviews (non-regression)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "const one = 1;\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => /dirigeant mode but/.test(e.message)));
 });
 
 test("the friction journal is counted but never gates check", () => {

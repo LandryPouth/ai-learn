@@ -11,6 +11,8 @@ bin/lib/
   context.js             résolution de --dir                          (feuille)
   progress.js            ledger progress.json + latestEvidenceForPhase + phaseVerdict (feuille)
   source-hash.js         empreinte sha256 du code prouvé (checkpointFilePath, computeSourceHash)
+  citation.js            citations vérifiables (URL de PR, fichier:ligne)
+  reviews.js             revue dirigeant : docs/reviews/<brique>.md (citation + décision)
   verify.js              LA commande d'écriture : exécute, prouve, marque done
   check.js               LE scanner : croise le ledger contre la réalité
   status.js / next.js    lecture seule
@@ -90,6 +92,12 @@ commands/                les 7 commandes /… (markdown, format Claude Code)
   du home est comparé à celui de la cible, donc un `$HOME` symlinké ne
   contourne pas la comparaison. Les évidences `.ai-learn/runs/*.json` restent
   non protégées — même régime de confiance que le ledger (suivi, non corrigé).
+- `reviews.js` importe `citation.js` et `guard.js` (`matchesLearnerPath`) : en
+  `dirigeant`, le `file:line` d'une revue doit rester dans
+  `implementationFiles`, pas seulement exister dans le dépôt. `check.js` et
+  `status.js` consomment `reviews.js` ; `status.js` importe aussi
+  `loadGuardConfig` pour ne produire le résumé qu'en mode `dirigeant`. Pas de
+  cycle : `guard.js` n'importe ni `reviews.js` ni `citation.js`.
 - `verify.js` importe `norm.js`, `tracks/git.js`, `tracks/domain.js`.
 
 ## Ce que le guard ne voit pas

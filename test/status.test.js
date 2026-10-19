@@ -424,3 +424,38 @@ test("status --json has mutation: null for a phase without phase.mutation", () =
 
   assert.strictEqual(parsed.phases[0].mutation, null);
 });
+
+// -----------------------------------------------------------------------
+// Dirigeant review summary (story 03.03).
+// -----------------------------------------------------------------------
+
+test("status counts the missing dirigeant reviews of done phases", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  writeFile(dir, "src/index.js", "const one = 1;\nconst two = 2;\n");
+
+  const out = capture(() => statusCommand({ dir, home: tmpHome() }));
+  assert.match(out, /Revues \(mode dirigeant\) : 0\/1 valide\(s\) — 1 à revoir : docs\/reviews\/phase-zero\.md \(manquante\)/);
+});
+
+test("status names the reason when a dirigeant review is invalid", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  writeFile(dir, "docs/reviews/phase-zero.md", "Décision : accepter.\n");
+
+  const out = capture(() => statusCommand({ dir, home: tmpHome() }));
+  assert.match(out, /0\/1 valide\(s\) — 1 à revoir : docs\/reviews\/phase-zero\.md \(sans file:line réel\)/);
+});
+
+test("status does not print the review summary in apprenti (non-regression)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+
+  const out = capture(() => statusCommand({ dir, home: tmpHome() }));
+  assert.doesNotMatch(out, /Revues \(mode dirigeant\)/);
+});

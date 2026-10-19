@@ -9,6 +9,8 @@ const { readProgress, validateProgress, latestEvidenceForPhase, phaseVerdict } =
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
+const { loadGuardConfig } = require("./guard");
+const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 
 // The mark and, where useful, the French label shown next to a phase —
@@ -185,6 +187,37 @@ function printNormSummary({ dir }) {
   }
 }
 
+// Dirigeant-only, additive summary: how many done phases carry a valid sourced
+// review. In apprenti the review tier does not exist, so the line is silent —
+// same absence-is-not-a-warning stance as the other cross-project summaries.
+const REVIEW_REASONS = {
+  missing: "manquante",
+  unreadable: "illisible",
+  "no-citation": "sans file:line réel",
+  "no-decision": "sans décision",
+  "insufficient-substance": "sans substance",
+};
+
+function printReviewSummary({ dir, config }) {
+  const guard = loadGuardConfig(dir);
+
+  if (guard.mode !== "dirigeant") {
+    return;
+  }
+
+  const states = reviewStates(dir, config, guard.implementationFiles);
+  const pending = states.filter((review) => review.state !== "valid");
+  const valid = states.length - pending.length;
+
+  if (pending.length === 0) {
+    log(`\nRevues (mode dirigeant) : ${valid}/${states.length} brique(s) revue(s).`);
+    return;
+  }
+
+  const detail = pending.map((review) => `${review.path} (${REVIEW_REASONS[review.reason] || "invalide"})`).join(", ");
+  log(`\nRevues (mode dirigeant) : ${valid}/${states.length} valide(s) — ${pending.length} à revoir : ${detail}`);
+}
+
 // The JSON-facing calc: same per-phase verdict `printStatus` prints as text,
 // reshaped into a stable, versioned object. Never throws — a missing or
 // corrupt progress.json becomes an `error` field on the object instead of a
@@ -244,6 +277,7 @@ function statusCommand({ dir, home, json }) {
   }
 
   printStatus(config, { dir });
+  printReviewSummary({ dir, config });
 
   const issues = validateProgress(config);
 
@@ -266,6 +300,7 @@ module.exports = {
   printGitTracksSummary,
   printDomainSummary,
   printNormSummary,
+  printReviewSummary,
   formatMutationLine,
   mutationSummary,
 };

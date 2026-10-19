@@ -35,11 +35,8 @@ const {
   predictionsReport,
   formatPredictionsGap,
 } = require("./predictions");
-
-// A real merged/open PR URL — the only acceptable evidence shape for a tier-6
-// ("read a stranger's diff") phase, same "presence + minimum substance, not
-// truth" contract as `docCitesOrigin` below.
-const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
+const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
+const { reviewState } = require("./reviews");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -60,6 +57,11 @@ function checkProject(dir, { home } = {}) {
     issues.errors.push({ file: "progress.json", message: "unreadable or invalid JSON" });
     return { dir, config: null, issues };
   }
+
+  // The learning mode lives in `.ai-learn/guard.json`; absent or typo'd, the
+  // guard resolves to apprenti. `check` only adds the dirigeant review tier
+  // when the mode is really dirigeant.
+  const guard = loadGuardConfig(dir);
 
   for (const issue of validateProgress(config)) {
     (issue.level === "error" ? issues.errors : issues.warnings).push(issue);
@@ -167,7 +169,7 @@ function checkProject(dir, { home } = {}) {
     // Only when the project actually has implementation candidates: a freshly
     // initialized project with no source written yet matches nothing legitimately
     // and must not be nagged. Test files don't count as implementation.
-    const implementationScope = loadGuardConfig(dir).implementationFiles;
+    const implementationScope = guard.implementationFiles;
     if (computeSourceHash(dir).files === 0) {
       const hasImplementationCandidates = walkSources(dir).files.some(
         (file) => ALL_SOURCE_EXTS.has(file.ext) && detectTests([file]).count === 0,
@@ -464,6 +466,13 @@ function checkProject(dir, { home } = {}) {
       if (phase.gitTier === 6) {
         checkTier6Artifact(dir, phase, issues, relative);
       }
+
+      // In dirigeant mode the learner no longer types the implementation: the
+      // only contribution left to prove is judgment. A done phase without a
+      // sourced review (`docs/reviews/<brique>.md`) is not proven.
+      if (guard.mode === "dirigeant") {
+        checkReview(dir, phase, issues, guard.implementationFiles);
+      }
     } else {
       // A `--no-mark` run deliberately writes passing evidence without
       // touching the ledger (see verify.js's `marking` field) — that is not
@@ -582,8 +591,6 @@ function findTranscript(dirPath) {
 // with or without scheme/trailing slash, so compare normalized. Presence
 // check only — it cannot verify the surrounding content is *accurate*, only
 // that there is a non-trivial amount of it next to a real citation.
-const MIN_CONTENT_BEYOND_CITATION = 200;
-
 function docCitesOrigin(dirPath, url) {
   const needle = normalizeOrigin(url);
   let entries;
@@ -611,13 +618,7 @@ function docCitesOrigin(dirPath, url) {
       continue;
     }
 
-    const withoutCitationLines = content
-      .split("\n")
-      .filter((line) => !line.includes(needle))
-      .join("\n")
-      .trim();
-
-    if (withoutCitationLines.length >= MIN_CONTENT_BEYOND_CITATION) {
+    if (hasSubstantialBody(content, needle)) {
       return true;
     }
   }
@@ -632,22 +633,7 @@ function normalizeOrigin(url) {
 // Same presence-check shape as `docCitesOrigin`, applied to a phase artifact
 // instead of a doc-source directory: a real PR URL, plus enough real content
 // around it that the citation isn't stapled onto an empty or hallucinated file.
-function citesRealPRUrl(content) {
-  const match = content.match(PR_URL_RE);
-
-  if (!match) {
-    return false;
-  }
-
-  const withoutCitationLines = content
-    .split("\n")
-    .filter((line) => !line.includes(match[0]))
-    .join("\n")
-    .trim();
-
-  return withoutCitationLines.length >= MIN_CONTENT_BEYOND_CITATION;
-}
-
+// The core lives in citation.js — the dirigeant review reuses it for file:line.
 function checkTier6Artifact(dir, phase, issues, relative) {
   const artifacts = phase.artifacts || [];
   let found = false;
@@ -682,6 +668,36 @@ function checkTier6Artifact(dir, phase, issues, relative) {
         "reading a stranger's diff leaves no other trace to verify against",
     });
   }
+}
+
+// The dirigeant review tier: one sourced review per done phase. Presence is
+// not enough — the review must cite a real, resolvable `file:line` and state a
+// decision. Same "presence + minimum substance, not truth" contract as a tier-6
+// PR URL (see citation.js); the tool proves the citation resolves, never that
+// the judgment is good.
+function checkReview(dir, phase, issues, scope) {
+  const review = reviewState(dir, phase, scope);
+
+  if (review.state === "valid") {
+    return;
+  }
+
+  const reasons = {
+    missing: "is missing — the learner's sourced review is the proof of judgment",
+    unreadable: "is unreadable — a review must cite a real file:line and a decision",
+    "no-citation":
+      "cites no real file:line from the diff — a review without a resolvable citation proves nothing",
+    "no-decision": "states no decision (accepter, rejeter, demander un changement)",
+    "insufficient-substance":
+      `has too little content around its citation (${review.citation || "file:line"}) — ` +
+      "same presence + minimum-substance contract as a PR URL",
+  };
+
+  issues.errors.push({
+    file: review.path,
+    message: `phase ${phase.id} ("${phase.name}") is done in dirigeant mode but ${review.path} ` +
+      `${reasons[review.reason] || "is invalid"}`,
+  });
 }
 
 // Evidence journal format: one `### Phase <N> — prédiction <k>/<total>` heading per
