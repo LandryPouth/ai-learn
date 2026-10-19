@@ -16,7 +16,7 @@ STRICT : décision d'autorisation. Revue indépendante (`/flow-review` Deep) obl
 - [x] Given le mode `dirigeant`, when une commande git/gh est lancée par l'IA, then elle reste bloquée (§3bis inchangé).
 - [x] Given la matrice de décision du guard, when la suite de tests tourne, then chaque case {mode} × {src, test, checkpoint, git} est couverte.
 - [x] Given un nom de test reconnu par `scan.js#detectTests` (`test.js`, `spec.ts`, `src/test.py`, `__tests__/…`), when l'IA l'écrit en `dirigeant`, then c'est bloqué — pas seulement `test/**`.
-- [x] Given l'IA tente de réécrire `.ai-learn/guard.json`, `.claude/settings.json` ou `.codex/config.toml`, when le guard évalue l'écriture, then c'est bloqué dans les deux modes (l'IA ne modifie pas sa propre policy).
+- [x] Given l'IA tente de réécrire `.ai-learn/guard.json`, `.claude/settings.json`, `.claude/settings.local.json` ou `.codex/config.toml`, when le guard évalue l'écriture, then c'est bloqué dans les deux modes (l'IA ne modifie pas sa propre policy ; `settings.local.json` peut couper les hooks via `disableAllHooks`). Le profil sandbox Codex refuse aussi ses propres fichiers de config.
 - [x] Given un projet `dirigeant` dont le code n'est pas sous `src/**`, when il déclare `implementationFiles`, then hash/norm/mutation ciblent ce scope ; sinon `check` signale un scope de preuve vide.
 
 ## Edge Cases
@@ -30,4 +30,4 @@ STRICT : décision d'autorisation. Revue indépendante (`/flow-review` Deep) obl
       consommateurs lisent désormais `implementationFiles`. Sans ce branchement,
       `mode: "dirigeant"` aurait fait porter l'empreinte de preuve sur la
       spécification (régression d'epic 01).
-- [x] ~~Le guard ne protège pas son propre `guard.json` ni `.claude/settings.json`~~ — **corrigé en revue** : `PROTECTED_FILES` refuse ces deux fichiers et `.codex/config.toml` dans les deux modes.
+- [x] ~~Le guard ne protège pas son propre `guard.json` ni `.claude/settings.json`~~ — **corrigé en revue** : `PROTECTED_FILES` refuse `guard.json`, `settings.json`, `settings.local.json` et `.codex/config.toml` dans les deux modes, et le profil Codex refuse `guard.json` et `config.toml`.

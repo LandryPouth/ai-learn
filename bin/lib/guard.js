@@ -85,6 +85,12 @@ const DIRIGEANT_LEARNER_FILES = [
 const PROTECTED_FILES = [
   ".ai-learn/guard.json",
   ".claude/settings.json",
+  // Outranks `.claude/settings.json` in Claude Code's settings precedence: a
+  // single `"disableAllHooks": true` here disables the guard hook for the
+  // running session (settings files are watched and reloaded). Must be denied
+  // like the shared project file, or the self-protection is one Write away
+  // from being turned off.
+  ".claude/settings.local.json",
   ".codex/config.toml",
 ];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
@@ -334,20 +340,38 @@ function globToRegExp(pattern) {
   return new RegExp(`^${out}$`);
 }
 
-function matchesLearnerPath(relative, learnerFiles) {
+// Windows (NTFS) and macOS (APFS, default) resolve paths case-insensitively:
+// `Src/Index.ts` is the same file as `src/index.ts`, and `.Claude/Settings.json`
+// is the same file as `.claude/settings.json`. Matching case-sensitively there
+// would let one capital letter walk through the guard. On a case-sensitive
+// volume the over-match is harmless (it denies a distinct path, never allows a
+// protected one).
+function caseInsensitiveFs(platform) {
+  return platform === "win32" || platform === "darwin";
+}
+
+function matchesLearnerPath(relative, learnerFiles, platform = process.platform) {
+  const fold = caseInsensitiveFs(platform);
+  const candidate = fold ? relative.toLowerCase() : relative;
+
   for (const pattern of learnerFiles || []) {
     if (!isNonEmptyString(pattern)) {
       continue;
     }
-    if (globToRegExp(pattern).test(relative)) {
+    if (globToRegExp(fold ? pattern.toLowerCase() : pattern).test(candidate)) {
       return true;
     }
   }
   return false;
 }
 
-function isProtectedPath(relative) {
-  return PROTECTED_FILES.includes(relative);
+function isProtectedPath(relative, platform = process.platform) {
+  if (!caseInsensitiveFs(platform)) {
+    return PROTECTED_FILES.includes(relative);
+  }
+
+  const candidate = relative.toLowerCase();
+  return PROTECTED_FILES.some((file) => file.toLowerCase() === candidate);
 }
 
 function toRelative(root, filePath) {
@@ -573,7 +597,13 @@ function detectGitOrGh(command, blockedCommands) {
 // the implementation instead. A mode-blind message would send a dirigeant
 // agent to deposit a "reveal" for tests the learner is supposed to own.
 function learnerDenialReason({ mode, rel, learnerFiles, implementationFiles, viaShell }) {
-  const scope = learnerFiles.join(", ");
+  // In `dirigeant` the block set is the long parity list with `detectTests`;
+  // joining all of it into every denial buries the remedy. Name the directory
+  // conventions instead and let the guard.json list stay the exhaustive source.
+  const scope =
+    mode === MODE_DIRIGEANT
+      ? "test/**, tests/**, __tests__/**, checkpoint/** (et les fichiers test/spec reconnus)"
+      : learnerFiles.join(", ");
 
   if (mode === MODE_DIRIGEANT) {
     const implementation = (implementationFiles && implementationFiles.length > 0
@@ -966,6 +996,7 @@ module.exports = {
   validateGuardConfig,
   guardConfigIssues,
   matchesLearnerPath,
+  isProtectedPath,
   shellWriteTargets,
   detectGitOrGh,
   splitSegments,

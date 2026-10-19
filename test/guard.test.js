@@ -12,6 +12,7 @@ const {
   loadGuardConfig,
   validateGuardConfig,
   matchesLearnerPath,
+  isProtectedPath,
   shellWriteTargets,
   detectGitOrGh,
   toRelative,
@@ -309,7 +310,12 @@ test("le guard refuse à l'IA de réécrire sa propre configuration dans les deu
     const dir = blankProject();
     writeMode(dir, mode);
 
-    for (const rel of [".ai-learn/guard.json", ".claude/settings.json", ".codex/config.toml"]) {
+    for (const rel of [
+      ".ai-learn/guard.json",
+      ".claude/settings.json",
+      ".claude/settings.local.json",
+      ".codex/config.toml",
+    ]) {
       assert.strictEqual(
         decide(hookFor(dir, "Write", { file_path: path.join(dir, rel) }), dir).decision,
         "deny",
@@ -325,6 +331,41 @@ test("le guard refuse à l'IA de réécrire sa propre configuration dans les deu
     decide(hookFor(dir, "Bash", { command: "sed -i 's/a/b/' .claude/settings.json" }), dir).decision,
     "deny",
   );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo '{\"disableAllHooks\":true}' > .claude/settings.local.json" }), dir).decision,
+    "deny",
+  );
+});
+
+test("`disableAllHooks` cannot be planted: settings.local.json outranks settings.json but stays denied", () => {
+  for (const mode of [undefined, "apprenti", "dirigeant"]) {
+    const dir = blankProject();
+    writeMode(dir, mode);
+
+    // A Write is the mechanical wall; a settings.local.json edit would be
+    // reloaded by Claude Code and could switch the PreToolUse hook off.
+    assert.strictEqual(
+      decide(hookFor(dir, "Write", { file_path: path.join(dir, ".claude", "settings.local.json") }), dir).decision,
+      "deny",
+      `${mode}: Write settings.local.json`,
+    );
+    assert.strictEqual(
+      decide(hookFor(dir, "Edit", { file_path: path.join(dir, ".claude", "settings.local.json") }), dir).decision,
+      "deny",
+      `${mode}: Edit settings.local.json`,
+    );
+  }
+});
+
+test("protected and learner paths match case-insensitively where the filesystem does (win32/darwin)", () => {
+  assert.strictEqual(isProtectedPath(".claude/settings.local.json", "linux"), true);
+  assert.strictEqual(isProtectedPath(".CLAUDE/SETTINGS.LOCAL.JSON", "linux"), false);
+  assert.strictEqual(isProtectedPath(".CLAUDE/SETTINGS.LOCAL.JSON", "win32"), true);
+  assert.strictEqual(isProtectedPath(".AI-LEARN/GUARD.JSON", "darwin"), true);
+
+  assert.strictEqual(matchesLearnerPath("Src/Index.ts", ["src/**"], "linux"), false);
+  assert.strictEqual(matchesLearnerPath("Src/Index.ts", ["src/**"], "win32"), true);
+  assert.strictEqual(matchesLearnerPath("TEST/X.test.ts", ["test/**"], "darwin"), true);
 });
 
 test("un learnerFiles mal typé retombe sur le défaut au lieu de faire fail-open", () => {
@@ -645,6 +686,18 @@ test("ensureGuardHook in dirigeant inverts the Codex profile and the generated R
   assert.match(readme, /mode \*\*dirigeant\*\*/);
   assert.match(readme, /l'IA écrit l'implémentation/);
   assert.doesNotMatch(readme, /l'apprenant tape tout le code/);
+});
+
+test("the Codex sandbox denies the guard's own config files in both modes", () => {
+  for (const mode of [undefined, "apprenti", "dirigeant"]) {
+    const dir = blankProject();
+    writeMode(dir, mode);
+    ensureGuardHook(dir);
+
+    const codex = fs.readFileSync(path.join(dir, ".codex", "config.toml"), "utf8");
+    assert.match(codex, /"\.ai-learn\/guard\.json" = "deny"/, `${mode}: guard.json`);
+    assert.match(codex, /"\.codex\/config\.toml" = "deny"/, `${mode}: config.toml`);
+  }
 });
 
 test("ensureGuardHook re-renders the README when the mode flips, without touching a custom one", () => {
