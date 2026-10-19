@@ -327,6 +327,65 @@ test("Bash: a leading cd does not move a protected or learner target out of the 
   assert.strictEqual(decide(hookFor(dir, "Bash", { command: "cd src && echo x > index.ts" }), dir).decision, "allow");
 });
 
+test("Bash: chained cd, pushd/popd and & segments resolve back inside the project", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const command of [
+    // `cd a && cd ..` must land on the root, not on `../` (which toRelative drops).
+    "cd test && cd .. && echo x > test/x.test.ts",
+    "cd src/__tests__ && cd .. && echo x > a.test.ts",
+    "cd .ai-learn && cd .. && echo {} > .ai-learn/guard.json",
+    // `&` is a command separator too; the rest of the segment must be scanned.
+    "cd .ai-learn & echo {} > guard.json",
+    "pushd test && echo x > x.test.ts && popd",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "cd test && cd .. && echo x > src/index.ts" }), dir).decision,
+    "allow",
+  );
+});
+
+test("Bash: one-liner and subshell writes are resolved against the cd context", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const command of [
+    `cd .ai-learn && python3 -c "open('guard.json','w').write('{}')"`,
+    `cd .ai-learn && node -e "require('fs').writeFileSync('guard.json','x')"`,
+    "echo $(echo x > .ai-learn/guard.json)",
+    "echo `echo x > .ai-learn/guard.json`",
+    `cd test && python3 -c "open('x.test.ts','w').write('')"`,
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: `cd src && python3 -c "open('index.ts','w').write('')"` }), dir).decision,
+    "allow",
+  );
+});
+
+test("Bash: cp -t / --target-directory resolves the destination directory", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const command of [
+    "cp guard.json -t .ai-learn",
+    "cp -t .ai-learn guard.json",
+    "cp --target-directory=.ai-learn guard.json",
+    "cp --target-directory .ai-learn guard.json",
+    "mv -t test x.test.ts",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "cp src/index.ts -t docs" }), dir).decision, "allow");
+});
+
 test("Bash: destructive/in-place forms are caught for policy and learner files", () => {
   const dir = blankProject();
   writeMode(dir, "dirigeant");
@@ -413,6 +472,33 @@ test("protected and learner paths match case-insensitively where the filesystem 
   assert.strictEqual(isProtectedPath(".ai-learn/other.json", "linux"), false);
 });
 
+test("apprenti keeps the platform's case-insensitive match on win32/darwin", () => {
+  const dir = blankProject();
+  writeMode(dir, undefined);
+
+  const original = process.platform;
+  const override = (platform) =>
+    Object.defineProperty(process, "platform", { value: platform, configurable: true });
+
+  try {
+    override("win32");
+    assert.strictEqual(
+      decide(hookFor(dir, "Write", { file_path: path.join(dir, "Src", "Index.ts") }), dir).decision,
+      "deny",
+      "a capital letter must not walk past src/** on a case-insensitive filesystem",
+    );
+
+    override("linux");
+    assert.strictEqual(
+      decide(hookFor(dir, "Write", { file_path: path.join(dir, "Src", "Index.ts") }), dir).decision,
+      "allow",
+      "on a case-sensitive filesystem Src/Index.ts is a distinct, allowed path",
+    );
+  } finally {
+    override(original);
+  }
+});
+
 test("un learnerFiles mal typé retombe sur le défaut au lieu de faire fail-open", () => {
   const dir = blankProject();
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: [null] }));
@@ -430,8 +516,14 @@ test("checkProject warns when the implementation scope matches no files", () => 
   const dir = blankProject();
   writeMode(dir, "dirigeant");
 
-  const empty = checkProject(dir);
-  assert.ok(empty.issues.warnings.some((w) => /implementation scope .* matches no files/.test(w.message)));
+  // A freshly initialized project has nothing to scope yet: not a misconfiguration.
+  const fresh = checkProject(dir);
+  assert.ok(!fresh.issues.warnings.some((w) => /implementation scope .* matches no files/.test(w.message)));
+
+  // Source exists, but outside the declared scope: the proof would be vacuous.
+  writeFile(dir, "lib/index.js", "module.exports = {};\n");
+  const misplaced = checkProject(dir);
+  assert.ok(misplaced.issues.warnings.some((w) => /implementation scope .* matches no files/.test(w.message)));
 
   writeFile(dir, "src/index.js", "module.exports = {};\n");
   const populated = checkProject(dir);

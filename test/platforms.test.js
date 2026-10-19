@@ -142,6 +142,22 @@ test("codex-guard renderConfig drops glob-only patterns and adds literal extras"
   assert.match(content, /"src\/__tests__" = "deny"/);
 });
 
+test("codex-guard denyEntries protects the guard wiring, including the Claude hook settings", () => {
+  const content = renderCodexGuard(["src/**"]);
+
+  for (const entry of [
+    ".ai-learn",
+    ".ai-learn/guard.json",
+    ".codex",
+    ".codex/config.toml",
+    ".claude",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+  ]) {
+    assert.ok(content.includes(`${JSON.stringify(entry)} = "deny"`), entry);
+  }
+});
+
 test("findLiteralTestDirs finds existing nested test directories only", () => {
   const dir = tmpDir("ai-learn-codex-dirs-");
   fs.mkdirSync(path.join(dir, "src", "test"), { recursive: true });
@@ -150,6 +166,16 @@ test("findLiteralTestDirs finds existing nested test directories only", () => {
   fs.writeFileSync(path.join(dir, "src", "index.test.ts"), "x\n");
 
   assert.deepStrictEqual(findLiteralTestDirs(dir), ["src/__tests__", "src/test"]);
+});
+
+test("findLiteralTestDirs is case-insensitive and skips build output", () => {
+  const dir = tmpDir("ai-learn-codex-dirs-");
+  fs.mkdirSync(path.join(dir, "Test"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "src", "test"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "build", "test"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "node_modules", "test"), { recursive: true });
+
+  assert.deepStrictEqual(findLiteralTestDirs(dir), ["Test", "src/test"]);
 });
 
 test("ensureCodexGuard creates .codex/config.toml and never overwrites a customized one", () => {

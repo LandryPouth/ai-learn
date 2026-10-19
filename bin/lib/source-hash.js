@@ -54,14 +54,19 @@ function checkpointFilePath(dir, command) {
 // digest independent of both OS path separator and filesystem iteration
 // order.
 function sourceHashScope(dir, { checkpointFile } = {}) {
-  const { implementationFiles } = loadGuardConfig(dir);
+  const { implementationFiles, mode } = loadGuardConfig(dir);
   const walked = walkSources(dir);
-  // A test file is the learner's specification, not the implementation the
-  // proof covers — `norm.js` and `mutate.js` already exclude it. Hashing a
-  // colocated test here would stale the evidence when the learner edits their
-  // own spec, and would make `check`'s empty-scope warning miss a project whose
-  // only scope-matching files are tests.
-  const testRels = new Set(detectTests(walked.files).files.map((f) => f.rel));
+  // In `dirigeant` a test file is the learner's specification, not the
+  // implementation the proof covers — `norm.js` and `mutate.js` already
+  // exclude it. Hashing a colocated test there would let an implementation
+  // edit leave the evidence green. In `apprenti` the scope IS the learner's
+  // own files: a colocated `src/a.test.js` was part of the proof before this
+  // mode existed and must stay so — dropping it would re-open the epic-01
+  // staleness hole in the default mode.
+  const testRels =
+    mode === "dirigeant"
+      ? new Set(detectTests(walked.files).files.map((f) => f.rel))
+      : new Set();
 
   const rels = walked.files
     .filter((f) => !testRels.has(f.rel))

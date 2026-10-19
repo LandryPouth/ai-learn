@@ -25,6 +25,7 @@ const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
 const { guardConfigIssues, loadGuardConfig } = require("./guard");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
+const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
 const {
   journalPath: predictionsJournalPath,
   readPredictions,
@@ -141,14 +142,24 @@ function checkProject(dir) {
     // mutant is generated. That is the silent version of the epic-01 regression
     // (a project laid out in lib/**, bin/**, app/** but scoped to src/**), so
     // surface it instead of letting `verify` pass on an empty proof.
+    //
+    // Only when the project actually has implementation candidates: a freshly
+    // initialized project with no source written yet matches nothing legitimately
+    // and must not be nagged. Test files don't count as implementation.
     const implementationScope = loadGuardConfig(dir).implementationFiles;
     if (computeSourceHash(dir).files === 0) {
-      issues.warnings.push({
-        file: ".ai-learn/guard.json",
-        message: `implementation scope (${implementationScope.join(", ")}) matches no files — ` +
-          "source-hash, norm and mutation would prove nothing; declare the project's source scope " +
-          "(learnerFiles in apprenti, implementationFiles in dirigeant)",
-      });
+      const hasImplementationCandidates = walkSources(dir).files.some(
+        (file) => ALL_SOURCE_EXTS.has(file.ext) && detectTests([file]).count === 0,
+      );
+
+      if (hasImplementationCandidates) {
+        issues.warnings.push({
+          file: ".ai-learn/guard.json",
+          message: `implementation scope (${implementationScope.join(", ")}) matches no files — ` +
+            "source-hash, norm and mutation would prove nothing; declare the project's source scope " +
+            "(learnerFiles in apprenti, implementationFiles in dirigeant)",
+        });
+      }
     }
   }
 

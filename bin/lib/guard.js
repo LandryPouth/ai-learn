@@ -457,15 +457,40 @@ function resolveShellTarget(cwd, target) {
   return normalizePortable(path.join(cwd, target));
 }
 
-function shellWriteTargets(command) {
-  const targets = [];
-  let cwd = "";
+// The directory a `cd`/`pushd` leaves the shell in, normalized the same way as
+// a write target so the two always compare on the same base. Joining (not
+// replacing) is what makes `cd a && cd ..` land back on the project root.
+function resolveShellCwd(cwd, next) {
+  if (path.isAbsolute(next) || /^[A-Za-z]:[\\/]/.test(next)) {
+    return normalizePortable(next);
+  }
+  return normalizePortable(path.join(cwd || ".", next));
+}
 
-  // `&&`, `||`, `;` and newlines delimit commands; a `cd` applies to the
+function shellWriteTargets(command, depth = 0) {
+  const targets = [];
+
+  // `$(...)` and backticks run an inner command whose writes are just as real
+  // as the outer one's. Collect them (`collectSubshells` already recurses) and
+  // scan each as its own command; the depth guard keeps a pathological input
+  // from looping.
+  if (depth === 0) {
+    const subshells = [];
+    collectSubshells(command, subshells);
+    for (const sub of subshells) {
+      targets.push(...shellWriteTargets(sub, depth + 1));
+    }
+  }
+
+  let cwd = "";
+  let previousCwd = "";
+  const dirStack = [];
+
+  // `&&`, `||`, `;`, `&` and newlines delimit commands; a `cd` applies to the
   // following segments. Pipes stay inside a segment so `cmd | tee file` still
   // exposes the `tee` target, while `cp a b | tee c` stops collecting operands
   // at the pipe.
-  for (const segment of command.split(/&&|\|\||[;\n]/)) {
+  for (const segment of command.split(/&&|\|\||[;&\n]/)) {
     const tokens = segment.trim().split(/\s+/).filter(Boolean);
 
     if (tokens.length === 0) {
@@ -474,10 +499,32 @@ function shellWriteTargets(command) {
 
     const head = tokens[0].replace(/^\(+/, "");
 
+    // `cd`/`pushd`/`popd` update the directory the next segment resolves
+    // against. Joining (not replacing) is what stops `cd a && cd .. && echo x >
+    // src/f` from resolving to `../src/f`, which `toRelative` would silently
+    // drop — a bypass of both the learner block and the policy self-protection.
     if (head === "cd" || head === "pushd") {
       const next = tokens[1];
-      if (next && !next.startsWith("-")) {
-        cwd = stripQuotes(next);
+
+      if (next === "-") {
+        const swapped = cwd;
+        cwd = previousCwd;
+        previousCwd = swapped;
+      } else if (next && !next.startsWith("-")) {
+        if (head === "pushd") {
+          dirStack.push(cwd);
+        }
+        previousCwd = cwd;
+        cwd = resolveShellCwd(cwd, stripQuotes(next));
+      }
+      continue;
+    }
+
+    if (head === "popd") {
+      const popped = dirStack.pop();
+      if (popped !== undefined) {
+        previousCwd = cwd;
+        cwd = popped;
       }
       continue;
     }
@@ -517,22 +564,47 @@ function shellWriteTargets(command) {
 
       // cp|mv|ln|install — `cp`/`install`/`ln` only write the destination, but
       // `mv` also removes its source, so both operands matter for the policy.
+      // `-t <dir>` / `--target-directory[=]<dir>` moves the destination into the
+      // given directory, so every remaining operand is a source to resolve
+      // against `<dir>/<basename>`.
       if (["cp", "mv", "ln", "install"].includes(token)) {
         const operands = [];
+        let targetDir = null;
 
         for (let j = i + 1; j < tokens.length; j++) {
-          if (tokens[j] === "|" || tokens[j] === "&&" || tokens[j] === "||" || tokens[j] === ";") {
+          const operand = tokens[j];
+
+          if (operand === "|" || operand === "&&" || operand === "||" || operand === ";") {
             break;
           }
-          if (tokens[j].startsWith("-")) {
+          if (operand === "-t" || operand === "--target-directory") {
+            targetDir = stripQuotes(tokens[j + 1] || "");
+            j += 1;
             continue;
           }
-          operands.push(stripQuotes(tokens[j]));
+          if (operand.startsWith("--target-directory=")) {
+            targetDir = stripQuotes(operand.slice("--target-directory=".length));
+            continue;
+          }
+          if (operand.startsWith("-")) {
+            continue;
+          }
+          operands.push(stripQuotes(operand));
         }
 
-        const selected = token === "mv" ? operands : operands.slice(-1);
-        for (const operand of selected) {
-          targets.push(resolveShellTarget(cwd, operand));
+        if (targetDir) {
+          for (const source of operands) {
+            const destination = path.posix.join(
+              normalizePortable(targetDir),
+              path.posix.basename(normalizePortable(source)),
+            );
+            targets.push(resolveShellTarget(cwd, destination));
+          }
+        } else {
+          const selected = token === "mv" ? operands : operands.slice(-1);
+          for (const operand of selected) {
+            targets.push(resolveShellTarget(cwd, operand));
+          }
         }
         continue;
       }
@@ -576,9 +648,14 @@ function shellWriteTargets(command) {
         continue;
       }
     }
+
+    // Interpreted one-liners (`python -c`, `node -e`) write through a quoted
+    // argument, not a redirection — resolve each against the `cd` in force.
+    for (const write of execOneLinerWrites(segment, tokens)) {
+      targets.push(resolveShellTarget(cwd, write));
+    }
   }
 
-  targets.push(...execOneLinerWrites(command, command.split(/\s+/)));
   return targets.filter(Boolean);
 }
 
@@ -724,8 +801,13 @@ function protectedPathReason(rel, viaShell) {
 // on Linux (see `matchesLearnerPath`). `apprenti` keeps the historical
 // platform-sensitive behavior, including for a custom `learnerFiles`.
 function matchesGuardPath(rel, config) {
+  // `apprenti` must keep the historical platform behavior: folding only where
+  // the filesystem does (win32/darwin). Passing an explicit `false` here would
+  // disable the fold on those platforms and let `Src/Index.ts` walk past
+  // `src/**`. `dirigeant` folds everywhere so a capital letter cannot hide a
+  // test file on a case-sensitive volume either.
   return matchesLearnerPath(rel, config.learnerFiles, process.platform, {
-    caseInsensitive: config.mode === MODE_DIRIGEANT,
+    caseInsensitive: config.mode === MODE_DIRIGEANT || caseInsensitiveFs(process.platform),
   });
 }
 
@@ -914,8 +996,11 @@ function renderSolutionsReadme(mode) {
 En mode **dirigeant**, la propriété est inversée : **l'apprenant garde la
 spécification** (\`test/**\`, \`checkpoint/**\`) et **l'IA écrit l'implémentation**
 (\`src/**\`). Le hook PreToolUse \`ai-learn guard\` refuse mécaniquement toute
-écriture de l'IA dans les fichiers de spécification (liste dans
-\`.ai-learn/guard.json\` → \`learnerFiles\`).
+écriture de l'IA dans les fichiers de spécification (\`test/**\`, \`tests/**\`,
+\`__tests__/**\`, \`checkpoint/**\` et les fichiers test/spec reconnus — cette
+liste est **dérivée du mode**, le champ \`learnerFiles\` de
+\`.ai-learn/guard.json\` est ignoré en dirigeant). Si ton code vit hors de
+\`src/**\`, déclare son périmètre dans \`implementationFiles\`.
 
 Ce dossier reste la référence de révélation : l'IA y dépose le code qu'elle a
 écrit, expliqué brique par brique, pour que l'apprenant puisse **juger** le diff

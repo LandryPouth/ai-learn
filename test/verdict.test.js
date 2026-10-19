@@ -169,6 +169,27 @@ test("computeSourceHash: a colocated test is specification, never part of the im
   assert.strictEqual(computeSourceHash(dir).digest, before.digest);
 });
 
+test("computeSourceHash: in apprenti a colocated test stays part of the learner's proof", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1 }));
+  writeFile(dir, "src/index.js", "console.log('a');\n");
+  writeFile(dir, "src/index.test.js", "test('a', () => {});\n");
+
+  const before = computeSourceHash(dir);
+  assert.deepStrictEqual(
+    before.entries.map((e) => e.path).sort(),
+    ["src/index.js", "src/index.test.js"],
+    "apprenti hashes the learner's own scope exactly as before the mode existed",
+  );
+
+  writeFile(dir, "src/index.test.js", "test('b', () => {});\n");
+  assert.notStrictEqual(
+    computeSourceHash(dir).digest,
+    before.digest,
+    "editing the learner's own spec must stale the proof in the default mode",
+  );
+});
+
 test("computeSourceHash: in dirigeant a custom learner scope becomes the implementation scope", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
