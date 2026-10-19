@@ -54,15 +54,19 @@ reste à l'apprenant. Les correctifs de revue (P2/P3) sont intégrés.
   est `implementationFiles`, pas `learnerFiles`), `templates/AGENTS-apprentissage.md`
   (encart mode dirigeant, table des commandes, règle d'or), `README.md`.
 - Tests : `test/guard.test.js` (matrice {mode} × {src, test, checkpoint, git},
-  mode inconnu → apprenti, Bash inversé, `learnerFiles`/`implementationFiles`
-  stockés ignorés, copies d'arrays, `validateGuardConfig`, warning `check`,
+  mode inconnu → apprenti, Bash inversé, `learnerFiles` stocké repris comme
+  scope d'implémentation en dirigeant — `implementationFiles` stocké ignoré,
+  copies d'arrays, `validateGuardConfig` + entrées non-chaîne, auto-protection
+  de la config en Write/Bash, warning `check` sur un scope vide,
   `ensureGuardHook` → `mode: "apprenti"` préservé, profil Codex + README
-  inversés en dirigeant, raisons de refus mode-aware), `test/verdict.test.js`
-  (hash = implémentation en dirigeant, scope custom en apprenti),
-  `test/norm.test.js` et `test/mutate.test.js` (même bascule).
-- Négatif vérifié manuellement : forcer `mode = apprenti` fait échouer le test
-  de matrice ; restauré, il repasse.
-- `npm test` : 527 tests, 0 échec.
+  inversés en dirigeant, raisons de refus mode-aware), `test/scan.test.js`
+  (parité `detectTests` pour `test(s)/`, `__tests__/` et basenames nus),
+  `test/verdict.test.js` (hash = implémentation en dirigeant, scope custom en
+  apprenti et en dirigeant), `test/norm.test.js` et `test/mutate.test.js`
+  (même bascule, `__tests__/` exclu).
+- Négatif vérifié manuellement : forcer `mode = apprenti` fait échouer 11 tests
+  du guard ; restauré, il repasse.
+- `npm test` : 538 tests, 0 échec.
 
 ### Rollback Notes
 
@@ -74,16 +78,20 @@ consommateurs retirés. Aucune migration de données — champs additifs du
 
 ### Remaining Risks
 
-- Faille préexistante, non introduite ici : le guard ne protège pas son propre
-  `.ai-learn/guard.json` (ni `.claude/settings.json`) — l'IA peut réécrire
-  `mode`. La « config corrompue ne peut jamais ouvrir `src/**` » vaut donc pour
-  une config *malformée*, pas pour une config *réécrite par l'agent*. Hors
-  périmètre de 03.01.
-- En `dirigeant`, `DIRIGEANT_LEARNER_FILES` couvre désormais les conventions
-  reconnues par `scan.js#detectTests` (`test(s)/`, `__tests__/`, `*.test.*`,
-  `*_test.*`, `test_*`, etc.) en plus de `checkpoint/**`, pour le hook Claude.
-  Limite côté Codex (sandbox OS, vérifiée sur codex-cli 0.138.0) : les clés de
-  `filesystem.":workspace_roots"` sont des chemins, pas des globs — seules les
-  formes répertoire (`test`, `checkpoint`) sont réellement appliquées. Un test
-  colocalisé (`src/index.test.ts`) reste donc écrivable par le sandbox Codex ;
-  le hook Claude, lui, le bloque. À traiter quand Codex exposera des motifs.
+- Le guard protège désormais sa propre configuration (`.ai-learn/guard.json`,
+  `.claude/settings.json`, `.codex/config.toml`), mais la protection reste une
+  haie côté Bash : une commande non reconnue par `shellWriteTargets` peut
+  toujours contourner le hook (fail-open assumé, comme pour `src/**`).
+- En `dirigeant`, `DIRIGEANT_LEARNER_FILES` couvre les conventions reconnues
+  par `scan.js#detectTests` (`test(s)/`, `__tests__/`, basenames `test`/`spec`,
+  `*.test.*`, `*_test.*`, `test_*`, etc.) en plus de `checkpoint/**`, pour le
+  hook Claude. Limite côté Codex (sandbox OS, vérifiée sur codex-cli 0.138.0) :
+  les clés de `filesystem.":workspace_roots"` sont des chemins, pas des globs —
+  seules les formes répertoire (`test`, `checkpoint`) sont réellement
+  appliquées. Un test colocalisé (`src/index.test.ts`) reste donc écrivable par
+  le sandbox Codex ; le hook Claude, lui, le bloque. À traiter quand Codex
+  exposera des motifs.
+- En `dirigeant`, le scope d'implémentation vaut `src/**` sauf si le projet
+  déclare `implementationFiles` dans `guard.json`. Un projet dont le code vit
+  ailleurs (`lib/**`, `app/**`) doit le déclarer ; sinon `check` signale que le
+  scope ne couvre aucun fichier (le hash/norm/mutation ne prouveraient rien).

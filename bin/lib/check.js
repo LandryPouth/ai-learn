@@ -23,7 +23,7 @@ const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
-const { guardConfigIssues } = require("./guard");
+const { guardConfigIssues, loadGuardConfig } = require("./guard");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 const {
   journalPath: predictionsJournalPath,
@@ -134,6 +134,21 @@ function checkProject(dir) {
   if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json"))) {
     for (const issue of guardConfigIssues(dir)) {
       issues.warnings.push({ file: ".ai-learn/guard.json", message: issue.message });
+    }
+
+    // An implementation scope that matches nothing makes source-hash, norm and
+    // mutation vacuous: the digest is constant, no file is ever policed and no
+    // mutant is generated. That is the silent version of the epic-01 regression
+    // (a project laid out in lib/**, bin/**, app/** but scoped to src/**), so
+    // surface it instead of letting `verify` pass on an empty proof.
+    const implementationScope = loadGuardConfig(dir).implementationFiles;
+    if (computeSourceHash(dir).files === 0) {
+      issues.warnings.push({
+        file: ".ai-learn/guard.json",
+        message: `implementation scope (${implementationScope.join(", ")}) matches no files — ` +
+          "source-hash, norm and mutation would prove nothing; declare the project's source scope " +
+          "(learnerFiles in apprenti, implementationFiles in dirigeant)",
+      });
     }
   }
 

@@ -54,6 +54,11 @@ function renderConfig(learnerFiles) {
 
   return `${MARKER}
 
+# Codex filesystem keys are literal paths, not globs (codex-cli 0.138.0): only
+# the directory forms below (test, tests, __tests__, checkpoint) are enforced.
+# Glob keys such as *.test.* are inert; colocated test files stay writable at
+# the sandbox level — the Claude PreToolUse hook is the guard for those.
+
 default_permissions = "${PROFILE_NAME}"
 
 [permissions.${PROFILE_NAME}]

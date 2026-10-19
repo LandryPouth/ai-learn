@@ -408,7 +408,7 @@ function detectTests(files) {
   for (const file of files) {
     const rel = file.rel;
 
-    if (/(^|\/)test(s)?\//.test(rel)) {
+    if (/(^|\/)(?:test(s)?|__tests__)\//.test(rel)) {
       testFiles.push({ rel, kind: "dir" });
     } else if (TEST_SUFFIX_RE.test(path.basename(rel))) {
       testFiles.push({ rel, kind: "suffix" });

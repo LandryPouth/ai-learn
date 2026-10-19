@@ -132,6 +132,29 @@ test("detection: in dirigeant the implementation (src/**) is mutated, not the le
   assert.strictEqual(sites[0].file.rel, "src/index.js");
 });
 
+test("detection: in dirigeant a custom learner scope is the implementation the AI writes", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
+  writeFile(dir, "lib/index.js", "module.exports = { ok: false };\n");
+  writeFile(dir, "src/index.js", "module.exports = { ok: false };\n");
+  writeFile(dir, "test/index.test.js", "test('ok', () => { assert.strictEqual(true, true); });\n");
+
+  const sites = findAllSites(dir);
+  assert.strictEqual(sites.length, 1);
+  assert.strictEqual(sites[0].file.rel, "lib/index.js");
+});
+
+test("detection: __tests__ directories are excluded from mutation like test(s)/ directories", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["**/*.js"] }));
+  writeFile(dir, "src/__tests__/a.js", "assert.ok(1 < 2);\n");
+  writeFile(dir, "src/index.js", "module.exports = { ok: false };\n");
+
+  const sites = findAllSites(dir);
+  assert.ok(!sites.some((s) => s.file.rel.startsWith("src/__tests__/")), "the learner's __tests__ spec must not be mutated");
+  assert.deepStrictEqual(sites.map((s) => s.file.rel), ["src/index.js"]);
+});
+
 test("findAllSites excludes non-source and test files even when other files in scope have valid sites", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["**/*.js", "**/*.md", "**/*.json"] }));

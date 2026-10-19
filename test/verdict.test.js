@@ -156,6 +156,26 @@ test("computeSourceHash: in dirigeant the scope is the implementation, not the l
   assert.notStrictEqual(computeSourceHash(dir).digest, before.digest);
 });
 
+test("computeSourceHash: in dirigeant a custom learner scope becomes the implementation scope", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
+  writeFile(dir, "lib/index.js", "console.log('a');\n");
+  writeFile(dir, "src/index.js", "console.log('a');\n");
+  writeFile(dir, "test/index.test.js", "test('a', () => {});\n");
+
+  const before = computeSourceHash(dir);
+  assert.strictEqual(before.files, 1, "the custom implementation scope is used, not a hardcoded src/**");
+
+  writeFile(dir, "test/index.test.js", "test('b', () => {});\n");
+  assert.strictEqual(computeSourceHash(dir).digest, before.digest, "the specification is outside the proof scope");
+
+  writeFile(dir, "src/index.js", "console.log('b');\n");
+  assert.strictEqual(computeSourceHash(dir).digest, before.digest, "src/** is not the implementation in this project");
+
+  writeFile(dir, "lib/index.js", "console.log('b');\n");
+  assert.notStrictEqual(computeSourceHash(dir).digest, before.digest, "editing the implementation must stale the proof");
+});
+
 test("computeSourceHash: apprenti keeps hashing the learner's own scope, even when it is not src/**", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: ["lib/**"] }));

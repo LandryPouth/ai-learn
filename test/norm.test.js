@@ -324,6 +324,28 @@ test("normProject in dirigeant scans src/** (the implementation), never the lear
   assert.equal(report.violations[0].file, "src/index.js");
 });
 
+test("normProject in dirigeant follows a custom implementation scope", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
+  writeFile(dir, "lib/index.js", jsFunctionOfLength("implementation", 5));
+  writeFile(dir, "src/index.js", jsFunctionOfLength("outOfScope", 5));
+
+  const report = normProject(dir);
+  assert.equal(report.violations.length, 1);
+  assert.equal(report.violations[0].file, "lib/index.js");
+});
+
+test("normProject treats __tests__ directories as test files", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/index.js", "function clean() {\n  return 1;\n}");
+  writeFile(dir, "src/__tests__/setup.js", jsFunctionOfLength("setupHeavy", 5));
+
+  const report = normProject(dir);
+  assert.equal(report.violations.length, 0);
+});
+
 test("normProject excludes test files by default, includes them when includeTests is true", () => {
   const dir = tmpDir();
   writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));

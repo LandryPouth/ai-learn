@@ -48,6 +48,18 @@ const DIRIGEANT_LEARNER_FILES = [
   "**/test/**",
   "**/tests/**",
   "**/__tests__/**",
+  // `detectTests` also matches a bare `test`/`spec` basename with any (or no)
+  // extension: `test.js`, `spec.ts`, `src/test.py`, `test` itself. Without
+  // these, a project using that convention would let the AI rewrite the
+  // specification while `scan`/`norm`/`mutate` still classify it as a test.
+  "test",
+  "spec",
+  "test.*",
+  "spec.*",
+  "**/test",
+  "**/spec",
+  "**/test.*",
+  "**/spec.*",
   "**/*.test.*",
   "*.test.*",
   "**/*.spec.*",
@@ -63,6 +75,17 @@ const DIRIGEANT_LEARNER_FILES = [
   "**/*-spec.*",
   "*-spec.*",
   "checkpoint/**",
+];
+
+// Files that wire the guard itself. An agent that can rewrite its own policy
+// can turn `dirigeant` back into `apprenti` (or drop every learner path) in one
+// Write, so these are denied in both modes, before the learner-path check. The
+// learner edits them by hand; `init`/`update` (the CLI, not the agent) writes
+// them normally.
+const PROTECTED_FILES = [
+  ".ai-learn/guard.json",
+  ".claude/settings.json",
+  ".codex/config.toml",
 ];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
 
@@ -128,6 +151,18 @@ function targetPath(toolInput) {
 // a hand-edited file is signalled, never silently accepted. The one decision
 // that must never depend on a valid file is the mode: it falls back to
 // `apprenti`, the most restrictive, so a typo cannot open `src/**`.
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+// A config array is usable only when every entry is a non-empty string. One
+// bad entry poisons the whole list: `matchesLearnerPath` would otherwise throw
+// on `globToRegExp(null)`, and `guardCommand` turns that throw into a fail-open
+// allow — the guard would silently stop guarding.
+function validPatternList(value) {
+  return Array.isArray(value) && value.every(isNonEmptyString);
+}
+
 function validateGuardConfig(config) {
   const issues = [];
 
@@ -149,15 +184,31 @@ function validateGuardConfig(config) {
   }
 
   if (config.implementationFiles !== undefined) {
-    issues.push({
-      level: "warning",
-      message: "implementationFiles is derived from mode and ignored — remove it from guard.json",
-    });
+    if (config.mode !== MODE_DIRIGEANT) {
+      issues.push({
+        level: "warning",
+        message: "implementationFiles only applies in mode \"dirigeant\" — ignored in apprenti",
+      });
+    } else if (!validPatternList(config.implementationFiles) || config.implementationFiles.length === 0) {
+      issues.push({
+        level: "warning",
+        message: "implementationFiles must be a non-empty array of non-empty strings — falling back to src/**",
+      });
+    }
   }
 
   for (const field of ["learnerFiles", "blockedCommands", "gitAliases"]) {
-    if (config[field] !== undefined && !Array.isArray(config[field])) {
+    if (config[field] === undefined) {
+      continue;
+    }
+
+    if (!Array.isArray(config[field])) {
       issues.push({ level: "warning", message: `${field} is not an array — ignored` });
+    } else if (!validPatternList(config[field])) {
+      issues.push({
+        level: "warning",
+        message: `${field} contains a non-string or empty entry — the whole field is ignored`,
+      });
     }
   }
 
@@ -207,36 +258,55 @@ function loadGuardConfig(root) {
   // (`src/**`) to the AI. `check` surfaces the unknown value (validateGuardConfig).
   const mode = config && config.mode === MODE_DIRIGEANT ? MODE_DIRIGEANT : MODE_APPRENTI;
 
+  // The learner's own scope, used verbatim in `apprenti`; ignored in
+  // `dirigeant` (the block set inverts outright). A malformed list falls back
+  // to the default rather than crashing the guard.
+  const storedLearnerFiles =
+    config && validPatternList(config.learnerFiles) && config.learnerFiles.length > 0
+      ? config.learnerFiles.slice()
+      : null;
+
   // In `dirigeant` the block set inverts outright to the specification, so a
   // hand-set `learnerFiles` cannot half-apply the inversion.
   const learnerFiles =
     mode === MODE_DIRIGEANT
       ? DIRIGEANT_LEARNER_FILES.slice()
-      : config && Array.isArray(config.learnerFiles) && config.learnerFiles.length > 0
-        ? config.learnerFiles.slice()
-        : defaults.learnerFiles.slice();
+      : storedLearnerFiles || defaults.learnerFiles.slice();
 
   return {
     mode,
     learnerFiles,
     // The mutation/norm/hash target, kept distinct from `learnerFiles` once the
     // mode inverts it: in `dirigeant` mutation must test the implementation the
-    // AI wrote (`src/**`), not the specification the learner now owns; in
-    // `apprenti` it stays the learner's own files (a project that scoped
-    // `learnerFiles` to `lib/**` must not start mutating `src/**`).
+    // AI wrote, not the specification the learner now owns; in `apprenti` it
+    // stays the learner's own files (a project that scoped `learnerFiles` to
+    // `lib/**` must not start mutating `src/**`).
     //
-    // Derived from the mode only, never read back from the file: a stored value
-    // would survive a mode switch and silently point the consumers at the
-    // wrong half of the project (see the story decisions).
+    // `implementationFiles` is accepted only in `dirigeant`, and only as a
+    // validated non-empty pattern list: it is how a project whose source is not
+    // `src/**` (lib/**, app/**) keeps a real proof scope instead of silently
+    // matching zero files. In `apprenti` it is ignored (the learner's own scope
+    // is the target) and `check` says so.
     implementationFiles:
-      mode === MODE_DIRIGEANT ? DEFAULT_LEARNER_FILES.slice() : learnerFiles.slice(),
+      mode === MODE_DIRIGEANT &&
+      config &&
+      validPatternList(config.implementationFiles) &&
+      config.implementationFiles.length > 0
+        ? config.implementationFiles.slice()
+        : mode === MODE_DIRIGEANT
+          ? DEFAULT_LEARNER_FILES.slice()
+          : learnerFiles.slice(),
     // Unlike learnerFiles above, an explicit `[]` IS honored here (not treated
     // as "unset") — it is the documented escape valve to turn the git/gh block
-    // off entirely for a project where it's genuinely wrong. Only a missing/
-    // corrupt config falls back to the default block list.
+    // off entirely for a project where it's genuinely wrong. A malformed list
+    // (not an array, or an entry that is not a non-empty string) falls back to
+    // the default: a typo must not disable the block.
     blockedCommands:
-      config && Array.isArray(config.blockedCommands) ? config.blockedCommands.slice() : defaults.blockedCommands.slice(),
-    gitAliases: config && Array.isArray(config.gitAliases) ? config.gitAliases.slice() : defaults.gitAliases.slice(),
+      config && validPatternList(config.blockedCommands)
+        ? config.blockedCommands.slice()
+        : defaults.blockedCommands.slice(),
+    gitAliases:
+      config && validPatternList(config.gitAliases) ? config.gitAliases.slice() : defaults.gitAliases.slice(),
   };
 }
 
@@ -266,11 +336,18 @@ function globToRegExp(pattern) {
 
 function matchesLearnerPath(relative, learnerFiles) {
   for (const pattern of learnerFiles || []) {
+    if (!isNonEmptyString(pattern)) {
+      continue;
+    }
     if (globToRegExp(pattern).test(relative)) {
       return true;
     }
   }
   return false;
+}
+
+function isProtectedPath(relative) {
+  return PROTECTED_FILES.includes(relative);
 }
 
 function toRelative(root, filePath) {
@@ -495,16 +572,21 @@ function detectGitOrGh(command, blockedCommands) {
 // specification (`test/**`, `checkpoint/**`) and the AI is expected to write
 // the implementation instead. A mode-blind message would send a dirigeant
 // agent to deposit a "reveal" for tests the learner is supposed to own.
-function learnerDenialReason({ mode, rel, learnerFiles, viaShell }) {
+function learnerDenialReason({ mode, rel, learnerFiles, implementationFiles, viaShell }) {
   const scope = learnerFiles.join(", ");
 
   if (mode === MODE_DIRIGEANT) {
+    const implementation = (implementationFiles && implementationFiles.length > 0
+      ? implementationFiles
+      : DEFAULT_LEARNER_FILES
+    ).join(", ");
+
     return viaShell
       ? `cette commande écrit dans ${rel}, un fichier de la spécification de l'apprenant (${scope}). ` +
-          "En mode dirigeant, l'IA écrit l'implémentation (`src/**`), pas les tests ni les checkpoints : " +
+          `En mode dirigeant, l'IA écrit l'implémentation (${implementation}), pas les tests ni les checkpoints : ` +
           "propose la modification à l'apprenant, qui met à jour sa spécification lui-même (cf. AGENTS.md §3)."
       : `${rel} appartient à la spécification de l'apprenant (${scope}). ` +
-          "En mode dirigeant, l'IA écrit l'implémentation (`src/**`), pas les tests ni les checkpoints : " +
+          `En mode dirigeant, l'IA écrit l'implémentation (${implementation}), pas les tests ni les checkpoints : ` +
           "propose la modification à l'apprenant, qui met à jour sa spécification lui-même (cf. AGENTS.md §3).";
   }
 
@@ -514,6 +596,14 @@ function learnerDenialReason({ mode, rel, learnerFiles, viaShell }) {
     : `${rel} est un fichier solution de l'apprenant (${scope}). ` +
         "L'IA n'écrit pas ici : déposer le code de révélation dans `docs/solutions/`, " +
         "l'apprenant tape le vrai code (cf. AGENTS.md §3).";
+}
+
+function protectedPathReason(rel, viaShell) {
+  return viaShell
+    ? `cette commande écrit dans ${rel}, un fichier qui configure le garde-fou lui-même. ` +
+        "L'IA ne modifie pas sa propre policy (mode, chemins, hooks) : demande à l'apprenant de le faire."
+    : `${rel} configure le garde-fou lui-même (mode, chemins, hooks). ` +
+        "L'IA ne modifie pas sa propre policy : demande à l'apprenant de le faire.";
 }
 
 function decide(hook, root) {
@@ -550,10 +640,24 @@ function decide(hook, root) {
     for (const target of shellWriteTargets(command)) {
       const rel = toRelative(root, target);
 
+      if (rel && isProtectedPath(rel)) {
+        return {
+          decision: "deny",
+          reason: protectedPathReason(rel, true),
+          path: rel,
+        };
+      }
+
       if (rel && matchesLearnerPath(rel, config.learnerFiles)) {
         return {
           decision: "deny",
-          reason: learnerDenialReason({ mode: config.mode, rel, learnerFiles: config.learnerFiles, viaShell: true }),
+          reason: learnerDenialReason({
+            mode: config.mode,
+            rel,
+            learnerFiles: config.learnerFiles,
+            implementationFiles: config.implementationFiles,
+            viaShell: true,
+          }),
           path: rel,
         };
       }
@@ -570,10 +674,24 @@ function decide(hook, root) {
   const filePath = targetPath(toolInput);
   const rel = filePath ? toRelative(root, filePath) : null;
 
+  if (rel && isProtectedPath(rel)) {
+    return {
+      decision: "deny",
+      reason: protectedPathReason(rel, false),
+      path: rel,
+    };
+  }
+
   if (rel && matchesLearnerPath(rel, config.learnerFiles)) {
     return {
       decision: "deny",
-      reason: learnerDenialReason({ mode: config.mode, rel, learnerFiles: config.learnerFiles, viaShell: false }),
+      reason: learnerDenialReason({
+        mode: config.mode,
+        rel,
+        learnerFiles: config.learnerFiles,
+        implementationFiles: config.implementationFiles,
+        viaShell: false,
+      }),
       path: rel,
     };
   }

@@ -271,6 +271,18 @@ test("mode dirigeant : toutes les conventions de test reconnues par scan.js rest
     "src/helpers_test.go",
     "src/helpers-test.js",
     "src/helpers_spec.rb",
+    "test",
+    "spec",
+    "test.js",
+    "spec.js",
+    "test.ts",
+    "spec.ts",
+    "src/test",
+    "src/spec",
+    "src/test.js",
+    "src/spec.ts",
+    "src/test.py",
+    "src/spec.rb",
     "checkpoint/phase-0.mjs",
   ];
 
@@ -290,6 +302,54 @@ test("mode dirigeant : les commandes Bash respectent le même périmètre invers
   assert.strictEqual(decide(hookFor(dir, "Bash", { command: "echo x > test/index.test.ts" }), dir).decision, "deny");
   assert.strictEqual(decide(hookFor(dir, "Bash", { command: "tee checkpoint/phase-0.mjs" }), dir).decision, "deny");
   assert.strictEqual(decide(hookFor(dir, "Bash", { command: "echo x > src/index.ts" }), dir).decision, "allow");
+});
+
+test("le guard refuse à l'IA de réécrire sa propre configuration dans les deux modes", () => {
+  for (const mode of [undefined, "apprenti", "dirigeant"]) {
+    const dir = blankProject();
+    writeMode(dir, mode);
+
+    for (const rel of [".ai-learn/guard.json", ".claude/settings.json", ".codex/config.toml"]) {
+      assert.strictEqual(
+        decide(hookFor(dir, "Write", { file_path: path.join(dir, rel) }), dir).decision,
+        "deny",
+        `${mode}: ${rel}`,
+      );
+    }
+  }
+
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "echo '{}' > .ai-learn/guard.json" }), dir).decision, "deny");
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "sed -i 's/a/b/' .claude/settings.json" }), dir).decision,
+    "deny",
+  );
+});
+
+test("un learnerFiles mal typé retombe sur le défaut au lieu de faire fail-open", () => {
+  const dir = blankProject();
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, learnerFiles: [null] }));
+
+  assert.deepStrictEqual(loadGuardConfig(dir).learnerFiles, ["src/**"]);
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "index.ts") }), dir).decision, "deny");
+  assert.match(validateGuardConfig({ version: 1, learnerFiles: [null] })[0].message, /non-string or empty entry/);
+
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, blockedCommands: [null] }));
+  assert.deepStrictEqual(loadGuardConfig(dir).blockedCommands, ["git", "gh"]);
+  assert.match(validateGuardConfig({ version: 1, blockedCommands: [null] })[0].message, /non-string or empty entry/);
+});
+
+test("checkProject warns when the implementation scope matches no files", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  const empty = checkProject(dir);
+  assert.ok(empty.issues.warnings.some((w) => /implementation scope .* matches no files/.test(w.message)));
+
+  writeFile(dir, "src/index.js", "module.exports = {};\n");
+  const populated = checkProject(dir);
+  assert.ok(!populated.issues.warnings.some((w) => /implementation scope .* matches no files/.test(w.message)));
 });
 
 test("matrice de décision du guard : git/gh reste bloqué dans les deux modes (§3bis inchangé)", () => {
@@ -336,10 +396,28 @@ test("loadGuardConfig expose le mode et un implementationFiles (cible de la muta
   // The implementation the AI now writes stays the mutation target.
   assert.deepStrictEqual(dirigeant.implementationFiles, ["src/**"]);
 
-  // Derived from the mode only: a stored value cannot survive a mode switch and
-  // silently point the consumers at the wrong half of the project.
-  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
+  // A non-src layout can declare its implementation scope explicitly; without
+  // this, the proof scope silently matched zero files for lib/** projects.
+  writeFile(
+    dir,
+    ".ai-learn/guard.json",
+    JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }),
+  );
+  const custom = loadGuardConfig(dir);
+  assert.ok(custom.learnerFiles.includes("test/**"), "the block set still inverts to the specification");
+  assert.deepStrictEqual(custom.implementationFiles, ["lib/**"]);
+
+  // A malformed explicit value falls back to src/**, never to a partial list.
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: [null] }));
   assert.deepStrictEqual(loadGuardConfig(dir).implementationFiles, ["src/**"]);
+
+  // In apprenti the field is ignored: the learner's own scope is the target.
+  writeFile(
+    dir,
+    ".ai-learn/guard.json",
+    JSON.stringify({ version: 1, learnerFiles: ["lib/**"], implementationFiles: ["src/**"] }),
+  );
+  assert.deepStrictEqual(loadGuardConfig(dir).implementationFiles, ["lib/**"]);
 });
 
 test("loadGuardConfig returns fresh arrays: a caller mutating them cannot poison the next call", () => {
@@ -365,10 +443,16 @@ test("validateGuardConfig signale un mode inconnu, une version inattendue et un 
 
   assert.match(validateGuardConfig(null)[0].message, /unreadable/);
 
-  // A stored implementationFiles is ignored by the loader, so check must say so.
+  // implementationFiles is a dirigeant-only override: accepted there, ignored
+  // (and signalled) in apprenti, and rejected when malformed.
+  assert.deepStrictEqual(validateGuardConfig({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }), []);
   assert.match(
     validateGuardConfig({ version: 1, implementationFiles: ["lib/**"] })[0].message,
-    /derived from mode and ignored/,
+    /only applies in mode "dirigeant"/,
+  );
+  assert.match(
+    validateGuardConfig({ version: 1, mode: "dirigeant", implementationFiles: [null] })[0].message,
+    /non-empty array of non-empty strings/,
   );
 });
 
@@ -383,6 +467,7 @@ test("checkProject warns on an unknown guard.json mode instead of silently enfor
 test("checkProject stays quiet on a valid guard.json", () => {
   const dir = blankProject();
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", learnerFiles: ["test/**"] }));
+  writeFile(dir, "src/index.js", "module.exports = {};\n");
 
   const entry = checkProject(dir);
   assert.ok(!entry.issues.warnings.some((w) => /\.ai-learn\/guard\.json/.test(w.file)));
