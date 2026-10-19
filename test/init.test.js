@@ -58,7 +58,7 @@ test("init scaffolds the expected structure", () => {
   // src/** (see bin/lib/platforms/codex-guard.js), wired alongside Claude's.
   const codexConfigPath = path.join(dir, ".codex", "config.toml");
   assert.ok(fs.existsSync(codexConfigPath));
-  assert.match(fs.readFileSync(codexConfigPath, "utf8"), /"src\/\*\*" = "deny"/);
+  assert.match(fs.readFileSync(codexConfigPath, "utf8"), /"src" = "deny"/);
   assert.ok(created.includes(".codex/config.toml"));
 
   // The clean-code norm config — auto-created once, generic defaults for a

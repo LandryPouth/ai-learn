@@ -29,9 +29,10 @@ s'inverse — l'IA écrit `src/**`, la spécification (`test/**`, `checkpoint/**
 reste à l'apprenant. Les correctifs de revue (P1/P2/P3) sont intégrés.
 
 - `bin/lib/guard.js` : `loadGuardConfig` résout `mode` (défaut `apprenti`,
-  jamais le plus permissif), dérive `learnerFiles` (`["test/**",
-  "checkpoint/**"]` en dirigeant, un `learnerFiles` stocké étant ignoré ;
-  inchangé sinon) et `implementationFiles` (`["src/**"]` en dirigeant, la
+  jamais le plus permissif), dérive `learnerFiles` (37 motifs en dirigeant,
+  couvrant toutes les conventions `detectTests` + `checkpoint/**`, un
+  `learnerFiles` stocké étant ignoré ; inchangé sinon) et
+  `implementationFiles` (`["src/**"]` en dirigeant, la
   valeur explicite `implementationFiles` honorée dans ce mode seulement,
   `learnerFiles` en apprenti). Toutes les listes retournées sont des copies
   (pas d'array partagé mutable).
@@ -45,17 +46,27 @@ reste à l'apprenant. Les correctifs de revue (P1/P2/P3) sont intégrés.
   `implementationFiles` au lieu de `learnerFiles`. C'est le correctif le plus
   important de la revue — sans lui, en dirigeant, l'empreinte de preuve
   couvrait la spécification et une modification de l'implémentation ne
-  périmait plus l'évidence `done` (régression d'epic 01).
+  périmait plus l'évidence `done` (régression d'epic 01). `source-hash.js`
+  exclut désormais `detectTests`, comme `norm`/`mutate` : un test colocalisé
+  (`src/a.test.js`) ne fait plus partie de l'empreinte d'implémentation.
 - `bin/lib/check.js` : warning `guard.json` invalide ; message du guard
   dé-masculinisé (« fichiers de l'apprenant »).
-- `bin/lib/platforms/codex-guard.js` : consomme déjà `learnerFiles`, donc le
-  sandbox Codex dénie aussi `test/**`/`checkpoint/**` en dirigeant ; il dénie
-  en plus, en clés littérales, `.ai-learn/guard.json` et `.codex/config.toml`
-  pour que Codex ne réécrive pas sa propre policy.
+- `bin/lib/platforms/codex-guard.js` : n'émet **que** des clés littérales.
+  L'ancien couple `src/**` + `src` faisait échouer bwrap (`Can't create file …
+  Read-only file system`) dès qu'un fichier existait sous le répertoire nié ;
+  `denyEntries` ne garde donc que la forme répertoire/fichier. En dirigeant,
+  `findLiteralTestDirs` ajoute les répertoires de test existants
+  (`src/test`, `src/__tests__`, …). Il dénie aussi `.ai-learn/guard.json` et
+  `.codex/config.toml` pour que Codex ne réécrive pas sa propre policy.
 - `bin/lib/guard.js` (suite revue) : `.claude/settings.local.json` ajouté à
   `PROTECTED_FILES` — il outranke `.claude/settings.json`, et un
   `"disableAllHooks": true` y couperait le hook pour la session. Les chemins
-  protégés et apprenants sont comparés sans casse sur `win32`/`darwin`.
+  protégés et apprenants sont comparés sans casse sur `win32`/`darwin` ; en
+  dirigeant, les conventions de test sont comparées sans casse partout, car
+  `detectTests` est insensible à la casse. `isProtectedPath` protège aussi un
+  répertoire parent (`.ai-learn`, `.claude`, `.codex`). `shellWriteTargets`
+  résout les cibles relatives après un `cd` et couvre `tee -a`, `rm`,
+  `mv`, `truncate` ; `.ai-learn` retiré par `rm -rf` est donc refusé.
 - Docs : `docs/architecture.md` (le périmètre de `norm`/`mutate`/`source-hash`
   est `implementationFiles`, pas `learnerFiles`), `templates/AGENTS-apprentissage.md`
   (encart mode dirigeant, table des commandes, règle d'or), `README.md`.
@@ -69,14 +80,17 @@ reste à l'apprenant. Les correctifs de revue (P1/P2/P3) sont intégrés.
   `ensureGuardHook` → `mode: "apprenti"` préservé, profil Codex + README
   inversés en dirigeant, config Codex auto-protégée, raisons de refus
   mode-aware et raccourcies en dirigeant), `test/scan.test.js`
-  (parité `detectTests` pour `test(s)/`, `__tests__/` et basenames nus),
-  `test/verdict.test.js` (hash = implémentation en dirigeant, scope custom en
-  apprenti et en dirigeant), `test/norm.test.js` et `test/mutate.test.js`
-  (même bascule, `__tests__/` exclu).
+  (parité `detectTests` pour `test(s)/`, `__tests__/`, basenames nus,
+  extensionless `_test`/`-spec` et casse), `test/verdict.test.js` (hash =
+  implémentation en dirigeant, scope custom en apprenti et en dirigeant, test
+  colocalisé exclu), `test/norm.test.js` et `test/mutate.test.js` (même
+  bascule, `__tests__/` exclu), `test/platforms.test.js` (config Codex
+  littérale, extras, `findLiteralTestDirs`).
 - Négatif vérifié manuellement : forcer `mode = apprenti` fait échouer les
   tests de la matrice et des consommateurs ; retirer `isProtectedPath` fait
   échouer le test d'auto-protection. Restaurés, ils repassent.
-- `npm test` : 541 tests, 0 échec.
+- `npm test` : suite complète, 0 échec. `ai-flow verify --no-cache` passe
+  (541 tests au moment de la revue).
 
 ### Rollback Notes
 
@@ -92,19 +106,20 @@ consommateurs retirés. Aucune migration de données — champs additifs du
   `.claude/settings.json`, `.claude/settings.local.json`,
   `.codex/config.toml`), mais la protection reste une haie côté Bash : une
   commande non reconnue par `shellWriteTargets` peut toujours contourner le
-  hook (fail-open assumé, comme pour `src/**`). Deux échappatoires restent hors
-  de portée : un fichier de settings **utilisateur** (`~/.claude/settings.json`)
-  est hors du projet (`toRelative` → `null`), et un alias symlink vers un
-  fichier protégé n'est pas résolu par le hook.
+  hook (fail-open assumé, comme pour `src/**`). `cd` est suivi, ainsi que
+  `tee -a`, `rm`, `mv` et `truncate`, mais pas un shell arbitraire. Deux
+  échappatoires restent hors de portée : un fichier de settings **utilisateur**
+  (`~/.claude/settings.json`) est hors du projet (`toRelative` → `null`), et un
+  alias symlink vers un fichier protégé n'est pas résolu par le hook.
 - En `dirigeant`, `DIRIGEANT_LEARNER_FILES` couvre les conventions reconnues
   par `scan.js#detectTests` (`test(s)/`, `__tests__/`, basenames `test`/`spec`,
   `*.test.*`, `*_test.*`, `test_*`, etc.) en plus de `checkpoint/**`, pour le
   hook Claude. Limite côté Codex (sandbox OS, vérifiée sur codex-cli 0.138.0) :
-  les clés de `filesystem.":workspace_roots"` sont des chemins, pas des globs —
-  seules les formes répertoire (`test`, `checkpoint`) sont réellement
-  appliquées. Un test colocalisé (`src/index.test.ts`) reste donc écrivable par
-  le sandbox Codex ; le hook Claude, lui, le bloque. À traiter quand Codex
-  exposera des motifs.
+  les clés de `filesystem.":workspace_roots"` sont des chemins littéraux, pas
+  des globs. Les répertoires de test **existants** (`test`, `src/test`, …) sont
+  ajoutés à la génération ; un répertoire créé après coup ou un test colocalisé
+  (`src/index.test.ts`) reste écrivable par le sandbox Codex. Le hook Claude,
+  lui, le bloque. À traiter quand Codex exposera des motifs.
 - En `dirigeant`, le scope d'implémentation vaut `src/**` sauf si le projet
   déclare `implementationFiles` dans `guard.json`. Un projet dont le code vit
   ailleurs (`lib/**`, `app/**`) doit le déclarer ; sinon `check` signale que le

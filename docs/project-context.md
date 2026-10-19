@@ -22,10 +22,14 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
 1. **L'apprenant** — ne tape jamais de commande. Il passe par les 7 commandes `/…`
    de son agent (`/learn`, `/status`, `/next`, `/scan`, `/propose`, `/check`, `/docs`).
-   Il tape en revanche **tout le code** de `src/**` et **toutes** les commandes git/gh.
+   En mode `apprenti` (défaut), il tape **tout le code** de `src/**` ; en mode
+   `dirigeant`, il garde la **spécification** (`test/**`, `tests/**`,
+   `__tests__/**`, `checkpoint/**`, conventions test/spec) et l'IA écrit
+   l'implémentation. Dans les deux cas, il tape **toutes** les commandes git/gh.
 2. **L'agent IA** — exécute les commandes `ai-learn`, applique le protocole
-   pédagogique (`AGENTS.md` posé par `init`), et est **mécaniquement bloqué** hors
-   de `src/**` et de git/gh.
+   pédagogique (`AGENTS.md` posé par `init`), et est **mécaniquement bloqué**
+   sur les fichiers de l'apprenant (`src/**` en apprenti, la spécification en
+   dirigeant), sur sa propre policy et sur git/gh.
 3. **Le mainteneur** — dogfoode l'outil sur un vrai parcours (une API Fastify) et
    consigne toute friction dans `docs/DOGFOODING.md`.
 
@@ -36,7 +40,7 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 | Ledger de phases | `progress.json` (v1) | données commitées |
 | Preuve exécutée | `ai-learn verify` → `.ai-learn/runs/*-verify.json` | exécution réelle |
 | Scanner de dérive | `ai-learn check` | erreurs bloquantes / warnings |
-| Blocage IA sur `src/**` + git/gh | `ai-learn guard` (hook PreToolUse) | mur (Write/Edit), haie (Bash) |
+| Blocage IA sur les fichiers de l'apprenant + policy + git/gh | `ai-learn guard` (hook PreToolUse) | mur (Write/Edit), haie (Bash) |
 | Norme clean-code | `ai-learn norm` | heuristique, blocage dur |
 | Banque de pièges | `ai-learn traps` → `.ai-learn/traps.json` | extraite des docs, citée `fichier:ligne` |
 | Ledger git/gh cross-projet | `~/.ai-learn/tracks/git.json` | 6 tiers, jamais remis à zéro |
@@ -45,15 +49,17 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
 ## Cinq plateformes supportées
 
-Claude Code (garde-fou mécanique complet), Codex (bac à sable OS sur `src/**`,
-git/gh non traité), Gemini CLI / OpenCode / Antigravity (commandes `/…` seulement,
-`AGENTS.md` comme seule protection). Les limites sont documentées honnêtement dans
-le README — ne jamais les masquer.
+Claude Code (garde-fou mécanique complet), Codex (bac à sable OS sur les chemins
+littéraux des fichiers de l'apprenant ; `src/**` en apprenti, la spécification
+en dirigeant ; git/gh non traité), Gemini CLI / OpenCode / Antigravity
+(commandes `/…` seulement, `AGENTS.md` comme seule protection). Les limites sont
+documentées honnêtement dans le README — ne jamais les masquer.
 
 ## Ce qui est mesuré et ce qui ne l'est pas
 
 **Prouvé mécaniquement** : le checkpoint passe, l'artefact existe, la norme est
-respectée, l'IA n'a pas écrit dans `src/**`, le format de commit est conforme.
+respectée, l'IA n'a pas écrit dans les fichiers de l'apprenant (`src/**` en
+apprenti, la spécification en dirigeant), le format de commit est conforme.
 
 **Non prouvé, assumé** : la cognition. L'honnêteté d'une prédiction reste humaine.
 Le README l'écrit noir sur blanc — c'est ce qui rend le reste crédible.

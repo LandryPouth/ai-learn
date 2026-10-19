@@ -23,7 +23,11 @@
 
 const fs = require("fs");
 const path = require("path");
-const { renderConfig: renderCodexConfig, MARKER: CODEX_MARKER } = require("./platforms/codex-guard");
+const {
+  renderConfig: renderCodexConfig,
+  findLiteralTestDirs,
+  MARKER: CODEX_MARKER,
+} = require("./platforms/codex-guard");
 
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 const DEFAULT_LEARNER_FILES = ["src/**"];
@@ -74,6 +78,16 @@ const DIRIGEANT_LEARNER_FILES = [
   "*_spec.*",
   "**/*-spec.*",
   "*-spec.*",
+  // `detectTests` also accepts the extensionless forms (`foo_test`,
+  // `foo-spec`, `foo_spec`): `(?:^|[_-])(?:test|spec)(?:\.|$)`.
+  "**/*_test",
+  "*_test",
+  "**/*-test",
+  "*-test",
+  "**/*_spec",
+  "*_spec",
+  "**/*-spec",
+  "*-spec",
   "checkpoint/**",
 ];
 
@@ -350,8 +364,13 @@ function caseInsensitiveFs(platform) {
   return platform === "win32" || platform === "darwin";
 }
 
-function matchesLearnerPath(relative, learnerFiles, platform = process.platform) {
-  const fold = caseInsensitiveFs(platform);
+function matchesLearnerPath(relative, learnerFiles, platform = process.platform, options = {}) {
+  // `dirigeant` asks whether a path *looks like* the learner's specification,
+  // and `scan.js#detectTests` classifies suffixes case-insensitively
+  // (`Foo.Test.ts` is a test there). Fold the case even on a case-sensitive
+  // volume so the guard cannot be walked around with a capital letter; the
+  // over-match can only deny a distinct path, never allow a protected one.
+  const fold = options.caseInsensitive === undefined ? caseInsensitiveFs(platform) : options.caseInsensitive;
   const candidate = fold ? relative.toLowerCase() : relative;
 
   for (const pattern of learnerFiles || []) {
@@ -366,12 +385,15 @@ function matchesLearnerPath(relative, learnerFiles, platform = process.platform)
 }
 
 function isProtectedPath(relative, platform = process.platform) {
-  if (!caseInsensitiveFs(platform)) {
-    return PROTECTED_FILES.includes(relative);
-  }
+  const fold = caseInsensitiveFs(platform);
+  const candidate = fold ? relative.toLowerCase() : relative;
 
-  const candidate = relative.toLowerCase();
-  return PROTECTED_FILES.some((file) => file.toLowerCase() === candidate);
+  return PROTECTED_FILES.some((file) => {
+    const protectedFile = fold ? file.toLowerCase() : file;
+    // A protected path is also its own directory: `rm -rf .ai-learn` removes
+    // `guard.json` just as surely as writing it directly.
+    return protectedFile === candidate || protectedFile.startsWith(`${candidate}/`);
+  });
 }
 
 function toRelative(root, filePath) {
@@ -422,80 +444,141 @@ function execOneLinerWrites(command, tokens) {
 // perl -i, python -c / node -e one-liners) and fail-opens on anything else. The
 // primary guarantee is the Write/Edit block; shell detection only stops the
 // obvious ways around it.
+// Resolve a write target the way the shell would see it: `cd .ai-learn && ...`
+// must not let `guard.json` escape the protected-path check. Absolute paths are
+// left alone; relative paths are joined to the current `cd` context.
+function resolveShellTarget(cwd, target) {
+  if (!target || !cwd) {
+    return target;
+  }
+  if (path.isAbsolute(target) || /^[A-Za-z]:[\\/]/.test(target)) {
+    return target;
+  }
+  return normalizePortable(path.join(cwd, target));
+}
+
 function shellWriteTargets(command) {
   const targets = [];
-  const tokens = command.split(/\s+/);
+  let cwd = "";
 
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
+  // `&&`, `||`, `;` and newlines delimit commands; a `cd` applies to the
+  // following segments. Pipes stay inside a segment so `cmd | tee file` still
+  // exposes the `tee` target, while `cp a b | tee c` stops collecting operands
+  // at the pipe.
+  for (const segment of command.split(/&&|\|\||[;\n]/)) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean);
 
-    // Redirection (`> file`, `>> file`, `2> file`, `&> file`) — the next token
-    // is the destination. Also catches an inline `echo hi>src/x.ts`.
-    if (token.includes(">")) {
-      const parts = token.split(">");
-      const dest = stripQuotes(parts[parts.length - 1]);
-
-      if (dest && !dest.startsWith("/dev/") && !dest.startsWith("$") && !dest.startsWith("<")) {
-        targets.push(dest);
-      }
-
-      const next = tokens[i + 1];
-
-      if (next && !next.startsWith("-") && !next.startsWith("(")) {
-        targets.push(stripQuotes(next));
-      }
+    if (tokens.length === 0) {
       continue;
     }
 
-    // tee <file>
-    if (token === "tee") {
-      const next = tokens[i + 1];
+    const head = tokens[0].replace(/^\(+/, "");
 
+    if (head === "cd" || head === "pushd") {
+      const next = tokens[1];
       if (next && !next.startsWith("-")) {
-        targets.push(stripQuotes(next));
+        cwd = stripQuotes(next);
       }
       continue;
     }
 
-    // cp|mv|ln|install — the last non-flag argument is the destination.
-    if (["cp", "mv", "ln", "install"].includes(token)) {
-      let destination = null;
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
 
-      for (let j = i + 1; j < tokens.length; j++) {
-        if (tokens[j].startsWith("-")) {
-          continue;
+      // Redirection (`> file`, `>> file`, `2> file`, `&> file`) — the next token
+      // is the destination. Also catches an inline `echo hi>src/x.ts`.
+      if (token.includes(">")) {
+        const parts = token.split(">");
+        const dest = stripQuotes(parts[parts.length - 1]);
+
+        if (dest && !dest.startsWith("/dev/") && !dest.startsWith("$") && !dest.startsWith("<")) {
+          targets.push(resolveShellTarget(cwd, dest));
         }
-        destination = stripQuotes(tokens[j]);
+
+        const next = tokens[i + 1];
+
+        if (next && !next.startsWith("-") && !next.startsWith("(") && next !== "|") {
+          targets.push(resolveShellTarget(cwd, stripQuotes(next)));
+        }
+        continue;
       }
 
-      if (destination) {
-        targets.push(destination);
-      }
-      continue;
-    }
-
-    // In-place editors: `sed -i` / `perl -i` rewrite their file operands in
-    // place. Every non-flag operand after the in-place flag is a file that gets
-    // rewritten. Over-collecting the expression (e.g. `s/a/b/`) is harmless —
-    // it can never match a learnerFiles pattern like `src/**`.
-    if (token === "sed" || token === "perl") {
-      let inPlace = false;
-
-      for (let j = i + 1; j < tokens.length; j++) {
-        const t = tokens[j];
-        if (t.startsWith("-i")) {
-          inPlace = true;
-          continue;
+      // tee [-a] <file> — skip the flags, then take the file operand.
+      if (token === "tee") {
+        let j = i + 1;
+        while (j < tokens.length && tokens[j].startsWith("-")) {
+          j += 1;
         }
-        if (inPlace && !t.startsWith("-")) {
-          targets.push(stripQuotes(t));
+        if (j < tokens.length && tokens[j] !== "|") {
+          targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j])));
         }
+        continue;
       }
-      continue;
+
+      // cp|mv|ln|install — `cp`/`install`/`ln` only write the destination, but
+      // `mv` also removes its source, so both operands matter for the policy.
+      if (["cp", "mv", "ln", "install"].includes(token)) {
+        const operands = [];
+
+        for (let j = i + 1; j < tokens.length; j++) {
+          if (tokens[j] === "|" || tokens[j] === "&&" || tokens[j] === "||" || tokens[j] === ";") {
+            break;
+          }
+          if (tokens[j].startsWith("-")) {
+            continue;
+          }
+          operands.push(stripQuotes(tokens[j]));
+        }
+
+        const selected = token === "mv" ? operands : operands.slice(-1);
+        for (const operand of selected) {
+          targets.push(resolveShellTarget(cwd, operand));
+        }
+        continue;
+      }
+
+      // `rm` and `truncate` destroy/rewrite their operands; `rm -rf .ai-learn`
+      // must be caught even though the target is the directory, not guard.json.
+      if (token === "rm" || token === "truncate") {
+        for (let j = i + 1; j < tokens.length; j++) {
+          const t = tokens[j];
+          if (t === "|" || t === "&&" || t === "||" || t === ";") {
+            break;
+          }
+          if (t.startsWith("-")) {
+            continue;
+          }
+          targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+        }
+        continue;
+      }
+
+      // In-place editors: `sed -i` / `perl -i` rewrite their file operands in
+      // place. Every non-flag operand after the in-place flag is a file that gets
+      // rewritten. Over-collecting the expression (e.g. `s/a/b/`) is harmless —
+      // it can never match a learnerFiles pattern like `src/**`.
+      if (token === "sed" || token === "perl") {
+        let inPlace = false;
+
+        for (let j = i + 1; j < tokens.length; j++) {
+          const t = tokens[j];
+          if (t === "|") {
+            break;
+          }
+          if (t.startsWith("-i")) {
+            inPlace = true;
+            continue;
+          }
+          if (inPlace && !t.startsWith("-")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+          }
+        }
+        continue;
+      }
     }
   }
 
-  targets.push(...execOneLinerWrites(command, tokens));
+  targets.push(...execOneLinerWrites(command, command.split(/\s+/)));
   return targets.filter(Boolean);
 }
 
@@ -636,6 +719,16 @@ function protectedPathReason(rel, viaShell) {
         "L'IA ne modifie pas sa propre policy : demande à l'apprenant de le faire.";
 }
 
+// In `dirigeant` the learner-owned set is a set of *test conventions*, and
+// `detectTests` matches those case-insensitively. Fold case for that check even
+// on Linux (see `matchesLearnerPath`). `apprenti` keeps the historical
+// platform-sensitive behavior, including for a custom `learnerFiles`.
+function matchesGuardPath(rel, config) {
+  return matchesLearnerPath(rel, config.learnerFiles, process.platform, {
+    caseInsensitive: config.mode === MODE_DIRIGEANT,
+  });
+}
+
 function decide(hook, root) {
   if (!hook || typeof hook !== "object") {
     return { decision: "allow", reason: "no parseable hook input" };
@@ -678,7 +771,7 @@ function decide(hook, root) {
         };
       }
 
-      if (rel && matchesLearnerPath(rel, config.learnerFiles)) {
+      if (rel && matchesGuardPath(rel, config)) {
         return {
           decision: "deny",
           reason: learnerDenialReason({
@@ -712,7 +805,7 @@ function decide(hook, root) {
     };
   }
 
-  if (rel && matchesLearnerPath(rel, config.learnerFiles)) {
+  if (rel && matchesGuardPath(rel, config)) {
     return {
       decision: "deny",
       reason: learnerDenialReason({
@@ -907,8 +1000,13 @@ function ensureGuardHook(dir) {
   }
 
   const config = loadGuardConfig(dir);
-  const codexResult = ensureCodexGuard(dir, config.learnerFiles);
+  // Codex keys are literal paths. In `dirigeant`, add existing nested test
+  // directories (`src/test`, `src/__tests__`, …) that the glob list cannot
+  // express; new directories and colocated tests remain a documented limit.
+  const extraCodexPaths = config.mode === MODE_DIRIGEANT ? findLiteralTestDirs(dir) : [];
+  const codexResult = ensureCodexGuard(dir, config.learnerFiles, extraCodexPaths);
   created.push(...codexResult.created);
+  refreshed.push(...codexResult.refreshed);
 
   // guard.json is learner-customizable (learnerFiles) — never overwritten here.
   // The solutions README is pure generated content (its title is the marker),
@@ -966,9 +1064,9 @@ function ensureGuardHook(dir) {
 // marker comment, exactly like the solutions README and AGENTS.md — refreshed
 // when it drifts from the current template, never touched if the learner (or
 // a pre-existing project) wrote their own `.codex/config.toml` without it.
-function ensureCodexGuard(dir, learnerFiles) {
+function ensureCodexGuard(dir, learnerFiles, extraLiteralPaths = []) {
   const configPath = path.join(dir, ".codex", "config.toml");
-  const content = renderCodexConfig(learnerFiles);
+  const content = renderCodexConfig(learnerFiles, extraLiteralPaths);
   const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : null;
   const isGenerated = existing === null || existing.startsWith(CODEX_MARKER);
 

@@ -20,7 +20,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { walkSources } = require("./scan");
+const { walkSources, detectTests } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const { normalizePortable } = require("./util");
 
@@ -56,8 +56,17 @@ function checkpointFilePath(dir, command) {
 function sourceHashScope(dir, { checkpointFile } = {}) {
   const { implementationFiles } = loadGuardConfig(dir);
   const walked = walkSources(dir);
+  // A test file is the learner's specification, not the implementation the
+  // proof covers — `norm.js` and `mutate.js` already exclude it. Hashing a
+  // colocated test here would stale the evidence when the learner edits their
+  // own spec, and would make `check`'s empty-scope warning miss a project whose
+  // only scope-matching files are tests.
+  const testRels = new Set(detectTests(walked.files).files.map((f) => f.rel));
 
-  const rels = walked.files.filter((f) => matchesLearnerPath(f.rel, implementationFiles)).map((f) => f.rel);
+  const rels = walked.files
+    .filter((f) => !testRels.has(f.rel))
+    .filter((f) => matchesLearnerPath(f.rel, implementationFiles))
+    .map((f) => f.rel);
 
   if (checkpointFile) {
     const rel = normalizePortable(path.relative(dir, checkpointFile));

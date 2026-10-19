@@ -272,6 +272,11 @@ test("mode dirigeant : toutes les conventions de test reconnues par scan.js rest
     "src/helpers_test.go",
     "src/helpers-test.js",
     "src/helpers_spec.rb",
+    "src/Foo.Test.ts",
+    "src/foo_test",
+    "src/foo-spec",
+    "src/helpers_spec",
+    "src/TEST_helpers.py",
     "test",
     "spec",
     "test.js",
@@ -303,6 +308,38 @@ test("mode dirigeant : les commandes Bash respectent le même périmètre invers
   assert.strictEqual(decide(hookFor(dir, "Bash", { command: "echo x > test/index.test.ts" }), dir).decision, "deny");
   assert.strictEqual(decide(hookFor(dir, "Bash", { command: "tee checkpoint/phase-0.mjs" }), dir).decision, "deny");
   assert.strictEqual(decide(hookFor(dir, "Bash", { command: "echo x > src/index.ts" }), dir).decision, "allow");
+});
+
+test("Bash: a leading cd does not move a protected or learner target out of the check", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const command of [
+    "cd .ai-learn && echo {} > guard.json",
+    "cd .claude && echo x > settings.local.json",
+    "cd .codex && echo x > config.toml",
+    "cd test && echo x > x.test.ts",
+    "cd src/__tests__ && echo x > a.test.ts",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "cd src && echo x > index.ts" }), dir).decision, "allow");
+});
+
+test("Bash: destructive/in-place forms are caught for policy and learner files", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const command of [
+    "rm .ai-learn/guard.json",
+    "rm -rf .ai-learn",
+    "mv .ai-learn/guard.json /tmp/x",
+    "tee -a .claude/settings.local.json",
+    "truncate -s 0 .claude/settings.json",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
 });
 
 test("le guard refuse à l'IA de réécrire sa propre configuration dans les deux modes", () => {
@@ -364,8 +401,16 @@ test("protected and learner paths match case-insensitively where the filesystem 
   assert.strictEqual(isProtectedPath(".AI-LEARN/GUARD.JSON", "darwin"), true);
 
   assert.strictEqual(matchesLearnerPath("Src/Index.ts", ["src/**"], "linux"), false);
+  assert.strictEqual(matchesLearnerPath("Src/Index.ts", ["src/**"], "linux", { caseInsensitive: true }), true);
   assert.strictEqual(matchesLearnerPath("Src/Index.ts", ["src/**"], "win32"), true);
   assert.strictEqual(matchesLearnerPath("TEST/X.test.ts", ["test/**"], "darwin"), true);
+
+  // A directory that contains a protected file is protected itself: removing
+  // `.ai-learn` deletes guard.json just as surely as writing it.
+  assert.strictEqual(isProtectedPath(".ai-learn", "linux"), true);
+  assert.strictEqual(isProtectedPath(".claude", "linux"), true);
+  assert.strictEqual(isProtectedPath(".codex", "linux"), true);
+  assert.strictEqual(isProtectedPath(".ai-learn/other.json", "linux"), false);
 });
 
 test("un learnerFiles mal typé retombe sur le défaut au lieu de faire fail-open", () => {
@@ -678,9 +723,10 @@ test("ensureGuardHook in dirigeant inverts the Codex profile and the generated R
   ensureGuardHook(dir);
 
   const codex = fs.readFileSync(path.join(dir, ".codex", "config.toml"), "utf8");
-  assert.match(codex, /"test\/\*\*" = "deny"/);
-  assert.match(codex, /"checkpoint\/\*\*" = "deny"/);
-  assert.doesNotMatch(codex, /"src\/\*\*" = "deny"/);
+  assert.match(codex, /"test" = "deny"/);
+  assert.match(codex, /"checkpoint" = "deny"/);
+  assert.doesNotMatch(codex, /"test\/\*\*" = "deny"/);
+  assert.doesNotMatch(codex, /"src" = "deny"/);
 
   const readme = fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8");
   assert.match(readme, /mode \*\*dirigeant\*\*/);
@@ -706,10 +752,14 @@ test("ensureGuardHook re-renders the README when the mode flips, without touchin
   const apprenti = fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8");
   assert.match(apprenti, /l'apprenant tape tout le code/);
 
+  fs.mkdirSync(path.join(dir, "src", "__tests__"), { recursive: true });
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
   const result = ensureGuardHook(dir);
-  assert.deepStrictEqual(result.refreshed, ["docs/solutions/README.md"]);
+  assert.ok(result.refreshed.includes("docs/solutions/README.md"));
+  assert.ok(result.refreshed.includes(".codex/config.toml"));
   assert.match(fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8"), /mode \*\*dirigeant\*\*/);
+  const codex = fs.readFileSync(path.join(dir, ".codex", "config.toml"), "utf8");
+  assert.match(codex, /"src\/__tests__" = "deny"/);
 });
 
 test("denial reasons name the mode's actual remedy, not the apprenti one", () => {

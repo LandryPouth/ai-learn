@@ -23,7 +23,8 @@ const PLATFORMS = {
   codex: {
     label: "Codex CLI",
     guard: "mécanique (bac à sable OS, .codex/config.toml câblé par `init`/`update`) — " +
-      "vérifié via `codex sandbox`, pas encore en session interactive réelle",
+      "chemins littéraux vérifiés via `codex sandbox` ; les répertoires de test " +
+      "existants sont inclus, pas les nouveaux ni les tests colocalisés",
   },
   gemini: {
     label: "Gemini CLI",

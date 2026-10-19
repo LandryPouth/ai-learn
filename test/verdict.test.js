@@ -156,6 +156,19 @@ test("computeSourceHash: in dirigeant the scope is the implementation, not the l
   assert.notStrictEqual(computeSourceHash(dir).digest, before.digest);
 });
 
+test("computeSourceHash: a colocated test is specification, never part of the implementation hash", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  writeFile(dir, "src/index.js", "console.log('a');\n");
+  writeFile(dir, "src/index.test.js", "test('a', () => {});\n");
+
+  const before = computeSourceHash(dir);
+  assert.deepStrictEqual(before.entries.map((e) => e.path), ["src/index.js"]);
+
+  writeFile(dir, "src/index.test.js", "test('b', () => {});\n");
+  assert.strictEqual(computeSourceHash(dir).digest, before.digest);
+});
+
 test("computeSourceHash: in dirigeant a custom learner scope becomes the implementation scope", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
