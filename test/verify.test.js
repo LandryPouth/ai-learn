@@ -9,7 +9,25 @@ const os = require("os");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, runsDir, progressPath } = require("../bin/lib/progress");
 const { readGitTracks } = require("../bin/lib/tracks/git");
-const { capture, sampleProgress, tmpProject, spawnGit } = require("./helpers");
+const { recordPrediction } = require("../bin/lib/predictions");
+const { mutateConfigPath, mutateLockPath } = require("../bin/lib/mutate");
+const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
+
+// A checkpoint that never inspects the return value of the mutated function —
+// it stays green whether the boolean literal is `true` or `false`, so the
+// mutant always survives (same fixtures as test/mutate.test.js).
+const WEAK_CHECKPOINT = 'node -e "require(\'./src/index.js\')"';
+
+// A checkpoint that fails when the mutated literal flips — the mutant is killed.
+const STRONG_CHECKPOINT = "node -e \"const { isReady } = require('./src/index.js'); if (isReady() !== true) process.exit(1)\"";
+
+function mutationPhase(checkpoint, overrides = {}) {
+  return sampleProgress({
+    phases: [
+      { id: 0, name: "Phase zero", status: "pending", checkpoint, artifacts: [], predictionsRequired: 0, mutation: true, ...overrides },
+    ],
+  });
+}
 
 function tmpHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-verify-home-"));
@@ -402,6 +420,368 @@ test("demoting a done phase does not touch the git or domain ledgers", () => {
   assert.deepStrictEqual(domainAfter, domainBefore);
 });
 
+// -----------------------------------------------------------------------
+// Predictions (story 01.04) — verify hard-blocks `done` on a phase whose
+// recorded prediction count is short of `predictionsRequired`, symmetric to
+// the norm and artifacts checks above. Retro-compat (no predictions.json at
+// all) never blocks — see plan.md Decisions.
+// -----------------------------------------------------------------------
+
+test("verify blocks on missing predictions: 1/2 recorded does not mark the phase done", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 2;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "one" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Prédictions/);
+  assert.match(out, /phase 0: 1\/2 recorded predictions; 1 missing/);
+  assert.doesNotMatch(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+});
+
+test("verify marks done once the required prediction count is reached", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 2;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "one" });
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "two" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /Prédictions/);
+  assert.match(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
+test("verify never blocks on predictions when predictionsRequired is absent", () => {
+  const progress = sampleProgress();
+  delete progress.phases[0].predictionsRequired;
+  const dir = tmpProject(progress);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+  assert.match(out, /marked done/);
+});
+
+test("verify never blocks on predictions when predictionsRequired is 0", () => {
+  const dir = tmpProject(sampleProgress()); // predictionsRequired: 0 by default
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+  assert.match(out, /marked done/);
+});
+
+test("verify never blocks a legacy project with no predictions.json at all, even with predictionsRequired set", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 3;
+  const dir = tmpProject(progress);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
+test("verify's evidence carries a predictions section symmetric to norm", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 1;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "x" });
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+
+  assert.strictEqual(evidence.predictions.ok, true);
+  assert.strictEqual(evidence.predictions.required, 1);
+  assert.strictEqual(evidence.predictions.count, 1);
+  assert.strictEqual(evidence.predictions.missing, 0);
+});
+
+test("verify --no-mark still computes and logs the predictions gap, without marking done", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 2;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, prediction: "one" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
+
+  assert.match(out, /phase 0: 1\/2 recorded predictions; 1 missing/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+});
+
+test("a failing stressCheckpoint and missing predictions are both reported, neither masking the other", () => {
+  const progress = sampleProgress();
+  progress.phases[0].stressCheckpoint = 'node -e "process.exit(7)"';
+  progress.phases[0].predictionsRequired = 1;
+  const dir = tmpProject(progress);
+  // An empty but *valid* predictions.json — data exists, so retro-compat
+  // does not suppress the block (unlike the "no file at all" case above).
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".ai-learn", "predictions.json"), JSON.stringify({ version: 1, entries: [] }));
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /\[exit 7\]/);
+  assert.match(out, /phase 0: 0\/1 recorded predictions; 1 missing/);
+  assert.doesNotMatch(out, /marked done/);
+  assert.strictEqual(process.exitCode, 1);
+});
+
+// `recordPrediction` always stamps `at`/`revealedAt` together (story 01.04
+// plan.md: the two-step API doesn't exist yet), so an antériorité anomaly can
+// only be produced today by a hand-written predictions.json — exactly what
+// `predictionsReport`'s own unit tests do. This test proves the wiring
+// `verifyCommand` puts on top of that report (the "Antériorité" log block and
+// evidence.predictions.anomalies) actually fires end-to-end, not just at the
+// predictionsReport() unit level (review finding, story 01.04).
+test("verify signals — never blocks on — a prediction recorded after its own revelation", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 1;
+  const dir = tmpProject(progress);
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, ".ai-learn", "predictions.json"),
+    JSON.stringify({
+      version: 1,
+      entries: [
+        { id: "a", phaseId: 0, at: "2026-01-02T00:00:00.000Z", prediction: "x", revealedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    }),
+  );
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Antériorité prédiction\/révélation/);
+  assert.match(out, /prédiction a enregistrée après sa révélation/);
+  assert.match(out, /marked done/);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+
+  assert.strictEqual(evidence.predictions.anomalies.length, 1);
+  assert.strictEqual(evidence.predictions.anomalies[0].id, "a");
+});
+
+// -----------------------------------------------------------------------
+// Mutation (story 02.03) — `verify` hard-blocks `done` on a phase with
+// `mutation: true` that has at least one survived mutant, symmetric to norm,
+// artifacts and predictions above. A phase without `phase.mutation` is never
+// affected (retro-compat, like predictions' `predictionsRequired` absent).
+// -----------------------------------------------------------------------
+
+test("verify marks done a phase whose mutation is required and every mutant found is killed", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /\nMutation :/);
+  assert.match(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+  assert.strictEqual(process.exitCode, 0);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.ok, true);
+  assert.strictEqual(evidence.mutation.required, true);
+  assert.strictEqual(evidence.mutation.score, 100);
+});
+
+test("verify blocks a phase with a survived mutant: not marked done, message lists the site", () => {
+  const dir = tmpProject(mutationPhase(WEAK_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /\nMutation :/);
+  assert.match(out, /src\/index\.js:2 — boolean-literal — SURVÉCU/);
+  assert.match(out, /ai-learn mutate --phase 0/);
+  assert.doesNotMatch(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.ok, false);
+  assert.strictEqual(evidence.mutation.survived.length, 1);
+  assert.strictEqual(evidence.mutation.survived[0].file, "src/index.js");
+});
+
+test("verify does not block a phase with mutation required but no mutable site in scope", () => {
+  const dir = tmpProject(mutationPhase('node -e "process.exit(0)"'));
+  writeFile(dir, "src/index.js", "module.exports = { add: (a, b) => a + b };\n");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /\nMutation :/);
+  assert.match(out, /marked done/);
+  assert.strictEqual(process.exitCode, 0);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.ok, true);
+  assert.strictEqual(evidence.mutation.score, null);
+});
+
+test("verify reports mutation.required=false without blocking when phase.mutation is absent", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /\nMutation :/);
+  assert.match(out, /marked done/);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.required, false);
+  assert.strictEqual(evidence.mutation.ok, true);
+});
+
+test("verify never computes mutation when the base checkpoint is already red — the file is never touched", () => {
+  const dir = tmpProject(mutationPhase('node -e "process.exit(1)"'));
+  const original = "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n";
+  writeFile(dir, "src/index.js", original);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /\nMutation :/);
+  assert.strictEqual(process.exitCode, 1);
+  assert.strictEqual(fs.readFileSync(path.join(dir, "src/index.js"), "utf8"), original);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.required, true);
+  assert.strictEqual(evidence.mutation.mutants, 0);
+  assert.strictEqual(evidence.mutation.ok, true);
+});
+
+test("a done phase whose mutation regresses (a mutant starts surviving) is demoted to in_progress", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  let { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+
+  // The checkpoint stops inspecting the return value: the same boolean mutant
+  // now survives — code/test coverage regressed, not the checkpoint itself.
+  config.phases[0].checkpoint = WEAK_CHECKPOINT;
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /demoted: done → in_progress/);
+  ({ config } = readProgress(dir));
+  assert.strictEqual(config.phases[0].status, "in_progress");
+  assert.strictEqual(process.exitCode, 1);
+});
+
+test("verify --no-mark on a mutation-required phase still computes mutation.ok=false without changing status", () => {
+  const dir = tmpProject(mutationPhase(WEAK_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
+
+  assert.match(out, /\nMutation :/);
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.ok, false);
+});
+
+test("verify signals a truncated mutation run for transparency, without blocking on the truncation alone", () => {
+  const checkpoint =
+    "node -e \"" +
+    "const { isReady, inRange } = require('./src/index.js');" +
+    "if (isReady() !== true) process.exit(1);" +
+    "if (inRange(10) !== false) process.exit(1);" +
+    "\"";
+  const dir = tmpProject(mutationPhase(checkpoint));
+  writeFile(
+    dir,
+    "src/index.js",
+    "function isReady() {\n  return true;\n}\nfunction inRange(x) {\n  return x < 10;\n}\nmodule.exports = { isReady, inRange };\n",
+  );
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(
+    mutateConfigPath(dir),
+    JSON.stringify({ version: 1, mutators: ["boolean-literal", "comparison-operator"], maxMutantsPerRun: 1, ignore: [] }),
+  );
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /plafond de mutants atteint/);
+  assert.match(out, /marked done/);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.truncated, true);
+  assert.strictEqual(evidence.mutation.ok, true);
+});
+
+test("verify: a maxMutantsPerRun of 0 in .ai-learn/mutate.json never bypasses mutation testing (review finding, story 02.03)", () => {
+  const dir = tmpProject(mutationPhase(WEAK_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(mutateConfigPath(dir), JSON.stringify({ version: 1, mutators: ["boolean-literal"], maxMutantsPerRun: 0, ignore: [] }));
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  // The weak checkpoint never inspects the mutated return value: if the
+  // config's non-positive maxMutantsPerRun had been honored literally
+  // (slicing the site list down to zero), no mutant would ever have been
+  // tested and this run would have wrongly reported ok: true.
+  assert.match(out, /\nMutation :/);
+  assert.doesNotMatch(out, /marked done/);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.mutation.ok, false);
+  assert.strictEqual(evidence.mutation.mutants, 1);
+  assert.strictEqual(evidence.mutation.survived.length, 1);
+});
+
+test("verify recovers an orphan mutation lock left by a prior interrupted run before running the checkpoint (review finding, story 02.03)", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  const originalContent = "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n";
+  writeFile(dir, "src/index.js", originalContent);
+
+  // Simulate a crash mid-mutation (Ctrl+C, kill) during a prior `verify`:
+  // the file is left mutated on disk, the lock still points at the pristine
+  // content — same trail `ai-learn mutate` already self-heals from.
+  fs.writeFileSync(path.join(dir, "src/index.js"), originalContent.replace("true", "false"));
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(mutateLockPath(dir), JSON.stringify({ file: "src/index.js", original: originalContent }));
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /run précédent a été interrompu/);
+  assert.strictEqual(fs.existsSync(mutateLockPath(dir)), false);
+  // Recovered before the base checkpoint ran, so verify proceeds normally
+  // against the real (restored) source instead of the leftover mutant.
+  assert.match(out, /marked done/);
+  assert.strictEqual(fs.readFileSync(path.join(dir, "src/index.js"), "utf8"), originalContent);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
 test("evidence records marking: applied for a normal run, skipped for --no-mark", () => {
   const dir = tmpProject(sampleProgress());
   capture(() => verifyCommand({ dir, phaseId: 0 }));
@@ -416,4 +796,54 @@ test("evidence records marking: applied for a normal run, skipped for --no-mark"
   runs = fs.readdirSync(runsDir(dir2)).filter((f) => f.endsWith("-verify.json"));
   evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir2), runs[0]), "utf8"));
   assert.strictEqual(evidence.marking, "skipped");
+});
+
+// Story 02.05 — the cross-project tests ledger is fed by a passing verify, and
+// can never make verify itself fail.
+// -----------------------------------------------------------------------
+
+test("verify feeds ~/.ai-learn/tracks/tests.json from a passing mutation phase", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+  const home = tmpHome();
+
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+
+  const { readTestsTracks } = require("../bin/lib/tracks/tests");
+  const { config } = readTestsTracks({ home });
+  assert.strictEqual(config.tiers["1"].achieved, true);
+  assert.strictEqual(config.tiers["2"].achieved, true);
+  assert.ok(config.projects[dir]);
+});
+
+test("verify observes rouge d'abord across a failing then a passing run", () => {
+  const dir = tmpProject(mutationPhase(WEAK_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+  const home = tmpHome();
+
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+  process.exitCode = 0;
+
+  const progress = readProgress(dir).config;
+  progress.phases[0].checkpoint = STRONG_CHECKPOINT;
+  fs.writeFileSync(progressPath(dir), `${JSON.stringify(progress, null, 2)}\n`);
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+
+  const { readTestsTracks } = require("../bin/lib/tracks/tests");
+  assert.strictEqual(readTestsTracks({ home }).config.tiers["3"].achieved, true);
+});
+
+test("verify réussit même si le sync tests.json échoue", () => {
+  const dir = tmpProject(mutationPhase(STRONG_CHECKPOINT));
+  writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+  const brokenHome = path.join(tmpHome(), "a-file");
+  fs.writeFileSync(brokenHome, "not a directory");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, home: brokenHome }));
+
+  assert.match(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
 });

@@ -55,6 +55,12 @@ Découpe en **6-10 phases** progressives, chacune avec :
 - `artifacts`: le doc de phase qui sera rédigé (ex. `docs/phase-N-<sujet>.md`)
 - `predictionsRequired`: nombre de prédictions écrites exigées (2-3 par phase
   pour un protocole solide)
+- `mutation` (optionnel, `true`) : exige que les tests de la phase protègent le
+  code — `ai-learn verify` lance la mutation après le checkpoint et bloque si un
+  mutant a **survécu** (un mutant **tué** = le test s'en est aperçu). À activer
+  sur les phases où le comportement est testable ; le protocole de prédiction
+  (« quel test doit tomber ? ») est décrit dans `AGENTS-apprentissage.md`
+  §3quinquies.
 
 Séquence type API web (modèle à adapter à la techno choisie) : mise en route →
 routes → validation d'entrée → architecture/modularité → persistance/IO →

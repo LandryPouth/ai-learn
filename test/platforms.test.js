@@ -10,7 +10,12 @@ const { parseCommandFile, listCommandFiles } = require("../bin/lib/platforms/com
 const { renderCommand: renderGemini } = require("../bin/lib/platforms/gemini");
 const { renderCommand: renderOpencode } = require("../bin/lib/platforms/opencode");
 const { renderCommand: renderAntigravity } = require("../bin/lib/platforms/antigravity");
-const { renderConfig: renderCodexGuard, PROFILE_NAME, MARKER } = require("../bin/lib/platforms/codex-guard");
+const {
+  renderConfig: renderCodexGuard,
+  findLiteralTestDirs,
+  PROFILE_NAME,
+  MARKER,
+} = require("../bin/lib/platforms/codex-guard");
 const { installCommand } = require("../bin/lib/install");
 const { ensureCodexGuard } = require("../bin/lib/guard");
 const { capture } = require("./helpers");
@@ -110,14 +115,16 @@ test("install opencode writes one namespaced .md per command", () => {
   assert.ok(files.includes("next.md"));
 });
 
-test("codex-guard renderConfig denies both the dir and its recursive glob", () => {
+test("codex-guard renderConfig emits only literal paths (no aborting dir + dir/** pair)", () => {
   const content = renderCodexGuard(["src/**"]);
 
   assert.match(content, new RegExp(`default_permissions = "${PROFILE_NAME}"`));
   assert.match(content, /"\/" = "read"/);
   assert.match(content, /"\." = "write"/);
-  assert.match(content, /"src\/\*\*" = "deny"/);
   assert.match(content, /"src" = "deny"/);
+  // Emitting both `src/**` and `src` makes bwrap abort when src/ contains an
+  // existing file, so the glob form must not be present at all.
+  assert.doesNotMatch(content, /\/\*\*" = "deny"/);
   assert.ok(content.startsWith(MARKER));
 });
 
@@ -125,6 +132,50 @@ test("codex-guard renderConfig handles a non-glob learner path as-is", () => {
   const content = renderCodexGuard(["answers.txt"]);
   assert.match(content, /"answers\.txt" = "deny"/);
   assert.doesNotMatch(content, /"answers" = "deny"/);
+});
+
+test("codex-guard renderConfig drops glob-only patterns and adds literal extras", () => {
+  const content = renderCodexGuard(["**/test/**", "**/*.test.*"], ["src/test", "src/__tests__"]);
+  const denyLines = content.split("\n").filter((line) => line.includes('= "deny"'));
+  assert.ok(denyLines.every((line) => !line.includes("*")), denyLines.join("\n"));
+  assert.match(content, /"src\/test" = "deny"/);
+  assert.match(content, /"src\/__tests__" = "deny"/);
+});
+
+test("codex-guard denyEntries protects the guard wiring, including the Claude hook settings", () => {
+  const content = renderCodexGuard(["src/**"]);
+
+  for (const entry of [
+    ".ai-learn",
+    ".ai-learn/guard.json",
+    ".codex",
+    ".codex/config.toml",
+    ".claude",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+  ]) {
+    assert.ok(content.includes(`${JSON.stringify(entry)} = "deny"`), entry);
+  }
+});
+
+test("findLiteralTestDirs finds existing nested test directories only", () => {
+  const dir = tmpDir("ai-learn-codex-dirs-");
+  fs.mkdirSync(path.join(dir, "src", "test"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "src", "__tests__"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "node_modules", "test"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "index.test.ts"), "x\n");
+
+  assert.deepStrictEqual(findLiteralTestDirs(dir), ["src/__tests__", "src/test"]);
+});
+
+test("findLiteralTestDirs is case-insensitive and skips build output", () => {
+  const dir = tmpDir("ai-learn-codex-dirs-");
+  fs.mkdirSync(path.join(dir, "Test"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "src", "test"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "build", "test"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "node_modules", "test"), { recursive: true });
+
+  assert.deepStrictEqual(findLiteralTestDirs(dir), ["Test", "src/test"]);
 });
 
 test("ensureCodexGuard creates .codex/config.toml and never overwrites a customized one", () => {
@@ -149,5 +200,6 @@ test("ensureCodexGuard refreshes a generated config when learnerFiles changes", 
   const result = ensureCodexGuard(dir, ["src/**", "answers/**"]);
   assert.deepStrictEqual(result.refreshed, [".codex/config.toml"]);
   const content = fs.readFileSync(path.join(dir, ".codex", "config.toml"), "utf8");
-  assert.match(content, /"answers\/\*\*" = "deny"/);
+  assert.match(content, /"answers" = "deny"/);
+  assert.doesNotMatch(content, /"answers\/\*\*" = "deny"/);
 });

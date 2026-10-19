@@ -34,40 +34,44 @@ C'est **le bug déjà consigné dans `docs/DOGFOODING.md`** (« `docs add` avale
 
 ## Requirements
 
-- [ ] Un parseur d'arguments partagé retire les paires flag/valeur avant toute
-      extraction positionnelle, pour **toutes** les commandes.
-- [ ] `ai-learn verify --dir <chemin> <id>` et `ai-learn verify <id> --dir <chemin>`
+- [~] Un parseur d'arguments partagé retire les paires flag/valeur avant toute
+      extraction positionnelle, pour **toutes** les commandes. Fait pour
+      `verify`, `install` (le bug reproduit) et `docs` (exigé explicitement) ;
+      `init`/`propose`/`update`/`predict` n'ont pas de bug d'extraction
+      positionnelle à corriger (flags nommés uniquement) — non migrés pour
+      éviter un refactor sans criticité observable. Voir Result/tasks.md.
+- [x] `ai-learn verify --dir <chemin> <id>` et `ai-learn verify <id> --dir <chemin>`
       se comportent identiquement.
-- [ ] Le `stripDir` local de `docs.js` est remplacé par le parseur partagé, sans
+- [x] Le `stripDir` local de `docs.js` est remplacé par le parseur partagé, sans
       régression sur les cas déjà couverts par `test/docs.test.js`.
-- [ ] `check`, `status` et `next` acceptent `--json` et écrivent sur stdout un objet
+- [x] `check`, `status` et `next` acceptent `--json` et écrivent sur stdout un objet
       unique, versionné, sans aucune ligne de texte libre.
-- [ ] La sortie JSON expose le verdict par phase du modèle d'états de cette epic.
-- [ ] Sans `--json`, la sortie texte est strictement inchangée.
-- [ ] Le code de sortie est identique avec et sans `--json`.
+- [x] La sortie JSON expose le verdict par phase du modèle d'états de cette epic.
+- [x] Sans `--json`, la sortie texte est strictement inchangée.
+- [x] Le code de sortie est identique avec et sans `--json`.
 
 ## Acceptance Criteria
 
-- [ ] Given la commande `verify --dir <chemin> <id>`, when elle est lancée, then la phase `<id>` du projet `<chemin>` est vérifiée.
-- [ ] Given la commande `verify <id> --dir <chemin>`, when elle est lancée, then le résultat est identique à l'ordre inverse.
-- [ ] Given la commande `install --home <chemin> claude`, when elle est lancée, then la plateforme retenue est `claude` et non `<chemin>`.
-- [ ] Given `ai-learn check --json`, when elle est lancée, then la sortie complète est un JSON valide et unique.
-- [ ] Given `ai-learn check --json` sur un projet en erreur, when elle est lancée, then le code de sortie est 1, identique à la sortie texte.
-- [ ] Given `ai-learn status --json`, when elle est lancée, then chaque phase porte son verdict (`pending`, `in-progress`, `proven`, `proven-unhashed`, `stale`, `unproven`).
-- [ ] Given `ai-learn next --json`, when aucune phase ne reste, then la sortie l'indique par un champ dédié et non par une phrase.
-- [ ] Given une commande sans `--json`, when elle est lancée, then sa sortie texte est identique à celle de la version précédente.
+- [x] Given la commande `verify --dir <chemin> <id>`, when elle est lancée, then la phase `<id>` du projet `<chemin>` est vérifiée.
+- [x] Given la commande `verify <id> --dir <chemin>`, when elle est lancée, then le résultat est identique à l'ordre inverse.
+- [x] Given la commande `install --home <chemin> claude`, when elle est lancée, then la plateforme retenue est `claude` et non `<chemin>`.
+- [x] Given `ai-learn check --json`, when elle est lancée, then la sortie complète est un JSON valide et unique.
+- [x] Given `ai-learn check --json` sur un projet en erreur, when elle est lancée, then le code de sortie est 1, identique à la sortie texte.
+- [x] Given `ai-learn status --json`, when elle est lancée, then chaque phase porte son verdict (`pending`, `in-progress`, `proven`, `proven-unhashed`, `stale`, `unproven`).
+- [x] Given `ai-learn next --json`, when aucune phase ne reste, then la sortie l'indique par un champ dédié et non par une phrase.
+- [x] Given une commande sans `--json`, when elle est lancée, then sa sortie texte est identique à celle de la version précédente.
 
 ## Edge Cases
 
-- [ ] `--dir=<valeur>` (forme collée) autant que `--dir <valeur>`.
-- [ ] Flag booléen suivi d'un positionnel (`verify --no-mark 0`) — `--no-mark` ne
+- [x] `--dir=<valeur>` (forme collée) autant que `--dir <valeur>`.
+- [x] Flag booléen suivi d'un positionnel (`verify --no-mark 0`) — `--no-mark` ne
       prend pas de valeur et ne doit pas manger le `0`.
-- [ ] Flag inconnu — ne pas planter, comportement actuel préservé.
-- [ ] Valeur de flag commençant par `-` (chemin exotique).
-- [ ] `--phases '<json>'` de `init` : la valeur contient espaces et accolades.
-- [ ] Sortie JSON quand `progress.json` est absent ou corrompu.
-- [ ] `--json` combiné à `--root` sur plusieurs projets.
-- [ ] Sortie JSON contenant des chemins Windows (séparateurs normalisés).
+- [x] Flag inconnu — ne pas planter, comportement actuel préservé.
+- [x] Valeur de flag commençant par `-` (chemin exotique).
+- [x] `--phases '<json>'` de `init` : la valeur contient espaces et accolades.
+- [x] Sortie JSON quand `progress.json` est absent ou corrompu.
+- [x] `--json` combiné à `--root` sur plusieurs projets.
+- [x] Sortie JSON contenant des chemins Windows (séparateurs normalisés).
 
 ## UX Notes
 

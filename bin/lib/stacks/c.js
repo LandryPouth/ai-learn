@@ -175,4 +175,8 @@ const stresses = [
 // See bin/lib/norm.js.
 const norm = { maxFileLines: 250, maxFunctionLines: 30, maxNestingDepth: 4, maxParams: 4 };
 
-module.exports = { concepts, directions, recipes, stresses, norm };
+// Active mutation operators for `ai-learn mutate` — see javascript.js for the
+// symmetric field and bin/lib/mutate.js#MUTATION_OPERATORS for the bank.
+const mutators = ["boolean-literal", "comparison-operator"];
+
+module.exports = { concepts, directions, recipes, stresses, norm, mutators };

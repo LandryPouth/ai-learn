@@ -128,6 +128,78 @@ test("self-heal is a one-time no-op: a second run doesn't rewrite already-instal
   assert.strictEqual(fs.statSync(marker).mtimeMs, before);
 });
 
+test("verify accepts --dir before the positional phase id (story 01.05)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-verify-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({
+      version: 1,
+      project: "demo",
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+
+  const result = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0"], { encoding: "utf8", env: isolatedEnv() });
+
+  assert.strictEqual(result.status, 0);
+  assert.match(result.stdout, /Phase 0 marked done/);
+});
+
+test("verify --dir before or after the id gives the same result", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-verify-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({
+      version: 1,
+      project: "demo",
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+
+  const before = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0"], { encoding: "utf8", env: isolatedEnv() });
+
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({
+      version: 1,
+      project: "demo",
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+
+  const after = spawnSync(process.execPath, [BIN, "verify", "0", "--dir", dir], { encoding: "utf8", env: isolatedEnv() });
+
+  assert.strictEqual(before.status, after.status);
+  assert.strictEqual(before.status, 0);
+});
+
+test("install --home <path> claude retains claude as the platform, not the path (story 01.05)", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-install-"));
+
+  const result = spawnSync(process.execPath, [BIN, "install", "--home", home, "claude"], {
+    encoding: "utf8",
+    env: isolatedEnv(),
+  });
+
+  assert.strictEqual(result.status, 0);
+  assert.ok(fs.existsSync(path.join(home, ".claude", "commands", "next.md")));
+});
+
+test("ai-learn check --root . --json prints a single valid JSON object, end to end through the CLI", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-check-"));
+  fs.writeFileSync(
+    path.join(root, "progress.json"),
+    JSON.stringify({ version: 1, project: "demo", phases: [{ id: 0, name: "Zero", status: "pending" }] }),
+  );
+
+  const result = spawnSync(process.execPath, [BIN, "check", "--root", root, "--json"], { encoding: "utf8", env: isolatedEnv() });
+
+  assert.strictEqual(result.status, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.strictEqual(parsed.version, 1);
+  assert.strictEqual(parsed.ok, true);
+});
+
 test("no platform identifiable (no --platform, no CLAUDECODE): commands stay untouched", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-"));
   spawnSync(process.execPath, [BIN, "--help"], { encoding: "utf8", env: { ...process.env, ...homeEnvOverrides(home, { CLAUDECODE: "" }) } });

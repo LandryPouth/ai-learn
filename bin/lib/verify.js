@@ -7,40 +7,19 @@
 
 const fs = require("fs");
 const path = require("path");
-const { spawnSync } = require("child_process");
 const { log, fail } = require("./util");
 const { readProgress, runsDir, findPhase, setPhaseStatus } = require("./progress");
 const { syncGitTrack } = require("./tracks/git");
+const { syncTestsTrack } = require("./tracks/tests");
 const { syncDomainLedger } = require("./tracks/domain");
 const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { predictionsReport, formatPredictionsGap } = require("./predictions");
+const { mutationReport, formatMutationGap, emptyMutationReport, recoverOrphanLockAndLog } = require("./mutate");
+const { runCommand } = require("./exec");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
-}
-
-function runCommand(command, cwd, { timeoutMs = 120000 } = {}) {
-  const started = Date.now();
-  const result = spawnSync(command, [], {
-    cwd,
-    shell: true,
-    encoding: "utf8",
-    timeout: timeoutMs,
-    maxBuffer: 256 * 1024 * 1024,
-  });
-
-  const timedOut = Boolean(result.error && result.error.code === "ETIMEDOUT");
-  const exitCode = result.status != null ? result.status : timedOut ? 124 : result.error ? 127 : 1;
-
-  return {
-    command,
-    exitCode,
-    ok: exitCode === 0,
-    timedOut,
-    durationMs: Date.now() - started,
-    stdoutTail: (result.stdout || "").slice(-4000),
-    stderrTail: (result.stderr || "").slice(-4000),
-  };
 }
 
 function logResult(command, result) {
@@ -89,6 +68,16 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
   if (!phase.checkpoint) {
     fail(`Phase ${phase.id} ("${phase.name}") has no checkpoint command. Add "checkpoint" to progress.json.`);
   }
+
+  // `verifyCommand` itself now mutates and restores files one mutant at a
+  // time (via `mutationReport`, story 02.03) — the exact same window
+  // `ai-learn mutate` guards with `.ai-learn/mutate.lock.json`. Recovering
+  // here, before the base checkpoint even runs, means an interrupted prior
+  // `verify` (Ctrl+C, kill, crash mid-mutation) never leaves the learner's
+  // source silently mutated for this run to check against — same self-heal
+  // `mutateCommand` already does at its own start, same shared helper
+  // (review finding, story 02.03).
+  recoverOrphanLockAndLog(dir);
 
   log(`Verifying phase ${phase.id} — ${phase.name}`);
   log(`Command: ${phase.checkpoint}\n`);
@@ -142,6 +131,52 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     }
   }
 
+  // Predictions (story 01.04) — same hard-block philosophy as the norm and
+  // artifacts checks above, computed unconditionally regardless of --no-mark.
+  // `predictionsReport` itself encodes retro-compat: `missing` stays 0 for a
+  // project with no predictions.json at all, so this never blocks a legacy
+  // project (plan.md Decisions).
+  const predReport = predictionsReport({ dir, phase });
+
+  if (predReport.missing > 0) {
+    log("\nPrédictions :");
+    log(
+      `  ✗ ${formatPredictionsGap(phase, predReport)}` +
+        (predReport.corrupted ? " (.ai-learn/predictions.json est corrompu)" : ""),
+    );
+    log(`    prédire avant de révéler fait l'apprentissage : \`ai-learn predict --phase ${phase.id} --prediction "..."\``);
+  }
+
+  if (predReport.anomalies.length > 0) {
+    log("\nAntériorité prédiction/révélation :");
+    for (const anomaly of predReport.anomalies) {
+      log(`  ⚠ prédiction ${anomaly.id} enregistrée après sa révélation (at ${anomaly.at} > revealedAt ${anomaly.revealedAt})`);
+    }
+  }
+
+  // Mutation testing (story 02.03) — only for a phase that explicitly opts
+  // in (`phase.mutation === true`, checked inside mutationReport itself,
+  // strictly, so a non-boolean value never turns it on by accident). Only
+  // computed when the base checkpoint already passed: mutating code whose
+  // test is already red proves nothing (02-01), and running the full mutant
+  // loop for a red checkpoint would cost real time for zero information —
+  // this guard is explicit here, not hidden inside mutationReport (plan.md
+  // Decisions).
+  const mutReport = result.ok ? mutationReport({ dir, phase }) : emptyMutationReport(phase.mutation === true);
+
+  if (!mutReport.ok) {
+    log("\nMutation :");
+    log(`  ✗ ${formatMutationGap(phase, mutReport)}`);
+    for (const site of mutReport.survived) {
+      log(`    ${site.file}:${site.line} — ${site.operator} — SURVÉCU`);
+    }
+    log(`    rejouer l'investigation : \`ai-learn mutate --phase ${phase.id}\``);
+  }
+
+  if (mutReport.truncated) {
+    log(`\n⚠ Mutation : plafond de mutants atteint (${mutReport.mutants} testé(s)) — score partiel, pas un blocage.`);
+  }
+
   // The empreinte of what this run's proof covers — the learner's own files
   // plus the checkpoint file itself. Written unconditionally, same as
   // normReport/missingArtifacts above: only evidence with `ok: true` is ever
@@ -150,7 +185,12 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
   const sourceHash = computeSourceHash(dir, { checkpointFile: checkpointFilePath(dir, phase.checkpoint) });
 
   const ok =
-    result.ok && (!stressResult || stressResult.ok) && normReport.violations.length === 0 && missingArtifacts.length === 0;
+    result.ok &&
+    (!stressResult || stressResult.ok) &&
+    normReport.violations.length === 0 &&
+    missingArtifacts.length === 0 &&
+    predReport.missing === 0 &&
+    mutReport.ok;
 
   const evidence = {
     generatedAt: new Date().toISOString(),
@@ -176,6 +216,24 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
       scannedFiles: normReport.scanned,
       skipped: normReport.skippedFunctionParse,
     },
+    predictions: {
+      ok: predReport.missing === 0,
+      required: predReport.required,
+      count: predReport.count,
+      missing: predReport.missing,
+      corrupted: predReport.corrupted,
+      anomalies: predReport.anomalies,
+    },
+    mutation: {
+      ok: mutReport.ok,
+      required: mutReport.required,
+      mutants: mutReport.mutants,
+      killed: mutReport.killed,
+      survived: mutReport.survived,
+      killedOperators: mutReport.killedOperators,
+      score: mutReport.score,
+      truncated: mutReport.truncated,
+    },
   };
 
   const outputPath = writeEvidence(dir, evidence);
@@ -195,6 +253,12 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
 
       try {
         syncDomainLedger({ dir, verifyEvidence: evidence, home });
+      } catch {
+        // same isolated failure domain as the git ledger sync above
+      }
+
+      try {
+        syncTestsTrack({ dir, phase, verifyEvidence: evidence, home });
       } catch {
         // same isolated failure domain as the git ledger sync above
       }

@@ -4,7 +4,7 @@
 // is the source of truth once it exists and is valid; `docs/plans/predictions.md`
 // becomes a render of it, same "generated unless customized" convention as
 // AGENTS.md (update.js#PROTOCOL_MARKER) and the solutions README
-// (guard.js#SOLUTIONS_README). A project with no predictions.json yet keeps
+// (guard.js#renderSolutionsReadme). A project with no predictions.json yet keeps
 // being counted from its hand-typed `.md` — see check.js.
 
 const fs = require("fs");
@@ -246,6 +246,53 @@ function recordPrediction(dir, config, fields) {
   return { entry, render };
 }
 
+// Story 01.04 — the single source `verify` and `check` both consume so a
+// phase never gets two diverging verdicts about the same count (plan.md
+// Decisions). Retro-compat is load-bearing here: a project that never
+// adopted 01.03 (no predictions.json on disk at all) reports `missing: 0`
+// unconditionally — this mechanism only bites once a project has real
+// prediction data, never on legacy projects with just the `.md`.
+//
+// A corrupted predictions.json is treated as present-but-untrustworthy, not
+// absent: `check` already hard-errors on it project-wide, and letting it
+// silently disable the gate here would make deleting/corrupting the file an
+// easy way to dodge a `predictionsRequired` block.
+//
+// Antériorité (`at > revealedAt`) is reported, never blocking — see plan.md:
+// the field is agent-declared, not observed by the tool.
+// `predictions` is optional: a caller that already called `readPredictions(dir)`
+// itself (check.js, once per project, before looping over phases) passes it
+// through here instead of paying for a second disk read + JSON.parse per
+// phase that requires predictions. Omitted, this reads it itself — the shape
+// every existing caller (verify.js, the unit tests) relies on.
+function predictionsReport({ dir, phase, predictions }) {
+  const required = Number.isFinite(phase.predictionsRequired) && phase.predictionsRequired > 0 ? phase.predictionsRequired : 0;
+  const resolved = predictions || readPredictions(dir);
+
+  if (!resolved.exists) {
+    return { required, count: 0, missing: 0, corrupted: false, anomalies: [] };
+  }
+
+  if (!resolved.valid) {
+    return { required, count: 0, missing: required, corrupted: true, issues: resolved.issues, anomalies: [] };
+  }
+
+  const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id);
+  const count = entries.length;
+  const anomalies = entries
+    .filter((entry) => entry.revealedAt && entry.at > entry.revealedAt)
+    .map((entry) => ({ id: entry.id, at: entry.at, revealedAt: entry.revealedAt }));
+
+  return { required, count, missing: Math.max(0, required - count), corrupted: false, anomalies };
+}
+
+// Shared by `verify` and `check` so a phase's missing-predictions warning
+// never reads different counts in two places (plan.md Decisions) — the one
+// divergence this story exists to close.
+function formatPredictionsGap(phase, report) {
+  return `phase ${phase.id}: ${report.count}/${report.required} recorded predictions; ${report.missing} missing`;
+}
+
 module.exports = {
   VERSION,
   GENERATED_MARKER,
@@ -257,4 +304,6 @@ module.exports = {
   countIATyped,
   recordPrediction,
   renderJournal,
+  predictionsReport,
+  formatPredictionsGap,
 };

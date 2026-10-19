@@ -54,7 +54,10 @@ commands/                les 7 commandes /… (markdown, format Claude Code)
 
 - `norm.js` importe `scan.js` (`walkSources`, `detectStack`, `detectTests`,
   `loadStack`) **et** `guard.js` (`loadGuardConfig`, `matchesLearnerPath`).
-  Le périmètre de la norme est donc défini par `learnerFiles` du guard.
+  Le périmètre de la norme est donc défini par `implementationFiles` du guard
+  (le code que l'IA a le droit d'écrire), **pas** par `learnerFiles` : en mode
+  `dirigeant`, `learnerFiles` désigne la spécification de l'apprenant.
+  `mutate.js` et `source-hash.js` suivent la même règle.
 - `latestEvidenceForPhase` vit dans `progress.js` (une feuille) et non dans
   `status.js` : `status.js` → `tracks/domain.js` → `scan.js` créerait un cycle.
   **Ne pas déplacer cette fonction.** Même contrainte pour `phaseVerdict`,
@@ -68,7 +71,8 @@ commands/                les 7 commandes /… (markdown, format Claude Code)
   contenu normalisé (CRLF/LF inclus) — décision verrouillée, voir
   `epics/epic-01-verdict-fiable/story-01-01-trois-etats-du-verdict/plan.md`.
 - `check.js` importe `norm.js`, `docs.js`, `git-hooks.js`, `dogfood.js`,
-  `platforms/codex-guard.js` — c'est le module le plus couplé (692 lignes).
+  `guard.js` (validation de `guard.json`), `platforms/codex-guard.js` — c'est le
+  module le plus couplé.
 - `verify.js` importe `norm.js`, `tracks/git.js`, `tracks/domain.js`.
 
 ## Ce que le guard ne voit pas

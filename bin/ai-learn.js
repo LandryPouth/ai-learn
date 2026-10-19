@@ -109,25 +109,40 @@ function main() {
 
     case "status": {
       const { statusCommand } = require("./lib/status");
-      statusCommand({ dir });
+      statusCommand({ dir, json: flags.has("--json") });
       break;
     }
 
     case "next": {
       const { nextCommand } = require("./lib/next");
-      nextCommand({ dir });
+      nextCommand({ dir, json: flags.has("--json") });
       break;
     }
 
     case "verify": {
       const { verifyCommand } = require("./lib/verify");
-      const phaseId = Number.parseInt(commandArgs.find((arg) => !arg.startsWith("--")) || "", 10);
+      const { parseArgs } = require("./lib/args");
+      const { positionals } = parseArgs(commandArgs, { valueFlags: ["--dir"] });
+      const phaseId = Number.parseInt(positionals[0] || "", 10);
 
       if (!Number.isFinite(phaseId)) {
         fail("verify requires a phase id, ex: ai-learn verify 0");
       }
 
       verifyCommand({ dir, phaseId, noMark: flags.has("--no-mark") });
+      break;
+    }
+
+    case "mutate": {
+      const { mutateCommand } = require("./lib/mutate");
+      const phaseRaw = getFlagValue("--phase", null);
+      const phaseId = phaseRaw !== null ? Number.parseInt(phaseRaw, 10) : NaN;
+
+      if (!Number.isFinite(phaseId)) {
+        fail("mutate requires --phase <id>, ex: ai-learn mutate --phase 0");
+      }
+
+      mutateCommand({ dir, phaseId });
       break;
     }
 
@@ -196,7 +211,7 @@ function main() {
     case "check": {
       const { checkCommand } = require("./lib/check");
       const root = resolveDir(getFlagValue("--root"));
-      checkCommand({ root });
+      checkCommand({ root, json: flags.has("--json") });
       break;
     }
 
@@ -244,8 +259,10 @@ function main() {
 
     case "install": {
       const { installCommand } = require("./lib/install");
-      const platform = commandArgs.find((arg) => !arg.startsWith("--")) || null;
-      const home = getFlagValue("--home", null);
+      const { parseArgs } = require("./lib/args");
+      const { positionals, flags: installFlags } = parseArgs(commandArgs, { valueFlags: ["--home"] });
+      const platform = positionals[0] || null;
+      const home = typeof installFlags["--home"] === "string" ? installFlags["--home"] : null;
       installCommand({ platform, ...(home ? { home } : {}) });
       break;
     }
@@ -258,16 +275,17 @@ Usage:
   ai-learn version | --version | -v
   ai-learn init --technology <name> [--project <name>] [--doc-source <path|url>] [--phases '<json>']
              [--platform <claude|codex|gemini|opencode|antigravity>]
-  ai-learn status [--dir <dir>]
-  ai-learn next [--dir <dir>]
+  ai-learn status [--dir <dir>] [--json]
+  ai-learn next [--dir <dir>] [--json]
   ai-learn scan [--dir <dir>]
   ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
+  ai-learn mutate --phase <id> [--dir <dir>]
   ai-learn predict --phase <id> --prediction <text> [--gaps <text>] [--score <text>]
              [--strengths <text>] [--weaknesses <text>] [--flash <text>] [--corrected <text>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
-  ai-learn check [--root <dir>]
+  ai-learn check [--root <dir>] [--json]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
@@ -284,6 +302,10 @@ init'ed on self-heals on its very next command, no separate step to
 remember. Claude Code also self-heals with no flag at all (CLAUDECODE=1,
 the one verified auto-detect signal) — see bin/lib/platforms/ensure.js.
 
+--json (check, status, next only) prints one machine-readable JSON object on
+stdout instead of the human report, for an agent to parse — it never mixes
+with the text output.
+
 Commands:
   init     Scaffold a learning project (progress.json, docs/plans/, checkpoint/, predictions journal).
            --platform installs that platform's /… commands immediately (the agent knows its own
@@ -296,6 +318,9 @@ Commands:
            backed by a verifiable resource; --validate refuses an invented
            project with an unsourced stage
   verify   Run a phase checkpoint, record executed evidence, mark it done on success
+  mutate   Mutation testing: break the learner's code one way, run the phase
+           checkpoint against it, report SURVÉCU (the test missed it) or TUÉ
+           (the test caught it) per site — the file is always restored after
   predict  Record a prediction for a phase in .ai-learn/predictions.json (source of
            truth) and regenerate docs/plans/predictions.md from it — unless that
            file has been customized (no generated marker), in which case it is left

@@ -23,24 +23,25 @@ const PLATFORMS = {
   codex: {
     label: "Codex CLI",
     guard: "mécanique (bac à sable OS, .codex/config.toml câblé par `init`/`update`) — " +
-      "vérifié via `codex sandbox`, pas encore en session interactive réelle",
+      "chemins littéraux vérifiés via `codex sandbox` ; les répertoires de test " +
+      "existants sont inclus, pas les nouveaux ni les tests colocalisés",
   },
   gemini: {
     label: "Gemini CLI",
     guard: "non câblé — Gemini a un hook BeforeTool, mais le nom exact des champs " +
       "tool_input pour un chemin de fichier n'est pas confirmé ; seuls AGENTS.md et " +
-      "les trous non-collables de docs/solutions/ protègent src/**",
+      "les trous non-collables de docs/solutions/ protègent les fichiers apprenant (src/** en apprenti, la spécification en dirigeant)",
   },
   opencode: {
     label: "OpenCode",
     guard: "non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; " +
-      "seuls AGENTS.md et les trous non-collables de docs/solutions/ protègent src/**",
+      "seuls AGENTS.md et les trous non-collables de docs/solutions/ protègent les fichiers apprenant (src/** en apprenti, la spécification en dirigeant)",
   },
   antigravity: {
     label: "Antigravity",
     guard: "non câblé — un système de hooks (hooks.json) existe côté doc publique mais " +
       "n'a pas pu être confirmé sur une install réelle ; seuls AGENTS.md et les trous " +
-      "non-collables de docs/solutions/ protègent src/**",
+      "non-collables de docs/solutions/ protègent les fichiers apprenant (src/** en apprenti, la spécification en dirigeant)",
   },
 };
 
@@ -177,7 +178,7 @@ function installCommand({ platform, home = os.homedir() }) {
     }
   }
 
-  log(`\nGarde-fou (blocage src/**) : ${PLATFORMS[platform].guard}`);
+  log(`\nGarde-fou (blocage des fichiers apprenant) : ${PLATFORMS[platform].guard}`);
 }
 
 module.exports = { installCommand, PLATFORMS, INSTALLERS, linkOrCopy };

@@ -297,7 +297,7 @@ test("analyzeFile skips function-level rules (but keeps file-length) on unbalanc
 });
 
 // ---------------------------------------------------------------------------
-// M2 — normProject: learnerFiles scoping, test-file exclusion, config
+// M2 — normProject: implementationFiles scoping, test-file exclusion, config
 // overrides, ignore globs, stack-default fallback.
 // ---------------------------------------------------------------------------
 
@@ -310,6 +310,40 @@ test("normProject only scans files under learnerFiles (default src/**)", () => {
   const report = normProject(dir);
   assert.equal(report.violations.length, 1);
   assert.equal(report.violations[0].file, "src/index.js");
+});
+
+test("normProject in dirigeant scans src/** (the implementation), never the learner's specification", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  writeFile(dir, "src/index.js", jsFunctionOfLength("implementation", 5));
+  writeFile(dir, "test/spec.test.js", jsFunctionOfLength("specification", 5));
+
+  const report = normProject(dir);
+  assert.equal(report.violations.length, 1);
+  assert.equal(report.violations[0].file, "src/index.js");
+});
+
+test("normProject in dirigeant follows a custom implementation scope", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
+  writeFile(dir, "lib/index.js", jsFunctionOfLength("implementation", 5));
+  writeFile(dir, "src/index.js", jsFunctionOfLength("outOfScope", 5));
+
+  const report = normProject(dir);
+  assert.equal(report.violations.length, 1);
+  assert.equal(report.violations[0].file, "lib/index.js");
+});
+
+test("normProject treats __tests__ directories as test files", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/index.js", "function clean() {\n  return 1;\n}");
+  writeFile(dir, "src/__tests__/setup.js", jsFunctionOfLength("setupHeavy", 5));
+
+  const report = normProject(dir);
+  assert.equal(report.violations.length, 0);
 });
 
 test("normProject excludes test files by default, includes them when includeTests is true", () => {

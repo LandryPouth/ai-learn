@@ -18,6 +18,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, fail, mkdirp, writeJson, normalizePortable, spawnGit } = require("./util");
 const { progressPath, readProgress } = require("./progress");
+const { parseArgs } = require("./args");
 
 const MAX_SOURCES = 3;
 
@@ -560,50 +561,19 @@ function listSources({ dir }) {
   }
 }
 
-// Tiny arg parsing for the subcommand, mirroring the style of bin/ai-learn.js.
-function positional(args) {
-  return args.filter((arg) => !arg.startsWith("--"));
-}
-
-// The global `--dir <value>` is consumed by bin/ai-learn.js's resolveDir before
-// dispatch, but it still travels inside `commandArgs`. Without stripping it, a
-// short invocation like `docs add <name> --dir <dir>` would swallow <dir> as the
-// positional source (and `docs add x --dir=<dir>` would leak the `--dir=` token).
-function stripDir(args) {
-  const out = [];
-
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-
-    if (arg === "--dir") {
-      i += 1; // skip its value
-      continue;
-    }
-
-    if (arg.startsWith("--dir=")) {
-      continue;
-    }
-
-    out.push(arg);
-  }
-
-  return out;
-}
-
-function flagValue(args, name) {
-  const index = args.indexOf(name);
-  return index !== -1 && args[index + 1] && !args[index + 1].startsWith("--") ? args[index + 1] : null;
-}
-
 function docsCommand({ dir, args }) {
   const sub = args[0] || "list";
-  const rest = stripDir(args.slice(1));
-  const online = rest.includes("--online");
-  const regen = rest.includes("--regen");
-  const subpath = flagValue(rest, "--path");
+  // The global `--dir <value>` is consumed by bin/ai-learn.js's resolveDir
+  // before dispatch, but it still travels inside `commandArgs` — without the
+  // shared parser knowing it takes a value, a short invocation like
+  // `docs add <name> --dir <dir>` would swallow <dir> as the positional source.
+  const { flags, positionals: rest } = parseArgs(args.slice(1), { valueFlags: ["--dir", "--path"] });
+  const online = flags["--online"] === true;
+  const regen = flags["--regen"] === true;
+  const subpath = typeof flags["--path"] === "string" ? flags["--path"] : null;
 
   if (sub === "add") {
-    const [nameArg, source] = positional(rest);
+    const [nameArg, source] = rest;
 
     if (!source && SOURCE_PRESETS[nameArg]) {
       // Bare preset: `docs add build-your-own-x` — the name IS the preset key.
@@ -623,7 +593,7 @@ function docsCommand({ dir, args }) {
   }
 
   if (sub === "remove" || sub === "update") {
-    const [name] = positional(rest);
+    const [name] = rest;
 
     if (!name) {
       fail(`usage: ai-learn docs ${sub} <name>`);

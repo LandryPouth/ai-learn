@@ -8,7 +8,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { log, findLearningProjects, spawnGit } = require("./util");
+const { log, findLearningProjects, spawnGit, normalizePortable } = require("./util");
 const {
   readProgress,
   validateProgress,
@@ -23,8 +23,17 @@ const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
+const { guardConfigIssues, loadGuardConfig } = require("./guard");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
-const { journalPath: predictionsJournalPath, readPredictions, countByPhase, countIATyped } = require("./predictions");
+const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
+const {
+  journalPath: predictionsJournalPath,
+  readPredictions,
+  countByPhase,
+  countIATyped,
+  predictionsReport,
+  formatPredictionsGap,
+} = require("./predictions");
 
 // A real merged/open PR URL — the only acceptable evidence shape for a tier-6
 // ("read a stranger's diff") phase, same "presence + minimum substance, not
@@ -114,6 +123,42 @@ function checkProject(dir) {
         }
       } catch {
         // unreadable/corrupt traps.json — not this check's job to fix
+      }
+    }
+  }
+
+  // A hand-edited `guard.json` is a data file: a typo'd `mode` silently falls
+  // back to `apprenti` in the guard (fail-safe, by design), so the only place
+  // the learner can see it is here. A project that believes it runs in
+  // `dirigeant` while the guard enforces `apprenti` is exactly the silent
+  // misconfiguration this check exists to surface.
+  if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json"))) {
+    for (const issue of guardConfigIssues(dir)) {
+      issues.warnings.push({ file: ".ai-learn/guard.json", message: issue.message });
+    }
+
+    // An implementation scope that matches nothing makes source-hash, norm and
+    // mutation vacuous: the digest is constant, no file is ever policed and no
+    // mutant is generated. That is the silent version of the epic-01 regression
+    // (a project laid out in lib/**, bin/**, app/** but scoped to src/**), so
+    // surface it instead of letting `verify` pass on an empty proof.
+    //
+    // Only when the project actually has implementation candidates: a freshly
+    // initialized project with no source written yet matches nothing legitimately
+    // and must not be nagged. Test files don't count as implementation.
+    const implementationScope = loadGuardConfig(dir).implementationFiles;
+    if (computeSourceHash(dir).files === 0) {
+      const hasImplementationCandidates = walkSources(dir).files.some(
+        (file) => ALL_SOURCE_EXTS.has(file.ext) && detectTests([file]).count === 0,
+      );
+
+      if (hasImplementationCandidates) {
+        issues.warnings.push({
+          file: ".ai-learn/guard.json",
+          message: `implementation scope (${implementationScope.join(", ")}) matches no files — ` +
+            "source-hash, norm and mutation would prove nothing; declare the project's source scope " +
+            "(learnerFiles in apprenti, implementationFiles in dirigeant)",
+        });
       }
     }
   }
@@ -210,7 +255,7 @@ function checkProject(dir) {
   // in docs/solutions/ is meant to be "non-collable" — written with holes
   // ([...], an incomplete line, a comment to finish) so a blind Cmd+A cannot
   // pass the checkpoint (see templates/AGENTS-apprentissage.md and the
-  // SOLUTIONS_README in guard.js). That rule lived only as prose: nothing
+  // solutions README in guard.js). That rule lived only as prose: nothing
   // checked it was actually followed. This is the same structural, not
   // semantic, guarantee as checkGeneratedSource below — it cannot tell a
   // thoughtfully-holed reveal from a lazily-holed one, it only catches the
@@ -272,6 +317,18 @@ function checkProject(dir) {
     countsSource = "docs/plans/predictions.md";
   }
 
+  // A predictions.json created empty by `update` on a project that already
+  // had a filled-in legacy predictions.md silently outranks it ("JSON fait
+  // foi dès qu'il existe", plan.md Decisions) — the first `check` after that
+  // reports phases as newly missing predictions it used to consider covered.
+  // Named here so the warning explains itself, instead of only being
+  // mentioned once in `update`'s own output (found in review, story 01.03).
+  const jsonEmptyOverNonEmptyLegacy =
+    predictions.valid &&
+    predictions.data.entries.length === 0 &&
+    journalExists &&
+    Object.keys(countJournalEntriesByPhase(journalMdPath)).length > 0;
+
   if (countsSource === null) {
     if (required > 0) {
       issues.warnings.push({
@@ -280,6 +337,11 @@ function checkProject(dir) {
       });
     }
   } else {
+    // Story 01.04: the JSON-source case defers to the same `predictionsReport`
+    // `verify` uses, so the two never diverge on the same phase's count. The
+    // legacy `.md`-only case has no JSON to feed that function, so it keeps
+    // its own count here — informative only (a warning, never a block; see
+    // predictionsReport's own retro-compat contract).
     for (const phase of config.phases || []) {
       const phaseRequired = Number.isFinite(phase.predictionsRequired) ? phase.predictionsRequired : 0;
 
@@ -288,11 +350,18 @@ function checkProject(dir) {
       }
 
       const have = countsByPhase[phase.id] || 0;
+      const report = predictions.valid
+        ? predictionsReport({ dir, phase, predictions })
+        : { required: phaseRequired, count: have, missing: Math.max(0, phaseRequired - have) };
 
-      if (have < phaseRequired) {
+      if (report.missing > 0) {
+        const legacyHint = jsonEmptyOverNonEmptyLegacy
+          ? " (docs/plans/predictions.md has legacy entries, but .ai-learn/predictions.json now takes precedence — record new ones with `ai-learn predict`)"
+          : "";
+
         issues.warnings.push({
           file: countsSource,
-          message: `phase ${phase.id}: ${have}/${phaseRequired} recorded predictions; ${phaseRequired - have} missing`,
+          message: `${formatPredictionsGap(phase, report)}${legacyHint}`,
         });
       }
     }
@@ -320,9 +389,10 @@ function checkProject(dir) {
           message: `phase ${phase.id} ("${phase.name}") is done but has no checkpoint — it cannot be proven`,
         });
       } else {
-        // Only cost a hash computation (a full walkSources) when there is
-        // evidence to compare it against — an unproven phase doesn't need it.
-        const currentHash = ev ? computeSourceHash(dir, { checkpointFile }) : null;
+        // Only cost a hash computation (a full walkSources) when the evidence
+        // actually carries a sourceHash to compare against — proven-unhashed
+        // (legacy evidence) and unproven (no evidence) don't need it.
+        const currentHash = ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
         const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
 
         if (verdict.state === "unproven") {
@@ -340,9 +410,21 @@ function checkProject(dir) {
               ? `${changed.length} file(s) changed since \`ai-learn verify ${phase.id}\` last passed (${previewFileList(changed)})`
               : `learner files changed since \`ai-learn verify ${phase.id}\` last passed`;
 
+          // `check` never recomputes mutation itself (spec.md Requirements —
+          // a checkpoint-per-mutant run would break its read-only, fast
+          // contract); the existing sourceHash staleness already covers it
+          // indirectly, since evidence.mutation is part of the same stale
+          // proof. This clause only makes that indirection explicit so a
+          // learner doesn't read "stale" as clean-code-only (plan.md
+          // Technical Notes).
+          const mutationClause =
+            phase.mutation === true
+              ? " (inclut la preuve de mutation — un mutant qui survivait ou non n'est plus garanti)"
+              : "";
+
           issues.errors.push({
             file: "progress.json",
-            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}. Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
+            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}.${mutationClause} Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
           });
         }
       }
@@ -702,7 +784,7 @@ function printProjectReport(entry) {
   if (fs.existsSync(path.join(entry.dir, ".ai-learn", "guard.json"))) {
     const blocks = countGuardBlocks(entry.dir);
     const wired = guardHookWired(entry.dir);
-    log(`  guard (claude): ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers solution` : "configuré mais hook non câblé"}`);
+    log(`  guard (claude): ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers de l'apprenant` : "configuré mais hook non câblé"}`);
     log(`  guard (codex): ${codexGuardWired(entry.dir) ? "actif (bac à sable OS)" : "configuré mais profil non câblé"}`);
   }
 
@@ -728,7 +810,53 @@ function countGuardBlocks(dir) {
   }
 }
 
-function checkCommand({ root }) {
+// The JSON-facing calc: the same `checkProject` result as the text report,
+// reshaped into a stable, versioned object instead of printed lines. Paths go
+// through `normalizePortable` so a Windows separator never leaks into the
+// contract (see spec.md's edge cases).
+function buildCheckReport(root) {
+  const projects = findLearningProjects(root);
+  const entries = [];
+  let errors = 0;
+  let warnings = 0;
+
+  for (const project of projects) {
+    const entry = checkProject(project);
+
+    if (!entry) {
+      continue;
+    }
+
+    const report = {
+      dir: normalizePortable(path.relative(root, entry.dir) || path.basename(entry.dir)),
+      errorList: entry.issues.errors,
+      warningList: entry.issues.warnings,
+    };
+
+    if (entry.config) {
+      report.phasesDone = entry.config.phases.filter((phase) => phase.status === "done").length;
+      report.phasesTotal = entry.config.phases.length;
+    }
+
+    entries.push(report);
+    errors += entry.issues.errors.length;
+    warnings += entry.issues.warnings.length;
+  }
+
+  return { version: 1, root: normalizePortable(root), projects: entries, errors, warnings, ok: errors === 0 };
+}
+
+function checkCommand({ root, json }) {
+  if (json) {
+    const report = buildCheckReport(root);
+    log(JSON.stringify(report));
+
+    if (!report.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const projects = findLearningProjects(root);
 
   if (projects.length === 0) {
@@ -763,6 +891,7 @@ function checkCommand({ root }) {
 
 module.exports = {
   checkCommand,
+  buildCheckReport,
   checkProject,
   countJournalEntries,
   countIATypedCorrections,

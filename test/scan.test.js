@@ -546,3 +546,23 @@ test("scanCommand prints the report and writes scan.json", () => {
   assert.ok(Array.isArray(report.suggestions));
   assert.strictEqual(report.stack.language, "C");
 });
+
+test("detectTests recognizes test(s)/ and __tests__, plus bare test/spec basenames", () => {
+  const files = [
+    { rel: "test/a.c" },
+    { rel: "tests/b.c" },
+    { rel: "src/__tests__/c.js" },
+    { rel: "__tests__/d.js" },
+    { rel: "src/index.test.ts" },
+    { rel: "src/test.js" },
+    { rel: "spec.py" },
+    { rel: "src/index.js" },
+  ];
+
+  const { count, files: tests } = detectTests(files);
+  assert.strictEqual(count, 7);
+  assert.deepStrictEqual(
+    tests.map((t) => t.rel),
+    ["test/a.c", "tests/b.c", "src/__tests__/c.js", "__tests__/d.js", "src/index.test.ts", "src/test.js", "spec.py"],
+  );
+});

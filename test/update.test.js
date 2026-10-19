@@ -112,6 +112,21 @@ test("update creates .ai-learn/norm.json once and never rewrites a learner's edi
   assert.strictEqual(stillCustom.maxFunctionLines, 999);
 });
 
+test("update creates .ai-learn/mutate.json once and never rewrites a learner's edits", () => {
+  const dir = tmpProject(project());
+
+  capture(() => updateCommand({ root: dir }));
+
+  const mutateConfigPath = path.join(dir, ".ai-learn", "mutate.json");
+  assert.ok(fs.existsSync(mutateConfigPath));
+
+  fs.writeFileSync(mutateConfigPath, JSON.stringify({ version: 1, mutators: ["boolean-literal"], maxMutantsPerRun: 5, ignore: [] }));
+  capture(() => updateCommand({ root: dir }));
+
+  const stillCustom = JSON.parse(fs.readFileSync(mutateConfigPath, "utf8"));
+  assert.strictEqual(stillCustom.maxMutantsPerRun, 5);
+});
+
 test("update backfills the friction journal into a project that predates it", () => {
   const dir = tmpProject(project());
 

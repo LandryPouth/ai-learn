@@ -65,6 +65,34 @@ function latestAnyEvidenceForPhase(dir, phaseId) {
   return findEvidence(dir, phaseId, () => true);
 }
 
+// Every readable evidence for a phase, oldest first (the reverse of
+// `findEvidence`) — for callers that need to observe a transition over time
+// (tracks/tests.js), not just the latest state. Chronological order relies on
+// the same lexicographic file-name sort `findEvidence` already trusts.
+function allEvidenceForPhase(dir, phaseId) {
+  const runs = runsDir(dir);
+
+  if (!fs.existsSync(runs)) {
+    return [];
+  }
+
+  const found = [];
+
+  for (const name of fs.readdirSync(runs).filter((n) => n.endsWith("-verify.json")).sort()) {
+    try {
+      const ev = JSON.parse(fs.readFileSync(path.join(runs, name), "utf8"));
+
+      if (ev.phaseId === phaseId) {
+        found.push(ev);
+      }
+    } catch {
+      // Unreadable evidence is not proof; skip it.
+    }
+  }
+
+  return found;
+}
+
 function readProgress(dir) {
   const filePath = progressPath(dir);
 
@@ -135,6 +163,16 @@ function validateProgress(config) {
     // `checkpoint` to pass before marking the phase done.
     if (phase.stressCheckpoint !== undefined && phase.stressCheckpoint !== null && typeof phase.stressCheckpoint !== "string") {
       issues.push({ level: "warning", message: `phase ${phase.id} has a non-string stressCheckpoint` });
+    }
+
+    // Optional: whether `ai-learn verify` must kill every mutant found in
+    // this phase's scope before marking it done (story 02.03). Same lenient
+    // discipline as gitTier/stressCheckpoint above — a non-boolean value is a
+    // mistake worth flagging, not a reason to refuse an otherwise valid
+    // ledger; `mutate.js#mutationReport` also checks `=== true` strictly, so
+    // a non-boolean value never accidentally turns mutation on.
+    if (phase.mutation !== undefined && phase.mutation !== null && typeof phase.mutation !== "boolean") {
+      issues.push({ level: "warning", message: `phase ${phase.id} has a non-boolean mutation flag` });
     }
   }
 
@@ -219,5 +257,6 @@ module.exports = {
   setPhaseStatus,
   latestEvidenceForPhase,
   latestAnyEvidenceForPhase,
+  allEvidenceForPhase,
   phaseVerdict,
 };

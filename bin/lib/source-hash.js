@@ -1,21 +1,26 @@
 "use strict";
 
 // The empreinte (fingerprint) of what a phase's proof actually covers: the
-// learner's own files (the guard's `learnerFiles` glob) plus the checkpoint
-// file itself. `verify` writes it into the evidence; `progress.js#phaseVerdict`
-// compares it against a freshly computed one to tell "proven" from "stale".
+// implementation the AI is allowed to write (the guard's `implementationFiles`
+// glob) plus the checkpoint file itself. `verify` writes it into the evidence;
+// `progress.js#phaseVerdict` compares it against a freshly computed one to tell
+// "proven" from "stale".
+//
+// `implementationFiles`, not `learnerFiles`: in `dirigeant` the latter is the
+// specification the learner owns, and hashing it would let an implementation
+// edit leave the evidence green.
 //
 // Kept out of progress.js on purpose: progress.js is a leaf module (no
 // internal `require`s, see docs/architecture.md) to avoid a require cycle
 // through status.js → tracks/domain.js → scan.js. Computing the hash needs
-// scan.js's walkSources and guard.js's learnerFiles matching, so it lives
-// here instead, imported by the callers (verify, check, status, next) that
-// already sit on the non-leaf side of that boundary.
+// scan.js's walkSources and guard.js's path matching, so it lives here
+// instead, imported by the callers (verify, check, status, next) that already
+// sit on the non-leaf side of that boundary.
 
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { walkSources } = require("./scan");
+const { walkSources, detectTests } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const { normalizePortable } = require("./util");
 
@@ -49,10 +54,24 @@ function checkpointFilePath(dir, command) {
 // digest independent of both OS path separator and filesystem iteration
 // order.
 function sourceHashScope(dir, { checkpointFile } = {}) {
-  const { learnerFiles } = loadGuardConfig(dir);
+  const { implementationFiles, mode } = loadGuardConfig(dir);
   const walked = walkSources(dir);
+  // In `dirigeant` a test file is the learner's specification, not the
+  // implementation the proof covers — `norm.js` and `mutate.js` already
+  // exclude it. Hashing a colocated test there would let an implementation
+  // edit leave the evidence green. In `apprenti` the scope IS the learner's
+  // own files: a colocated `src/a.test.js` was part of the proof before this
+  // mode existed and must stay so — dropping it would re-open the epic-01
+  // staleness hole in the default mode.
+  const testRels =
+    mode === "dirigeant"
+      ? new Set(detectTests(walked.files).files.map((f) => f.rel))
+      : new Set();
 
-  const rels = walked.files.filter((f) => matchesLearnerPath(f.rel, learnerFiles)).map((f) => f.rel);
+  const rels = walked.files
+    .filter((f) => !testRels.has(f.rel))
+    .filter((f) => matchesLearnerPath(f.rel, implementationFiles))
+    .map((f) => f.rel);
 
   if (checkpointFile) {
     const rel = normalizePortable(path.relative(dir, checkpointFile));

@@ -46,6 +46,53 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### Remontées du projet `fastify-traducteur-api` (outil 0.4.0, triées le 2026-10-16)
+Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées déjà `résolu` côté outil n'y figurent pas. Détail complet : ce fichier-là.
+
+- `high` — `AGENTS.md` n'est chargé par aucune session généraliste (aucun fichier mémoire natif). **Surface** : init/update. **Résolution** : planifiée, story-04-01.
+- `medium` — `next`/`status` répondent par une phase périmée avant la vraie suite. **Surface** : next, status. **Résolution** : planifiée, story-04-02.
+- `medium` — `stale` recouvre faux positif et régression réelle, sans moyen de les distinguer. **Surface** : verify, check. **Résolution** : planifiée, story-04-03.
+- `medium` — aucun rappel de commit entre deux réponses ; commande git donnée sans explication. **Surface** : status, verify. **Résolution** : planifiée, story-04-04.
+- `medium` — commandes `/…` sans préfixe commun, non découvrables. **Surface** : install. **Résolution** : planifiée, story-04-05.
+- `high` — règles de session dictées à la main : synthèse ciblée, relecture de `src/**`, cas d'échec, pas de solution avant la frappe, révélation dans le chat. **Surface** : AGENTS.md §1-§3. **Résolution** : planifiée, stories 05-02 à 05-04.
+- `low` — le reality check n'a pas de compteur (déjà listé ci-dessous) ; aide et preuve non configurables par apprenant. **Surface** : predictions, verify. **Résolution** : planifiée, stories 05-01, 05-05.
+- `high` — pré-lecture : 2-3 jours pour 1 h budgétée, ~1 % réutilisé ; plafond de 3 sources de `docs add`. **Surface** : docs, plan. **Résolution** : planifiée, epic-06.
+- `medium` — `norm` jamais déclenché au fil de l'eau. **Surface** : norm. **Résolution** : planifiée, story-07-03.
+
+
+### `medium` — aucun mécanisme de reprise espacée : une phase prouvée n'est jamais rejouée
+- **Repo** : ai-learn (revue externe du protocole, pas un incident d'exécution)
+- **Surface** : `progress.json` / `verify` / `next` — cycle de vie d'une phase après `done`
+- **Problème** : une phase passe `pending` → `done` et n'est plus jamais revisitée. Le
+  protocole prouve l'acquisition au moment T, jamais la rétention à T+3 semaines. Or c'est
+  la reprise espacée — refaire une phase plus tard **sans relire ses notes ni son journal de
+  prédictions** — qui transforme une compréhension ponctuelle en compétence durable. Rien dans
+  `progress.json` ne porte une date de revisite, `next` ne propose jamais une phase déjà `done`,
+  et `check` ne signale pas une phase verte depuis trop longtemps. C'est le seul trou
+  pédagogique réel de l'outil : tout le reste du protocole (prédiction falsifiable, comptage
+  d'écarts, checkpoint exécuté, frappe protégée) est solide et mécaniquement tenu.
+- **Sévérité** : `medium` — n'empêche pas d'avancer, mais laisse l'oubli invisible ;
+  un parcours entièrement vert peut recouvrir des phases qu'on ne saurait plus refaire.
+- **Workaround** : aucun côté outil. À la main : relancer `verify` sur une phase ancienne,
+  ce qui rejoue le checkpoint mais teste le code déjà écrit, pas la mémoire de l'apprenant.
+- **Résolution** :
+
+### `low` — le reality check est une règle écrite, pas un mur mécanique
+- **Repo** : ai-learn (revue externe du protocole, pas un incident d'exécution)
+- **Surface** : `templates/predictions.md` (« un reality check par phase ») / `verify`
+- **Problème** : le protocole demande d'écrire, **avant chaque exécution**, ce qu'on attend en
+  sortie — puis d'observer l'écart. C'est le mécanisme qui enseigne le débogage, davantage que
+  les prédictions de code : prédire un comportement d'exécution et se tromper est exactement
+  l'exercice qu'on refait ensuite en production sur une stack trace. Mais contrairement aux
+  prédictions de code (dont `verify` compte les entrées via `predictionsRequired`), le reality
+  check n'est adossé à aucun compteur : il n'existe que comme phrase dans les règles. Une phase
+  peut donc partir `done` avec zéro reality check enregistré, sans un warning.
+- **Sévérité** : `low` — la règle est lue et globalement suivie ; c'est l'asymétrie avec les
+  prédictions de code qui interroge, pas un blocage.
+- **Workaround** : le consigner à la main dans le journal de prédictions, en confondant les deux
+  types d'entrée — ce qui rend le compte `predictionsRequired` moins lisible.
+- **Résolution** :
+
 ### `medium` — rien ne resurgit un travail prouvé-mais-pas-atterri après un `/clear`
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
 - **Surface** : `/flow-run` (fin de story) + cycle `/clear` + reprise en session fraîche
@@ -229,3 +276,75 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 - **Problème** : le plan prévoit des checkpoints de compréhension (« expliquer le cycle de vie d'une requête ») qui ne sont pas exécutables par `verify`. Forcer un test là-dessus serait du théâtre.
 - **Workaround** : séparer — le **comportement** est prouvé par le checkpoint exécutable ; la **compréhension** est prouvée par le journal de prédictions (comptes d'écarts) et les reality checks. Documenté dans le template de plan.
 - **Résolution** : template de plan mis à jour pour clarifier cette séparation.
+
+### `low` — `ai-flow status`/`review capture` : la fraîcheur d'une review est indexée sur tout le dépôt, pas sur les fichiers de la story
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `ai-flow status` (`review: stale`), `computeReviewStatus`/`isStale` (`bin/lib/audit.js`, `bin/lib/status.js` du paquet)
+- **Problème** : la fraîcheur d'une review capturée compare `entry.treeToken` au
+  `currentTreeToken(root)` courant — un hash de **tout l'arbre git**, pas un
+  périmètre par story. Résultat observé plusieurs fois de suite dans cette
+  session : committer la story 01.04 (qui ne touche ni `predictions.js` de
+  01.03, ni `guard.js`/`status.js` de 01.01/01.02/01.06 fonctionnellement) a
+  fait repasser les quatre stories déjà `done`/`review: pass` en
+  `review: stale` — alors qu'aucun de leurs fichiers propres n'avait changé.
+  Même chose après le commit précédent (`f4a3181`, améliorations 01.01/01.02/01.03).
+- **Workaround** : après chaque commit, ré-exécuter `ai-flow verify --story <dir>`
+  puis `ai-flow review capture --story <dir> ...` pour **chaque** story déjà
+  `done` de l'epic, même celles que le commit ne touche pas — sans risque (les
+  deux commandes sont idempotentes et n'éditent que `.coding-flow/runs/`), mais
+  c'est du travail répété proportionnel au nombre de stories déjà closes, pour
+  un commit qui n'a rien cassé chez elles.
+- **Résolution** : ouverte (comportement du paquet `coding-flow`, pas de ce
+  dépôt). Piste : dériver la fraîcheur d'un token scopé aux fichiers réellement
+  associés à la story (son propre `plan.md`/`Implementation Context`, ou les
+  fichiers touchés par ses commits) plutôt que du tree-hash global — dans le
+  même esprit que `bin/lib/source-hash.js#sourceHashScope` de ce dépôt, qui
+  résout exactement ce problème pour l'évidence `verify` d'une phase.
+
+### `low` — `ai-flow worktree place` pointe vers un worktree déjà atterri et supprimé
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `ai-flow worktree place` (`.git/coding-flow/worktree-plan/epic-01-verdict-fiable.json`)
+- **Problème** : au lancement de la story 01.05, `worktree place` a renvoyé la
+  chaîne `s2` comme vivant dans
+  `ai-learn-worktrees/story-01-02-preuve-perimee-a-reprouver` (« current
+  checkout ») — un dossier qui n'existe plus sur le disque. Les stories 01.02
+  à 01.04 de cette même chaîne ont en réalité été livrées directement sur
+  `main` (`autoland` a dû rapatrier et supprimer le worktree en cours de
+  route), mais le fichier de plan n'a pas été mis à jour en conséquence :
+  l'entrée `s2` garde l'ancien chemin au lieu d'être réécrite vers le checkout
+  primaire.
+- **Workaround** : vérifier `git worktree list` avant de suivre l'emplacement
+  rapporté ; si le chemin n'existe pas, continuer dans le checkout courant
+  (celui où l'historique de la chaîne est réellement visible via `git log`)
+  plutôt que de recréer le worktree indiqué.
+- **Résolution** : ouverte (comportement du paquet `coding-flow`, pas de ce
+  dépôt). Piste : `autoland` devrait réécrire l'entrée de la chaîne dans
+  `worktree-plan/*.json` vers le checkout primaire au moment où il atterrit et
+  supprime le worktree, au lieu de laisser une entrée pointant vers un dossier
+  disparu.
+
+### `medium` — plusieurs stories de suite atterrissent sur `main` sans respecter « 1 branche = 1 story »
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
+- **Surface** : `/flow-run` → `/flow-ship` (contrat annoncé : « one feature = one
+  branch = one PR »)
+- **Problème** : sur la chaîne epic-01-verdict-fiable, ce n'est pas un
+  incident isolé : les stories 01.01, 01.03 et 01.04 ont toutes été committées
+  directement sur `main` (`git log` : `67443c5`/`6d2890f`, `afc8895`,
+  `553df4a`/`f4a3181`/`5e2974c` — aucun de ces commits n'est le merge d'une
+  branche dédiée), alors que 01.02 et 01.06 sont bien passées par une branche
+  `story-01-0X-...` suivie d'une PR. La story 01.05 répète le même état au
+  moment de sa review : le travail est de nouveau posé sur `main`, aucune
+  branche ni PR ouverte. C'est au moins la deuxième fois que cette règle
+  n'est pas appliquée sur la même chaîne — cohérent avec l'entrée précédente
+  sur `worktree place` : le worktree attendu pour la story est rapatrié/
+  supprimé en route par l'atterrissage automatique, sans qu'une branche
+  dédiée soit recréée pour la story suivante.
+- **Workaround** : avant `/flow-ship`, vérifier `git status`/`git branch` —
+  si le travail de la story est sur `main` et non sur une branche dédiée,
+  créer la branche manuellement avant de pousser plutôt que de laisser
+  `ship` ouvrir une PR depuis `main`.
+- **Résolution** : ouverte (comportement du paquet `coding-flow`, pas de ce
+  dépôt). Piste : l'atterrissage automatique devrait garantir qu'une story
+  sans PR déjà ouverte reçoit systématiquement une branche dédiée avant tout
+  commit, plutôt que de dépendre d'une relecture de `git log` après coup pour
+  détecter qu'elle a fini sur `main`.

@@ -25,9 +25,13 @@ L'IA présente la **section doc ciblée** + un exemple, puis **s'arrête**. **L'
 - Sinon → l'IA **ne révèle pas** : elle pose des **questions de complétion** ciblées, **une à la fois**, sur ce qui manque à la prédiction.
 - **Critère d'arrêt dur** : **3 questions de complétion max** (ou « je sèche ») puis révélation avec explication du gap — pas de boucle infinie, pas d'écourtement arbitraire.
 - **Après la révélation, l'IA enregistre la prédiction** avec `ai-learn predict --phase <id> --prediction "..." --gaps "<x>/<y>" --score "<x>/10" --strengths "..." --weaknesses "..." --flash "..." --corrected "..."` — elle n'édite plus `docs/plans/predictions.md` à la main : ce fichier est régénéré depuis `.ai-learn/predictions.json` par la commande elle-même.
+- **`ai-learn verify` bloque dur si le compte de prédictions de la phase n'est pas atteint** — même mécanisme que la norme et les artefacts, jamais de `done` avec un `predictionsRequired` non couvert. Limite : ce que le mécanisme prouve est **l'ordre d'écriture** (la prédiction a bien été enregistrée avant que `verify` ne passe), jamais l'honnêteté ou la précision de la prédiction elle-même — ça reste la responsabilité du protocole ci-dessus, pas de l'outil.
 
 ### 3. L'apprenant tape le code — blocage mécanique
 Le code de révélation est déposé par l'IA dans **`docs/solutions/<brique>.md`** (la référence). L'IA **n'écrit jamais** dans les fichiers solution de l'apprenant (`src/**`, liste configurable dans `.ai-learn/guard.json`) : le hook PreToolUse **`ai-learn guard`** refuse mécaniquement toute écriture de l'IA sur ces chemins — un `.md` peut être contourné, une permission refusée ne peut pas.
+
+> **Mode `dirigeant`.** `.ai-learn/guard.json` → `mode: "dirigeant"` inverse la propriété : l'apprenant garde la **spécification** (tests et checkpoints — `test/**`, `tests/**`, `__tests__/**`, `test.*`, `spec.*`, `*.test.*`, `*.spec.*`, `*_test`, `*-test`, `*_spec`, `*-spec`, etc., plus `checkpoint/**`) et l'IA écrit l'implémentation (`src/**`, ou `implementationFiles` déclaré dans `guard.json`). Le guard bloque alors l'IA sur ces chemins ; `docs/solutions/` reste la référence où l'apprenant **juge** le code écrit, il ne le retape plus. Le guard refuse aussi à l'IA de réécrire sa propre configuration (`.ai-learn/guard.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.codex/config.toml`) : seul l'apprenant les modifie. Les sections ci-dessous décrivent le mode `apprenti` (défaut) ; en `dirigeant`, lire « l'apprenant tape » comme « l'apprenant spécifie et juge ».
+
 - **L'apprenant tape le vrai code** dans son éditeur, de mémoire ou en copiant la référence (l'effort demandé est la frappe, pas la dérivation).
 - **La référence est non-collable** : `docs/solutions/<brique>.md` est écrit **avec des trous** à compléter (`[...]`, lignes incomplètes, commentaires à finir). Un Cmd+A aveugle produit un code qui échoue au checkpoint — l'apprenant doit retaper et compléter pour que ça passe. Second garde-fou après le guard : le guard prouve « pas l'IA », les trous forcent « l'apprenant a refait ».
 - **Le debug est mené par l'apprenant** : test rouge, checkpoint qui échoue, stack trace → l'apprenant lit, diagnostique, corrige. L'IA guide (pose des questions), ne touche pas aux fichiers.
@@ -62,6 +66,20 @@ Sur une violation, le rôle de l'IA est d'**expliquer**, jamais de corriger à l
 - Faire le lien avec le concept clean-code concerné (fonction trop longue → extraire une sous-fonction ; imbrication trop profonde → early return / garde ; trop de paramètres → regrouper en objet).
 - Laisser l'apprenant refactorer **lui-même** dans son éditeur — l'IA n'écrit **jamais** dans `src/**` pour corriger une violation à sa place (déjà mécaniquement impossible via `ai-learn guard`, mais le rappeler évite un réflexe de proposer un diff prêt à coller).
 - `ai-learn norm` (lecture seule, sans lancer `verify`) donne un retour rapide à tout moment pendant que l'apprenant retravaille sa fonction.
+
+### 3quinquies. Les tests doivent protéger le code — prédire quel test tombe (mutation)
+
+Sur une phase qui porte `mutation: true`, `ai-learn verify` exige en plus du checkpoint que ses tests **protègent réellement** le code de l'apprenant. Vocabulaire, en une phrase chacun : un **mutant** est une copie de `src/**` cassée d'une façon précise et minuscule ; un **opérateur de mutation** est la règle de casse (inverser une comparaison, changer un `true` en `false`…) définie par le stack pack ; un mutant est **tué** quand le checkpoint échoue dessus (le test s'en est aperçu), **survécu** quand le checkpoint passe malgré la casse (le test ne protège pas cette ligne). `ai-learn mutate --phase <id>` les liste au format `fichier:ligne — opérateur — SURVÉCU/TUÉ` ; un seul mutant survécu fait échouer `verify`.
+
+Avant de lancer `ai-learn mutate` (ou `verify`) sur une telle phase, nouveau type de prédiction écrite, distinct de « prédire le code » : l'apprenant prédit **quel test doit tomber, et pourquoi**, en trois étapes :
+
+1. **Choisir un site** — l'apprenant désigne une ligne de son code et l'opérateur qui s'y applique (ex. « la comparaison ligne 12 devient `>=` »).
+2. **Prédire l'issue** — *tué* ou *survécu*, et **quel test précis** échoue si tué. Si l'apprenant prédit *survécu*, il dit quelle assertion manque. Même exigence de précision que toute prédiction (cf. banque d'exemples neutres ci-dessous).
+3. **Lancer pour de vrai, puis comparer** — l'IA lance `ai-learn mutate`, la sortie est observée, jamais racontée ; comparaison prédiction/réalité en 3 points habituels. Pour chaque mutant survécu, l'IA **explique** le trou mais n'écrit **jamais** le test à la place de l'apprenant : il l'écrit lui-même, puis on relance.
+
+Cas valide : **« aucun site mutable trouvé »**. Une stack pauvre en opérateurs (ex. `generic.js`) peut ne rien produire à muter ; l'apprenant le prédit alors (« je m'attends à 0 mutant, parce que mon code n'a ni comparaison ni booléen littéral »), l'observation confirme ou infirme, et `verify` ne bloque jamais sur un score non mesuré. La section reste applicable.
+
+Le tier « rouge d'abord » du ledger `~/.ai-learn/tracks/tests.json` n'est jamais déclaré : il est lu depuis les évidences de `verify` (un échec de mutation, puis un succès, sur la même phase). Inutile de le « raconter ».
 
 ### 4. Reality checks — la seule boucle non truquable
 Régulièrement (au moins une fois par phase) : l'IA fait **prédire à l'utilisateur ce qui va se passer** à l'exécution (lancer le serveur, appeler la route, statut attendu, log attendu), puis on **observe ensemble**. C'est la seule boucle que l'IA et l'utilisateur ne peuvent pas compléter de connivence — le runtime ne pardonne pas les prédictions fausses.
@@ -127,9 +145,9 @@ anomalie à combler.
 | `ai-learn docs update <nom>` | Rafraîchit une source locale depuis son origine |
 | `ai-learn docs remove <nom>` | Retire une source (copie locale + entrée du ledger) |
 | `ai-learn verify <id>` | Prouve une phase : exécute le checkpoint, marque `done` seulement si ça passe (automatique en clôture de phase) |
-| `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé, et toute violation de la norme clean-code dans `src/**` |
+| `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé, et toute violation de la norme clean-code dans le code que l'IA a le droit d'écrire (`implementationFiles`, par défaut `src/**`) |
 | `ai-learn norm` | Vérifie la norme clean-code (longueur fichier/fonction, imbrication, params) — lecture seule, retour rapide sans attendre `verify` |
-| `ai-learn guard` | Hook interne (PreToolUse) : refuse à l'IA toute écriture dans les fichiers solution (`src/**`) **et toute commande git/gh** (lecture incluse) — câblé automatiquement par `init`/`update` |
+| `ai-learn guard` | Hook interne (PreToolUse) : refuse à l'IA toute écriture dans les fichiers de l'apprenant (`src/**` en apprenti ; toutes les conventions de `detectTests` — `test/**`, `tests/**`, `__tests__/**`, `*.test.*`, `*.spec.*`, `*_test`, `*-test`, `*_spec`, `*-spec`, … — et `checkpoint/**` en dirigeant), dans sa propre configuration (`.ai-learn/guard.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.codex/config.toml`) **et toute commande git/gh** (lecture incluse) — câblé automatiquement par `init`/`update` |
 | `ai-learn traps` | Régénère la banque de pièges depuis les docs embarquées (zones de friction, citées fichier:ligne) |
 | `ai-learn update [--platform <claude\|codex\|gemini\|opencode\|antigravity>]` | Propage le protocole + la banque de pièges à tous les projets installés sous `--root` ; `--platform` (re)installe aussi les commandes `/…` de **ta** plateforme si besoin |
 | `ai-learn upgrade` | Met à jour l'outil `ai-learn` lui-même vers la dernière version (pas les projets — `update` s'en charge séparément) |
@@ -156,12 +174,13 @@ appel séparé) déclenche la même réparation — tu connais ta plateforme,
 inutile de la deviner. Sans ce flag sur ces plateformes-là, rien ne casse :
 `ai-learn <commande>` fonctionne toujours, seules les commandes `/…` restent
 absentes jusqu'à ce que `--platform` soit passé une fois. Le garde-fou
-(`src/**`) n'est de toute façon jamais concerné par ce changement : il est
-câblé pour toutes les plateformes dès `init`, indépendamment de celle utilisée.
+(fichiers de l'apprenant : `src/**` en apprenti, la spécification en dirigeant) n'est de toute
+façon jamais concerné par ce changement : il est câblé pour toutes les
+plateformes dès `init`, indépendamment de celle utilisée.
 
 ## Règle d'or
 
-L'utilisateur ne tape aucune commande : l'IA les exécute pour lui. En revanche, il tape **tout le code** de son projet (`src/**`) — `ai-learn guard` y bloque l'IA. L'IA ne marque jamais une phase `done` elle-même.
+L'utilisateur ne tape aucune commande : l'IA les exécute pour lui. En mode `apprenti` (défaut), il tape **tout le code** de son projet (`src/**`) — `ai-learn guard` y bloque l'IA. En mode `dirigeant`, la propriété s'inverse : il garde la **spécification** (`test/**`, `checkpoint/**`) et l'IA écrit l'implémentation (`src/**`). Dans les deux cas, l'IA ne marque jamais une phase `done` elle-même.
 
 ## Doc embarquée (hors-ligne)
 
