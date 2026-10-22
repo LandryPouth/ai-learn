@@ -11,7 +11,7 @@ const os = require("os");
 const path = require("path");
 
 const { findRealFileLine } = require("../bin/lib/citation");
-const { reviewSlug } = require("../bin/lib/reviews");
+const { DECISION_RE, reviewSlug } = require("../bin/lib/reviews");
 const { writeFile } = require("./helpers");
 
 function tmpDir() {
@@ -62,6 +62,43 @@ test("findRealFileLine applies the optional allowed-path predicate", () => {
   const onlySrc = (relative) => relative.startsWith("src/");
 
   assert.strictEqual(findRealFileLine("README.md:1", dir, onlySrc), null);
+});
+
+test("findRealFileLine accepts Windows separators and accented filenames", () => {
+  const dir = tmpDir();
+  writeFile(dir, "src/index.js", "one\ntwo\n");
+  writeFile(dir, "src/données.js", "a\nb\n");
+
+  assert.strictEqual(findRealFileLine("src\\index.js:2", dir), "src\\index.js:2");
+  assert.strictEqual(findRealFileLine("src\\index.js:3", dir), null);
+  assert.strictEqual(findRealFileLine("src/données.js:2", dir), "src/données.js:2");
+});
+
+test("findRealFileLine refuses a Windows-style citation that escapes the root", () => {
+  const dir = tmpDir();
+  writeFile(dir, "src/index.js", "a\n");
+
+  assert.strictEqual(findRealFileLine("..\\outside.js:1", dir), null);
+  assert.strictEqual(findRealFileLine("C:\\outside\\file.js:1", dir), null);
+});
+
+test("DECISION_RE accepts accented past participles and refuses substring matches", () => {
+  for (const text of [
+    "Décision : accepter.",
+    "Décision : accepté.",
+    "Décision : acceptée.",
+    "Décision : rejeté.",
+    "Décision : refusée.",
+    "Décision : demander un changement.",
+    "Décision : changement demandé.",
+    "Decision: approved.",
+  ]) {
+    assert.ok(DECISION_RE.test(text), text);
+  }
+
+  for (const text of ["rejection", "unaccepted", "preapprovedly"]) {
+    assert.ok(!DECISION_RE.test(text), text);
+  }
 });
 
 test("reviewSlug strips accents and punctuation, and falls back to phase-<id>", () => {

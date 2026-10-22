@@ -12,9 +12,12 @@ const { findRealFileLine, hasSubstantialBody } = require("./citation");
 const { matchesLearnerPath } = require("./guard");
 
 // "accepter, rejeter, demander un changement" — the vocabulary the review must
-// contain, in its French forms (plus the English review equivalents).
+// contain, in its French forms (plus the English review equivalents). `\b` is
+// ASCII-only in JS, so it would reject every accented past participle after
+// its final letter (`accepté`, `rejeté`, `changement demandé`). Unicode-aware
+// lookarounds treat accented letters as word characters instead.
 const DECISION_RE =
-  /\b(?:accepter|accepte|accepté|acceptée|acceptés|acceptées|rejeter|rejette|rejeté|rejetée|rejetés|rejetées|refuser|refuse|refusé|refusée|demande(?:r)?\s+(?:un\s+|de\s+)?changement|changements?\s+demand[ée]s?|request(?:ed)?\s+changes?|reject(?:ed)?|approv(?:e|ed))\b/i;
+  /(?<![\p{L}\p{N}_])(?:accepter|accepte|accepté|acceptée|acceptés|acceptées|rejeter|rejette|rejeté|rejetée|rejetés|rejetées|refuser|refuse|refusé|refusée|demande(?:r)?\s+(?:un\s+|de\s+)?changement|changements?\s+demand[ée]s?|request(?:ed)?\s+changes?|reject(?:ed)?|approv(?:e|ed))(?![\p{L}\p{N}_])/iu;
 
 function reviewSlug(phase) {
   const name = typeof phase.name === "string" ? phase.name : "";
@@ -32,16 +35,38 @@ function reviewPath(phase) {
   return path.posix.join("docs", "reviews", `${reviewSlug(phase)}.md`);
 }
 
+// Review files are named after the phase, so two phases sharing a name would
+// silently share one review — one file would prove both. A phase whose slug
+// collides is refused rather than guessed at; renaming one phase is the fix.
+function duplicateSlugs(phases) {
+  const counts = new Map();
+
+  for (const phase of phases || []) {
+    const slug = reviewSlug(phase);
+    counts.set(slug, (counts.get(slug) || 0) + 1);
+  }
+
+  return new Set(
+    [...counts].filter(([, count]) => count > 1).map(([slug]) => slug),
+  );
+}
+
 // `valid` | `missing` | `invalid` (with a reason: no-citation, no-decision,
-// insufficient-substance, unreadable). A valid review exposes the citation it
-// resolved so callers can report it without re-parsing.
+// insufficient-substance, unreadable, ambiguous-name). A valid review exposes
+// the citation it resolved so callers can report it without re-parsing.
 //
 // `scope` is the guard's `implementationFiles`: the file:line must name a file
 // the diff covers, not just any existing path (a review citing `README.md` is
 // not a review of the implementation). Omitted, the check stays root-only.
-function reviewState(dir, phase, scope) {
+// `duplicates` (optional) is the set from `duplicateSlugs`; when the phase's
+// name is in it, the review is ambiguous by construction.
+function reviewState(dir, phase, scope, duplicates) {
   const relative = reviewPath(phase);
   const full = path.join(dir, relative);
+
+  if (duplicates && duplicates.has(reviewSlug(phase))) {
+    return { path: relative, state: "invalid", reason: "ambiguous-name" };
+  }
 
   if (!fs.existsSync(full)) {
     return { path: relative, state: "missing", reason: "missing" };
@@ -76,9 +101,18 @@ function reviewState(dir, phase, scope) {
 }
 
 function reviewStates(dir, config, scope) {
+  const duplicates = duplicateSlugs(config.phases);
+
   return (config.phases || [])
     .filter((phase) => phase.status === "done")
-    .map((phase) => ({ phase, ...reviewState(dir, phase, scope) }));
+    .map((phase) => ({ phase, ...reviewState(dir, phase, scope, duplicates) }));
 }
 
-module.exports = { DECISION_RE, reviewPath, reviewSlug, reviewState, reviewStates };
+module.exports = {
+  DECISION_RE,
+  duplicateSlugs,
+  reviewPath,
+  reviewSlug,
+  reviewState,
+  reviewStates,
+};

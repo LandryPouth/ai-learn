@@ -196,6 +196,7 @@ const REVIEW_REASONS = {
   "no-citation": "sans file:line réel",
   "no-decision": "sans décision",
   "insufficient-substance": "sans substance",
+  "ambiguous-name": "nom de phase ambigu",
 };
 
 function printReviewSummary({ dir, config }) {

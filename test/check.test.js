@@ -253,8 +253,10 @@ test("dirigeant: a done phase with a sourced review (real file:line + decision) 
   writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:3\`\n\nDécision : accepter.\n`);
 
   const entry = checkProject(dir);
-  assert.ok(!entry.issues.errors.some((e) => /dirigeant mode but/.test(e.message)));
-  assert.ok(!entry.issues.errors.some((e) => /no real file:line|states no decision/.test(e.message)));
+  // Every review-tier failure (missing, no-citation, no-decision,
+  // insufficient-substance, ambiguous-name) is phrased with this prefix, so
+  // checking it alone proves the review passed for the right reason.
+  assert.ok(!entry.issues.errors.some((e) => /in dirigeant mode but/.test(e.message)));
 });
 
 test("dirigeant: a done phase without its review is an error", () => {
@@ -337,6 +339,23 @@ test("dirigeant: a review with a bare citation and no substance is an error (deg
 
   const entry = checkProject(dir);
   assert.ok(entry.issues.errors.some((e) => /too little content around its citation/.test(e.message)));
+});
+
+test("dirigeant: two phases sharing a name cannot share one review file", () => {
+  const phase = { ...sampleProgress().phases[0], status: "done" };
+  const progress = sampleProgress({ phases: [{ ...phase, id: 0 }, { ...phase, id: 1 }] });
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["src/**"] }));
+  writeFile(dir, "src/index.js", "const one = 1;\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 1 }));
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:1\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  const reviewErrors = entry.issues.errors.filter((e) => /in dirigeant mode but/.test(e.message));
+
+  assert.strictEqual(reviewErrors.length, 2);
+  assert.ok(reviewErrors.every((e) => /shared with another phase of the same name/.test(e.message)));
 });
 
 test("apprenti never requires the dirigeant reviews (non-regression)", () => {

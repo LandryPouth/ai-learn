@@ -10,8 +10,12 @@ const path = require("path");
 const { normalizePortable } = require("./util");
 
 const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
+// Accept both separators and Unicode path segments: a learner on Windows may
+// paste `src\index.js:3`, and filenames are allowed to carry accents. A
+// preceding separator is excluded from the leading match so an absolute
+// Windows path (`C:\src\index.js`) is never mistaken for a relative one.
 const FILE_LINE_RE =
-  /(?:^|[^A-Za-z0-9_./:-])((?:\.{0,2}\/)?(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9]+):(\d+)\b/g;
+  /(?:^|[^\p{L}\p{N}_./:\\-])((?:\.{0,2}[\\/])?(?:[\p{L}\p{N}_.-]+[\\/])*[\p{L}\p{N}_.-]+\.[\p{L}\p{N}]+):(\d+)\b/gu;
 
 const MIN_CONTENT_BEYOND_CITATION = 200;
 
@@ -70,11 +74,14 @@ function isInsideRoot(inside) {
 // `isAllowed` (optional) narrows the accepted files, e.g. to the guard's
 // `implementationFiles` scope so the citation names a file the diff touched.
 function findRealFileLine(content, dir, isAllowed) {
-  const re = new RegExp(FILE_LINE_RE.source, "g");
+  // Fresh instance per call so the shared regex's `lastIndex` never leaks
+  // between reviews; carry every flag (`u` is load-bearing for `\p{L}`).
+  const re = new RegExp(FILE_LINE_RE.source, FILE_LINE_RE.flags);
   let match = re.exec(content);
 
   while (match) {
-    const relative = match[1];
+    const cited = match[1];
+    const relative = cited.replace(/\\/g, "/");
     const line = Number(match[2]);
     const resolved = path.resolve(dir, relative);
     const inside = path.relative(dir, resolved);
@@ -88,7 +95,7 @@ function findRealFileLine(content, dir, isAllowed) {
         const text = fs.readFileSync(resolved, "utf8");
 
         if (line <= countLines(text)) {
-          return `${relative}:${line}`;
+          return `${cited}:${line}`;
         }
       } catch {
         // missing or unreadable file — try the next citation

@@ -36,7 +36,7 @@ const {
   formatPredictionsGap,
 } = require("./predictions");
 const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
-const { reviewState } = require("./reviews");
+const { duplicateSlugs, reviewState } = require("./reviews");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -62,6 +62,9 @@ function checkProject(dir, { home } = {}) {
   // guard resolves to apprenti. `check` only adds the dirigeant review tier
   // when the mode is really dirigeant.
   const guard = loadGuardConfig(dir);
+  // Review files are named after the phase, so a duplicate name makes one
+  // review stand for two phases. Computed once, shared by every done phase.
+  const duplicateReviewNames = duplicateSlugs(config.phases);
 
   for (const issue of validateProgress(config)) {
     (issue.level === "error" ? issues.errors : issues.warnings).push(issue);
@@ -471,7 +474,7 @@ function checkProject(dir, { home } = {}) {
       // only contribution left to prove is judgment. A done phase without a
       // sourced review (`docs/reviews/<brique>.md`) is not proven.
       if (guard.mode === "dirigeant") {
-        checkReview(dir, phase, issues, guard.implementationFiles);
+        checkReview(dir, phase, issues, guard.implementationFiles, duplicateReviewNames);
       }
     } else {
       // A `--no-mark` run deliberately writes passing evidence without
@@ -675,8 +678,8 @@ function checkTier6Artifact(dir, phase, issues, relative) {
 // decision. Same "presence + minimum substance, not truth" contract as a tier-6
 // PR URL (see citation.js); the tool proves the citation resolves, never that
 // the judgment is good.
-function checkReview(dir, phase, issues, scope) {
-  const review = reviewState(dir, phase, scope);
+function checkReview(dir, phase, issues, scope, duplicates) {
+  const review = reviewState(dir, phase, scope, duplicates);
 
   if (review.state === "valid") {
     return;
@@ -691,6 +694,8 @@ function checkReview(dir, phase, issues, scope) {
     "insufficient-substance":
       `has too little content around its citation (${review.citation || "file:line"}) — ` +
       "same presence + minimum-substance contract as a PR URL",
+    "ambiguous-name":
+      "is shared with another phase of the same name — rename one phase so each review is unique",
   };
 
   issues.errors.push({

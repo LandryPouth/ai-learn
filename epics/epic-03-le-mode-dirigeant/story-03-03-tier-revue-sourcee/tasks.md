@@ -77,9 +77,27 @@ décision (`accepter`, `rejeter`, `demander un changement`).
 - P3 — `docs/architecture.md` complété (`citation.js`, `reviews.js`, couplage
   `reviews.js → guard.js`).
 
+**Revue post-merge (2026-10-22, améliorations non bloquantes).** Corrigés :
+
+- P2 — `DECISION_RE` : `\b` est ASCII en JS et refusait les participes passés
+  accentués pourtant listés (`accepté`, `rejeté`, `refusé`, `changement
+  demandé`). Limites de mot Unicode (`\p{L}`/`\p{N}`). Tests dédiés dans
+  `test/citation.test.js`.
+- P3 — `FILE_LINE_RE` : séparateurs Windows (`src\index.js:3`) et segments
+  accentués acceptés ; `findRealFileLine` normalise le séparateur pour la
+  résolution mais renvoie la citation d'origine, et un chemin absolu Windows
+  reste refusé. Tests ajoutés.
+- P3 — test d'intégration positif renforcé : le préfixe `in dirigeant mode
+  but` couvre toutes les raisons de refus, pas seulement deux.
+- P3 — deux phases homonymes refusées (`ambiguous-name`) : le fichier de revue
+  étant dérivé du nom, une seule revue prouverait les deux. `duplicateSlugs`
+  partagé par `check` et `status`, détail affiché côté `status`, test
+  d'intégration ajouté.
+
 **Tests exécutés.**
-- `npm test` → 574/574, 0 échec (555 avant cette story, 562 à la première
-  passe, 574 après les tests de revue pré-merge).
+- `npm test` → 578/578, 0 échec (555 avant cette story, 562 à la première
+  passe, 574 après les tests de revue pré-merge, 578 après les améliorations
+  post-merge).
 - `ai-flow verify --story <dir>` → vert, `npm test`, Coverage: `evidence`
   (fichiers de test + 4 fichiers de comportement ; aucun rapport de couverture
   émis, donc non mesuré). Les 5 critères de `spec.md` sont cochés dans la même

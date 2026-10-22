@@ -40,6 +40,14 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
 - Le plancher de substance et le comptage de lignes ne comptent pas la ligne
   vide ouverte par un saut de ligne final : `text.replace(/\r?\n$/, "")`
   avant découpage, sinon `fichier:<dernière+1>` résout à tort.
+- Les limites de mot de `DECISION_RE` sont Unicode (`\p{L}`) : `\b` est ASCII
+  en JS et refusait les participes passés accentués (`accepté`, `rejeté`,
+  `changement demandé`) que la liste énumère pourtant.
+- Une citation accepte les séparateurs Windows (`src\index.js:3`) et les
+  segments accentués ; un chemin absolu Windows reste refusé.
+- Deux phases ne peuvent pas partager un nom : le fichier de revue étant
+  dérivé du nom, une seule revue prouverait les deux. Le doublon est refusé
+  (`ambiguous-name`) plutôt que résolu par un suffixe deviné.
 
 ## Test Plan
 
