@@ -44,6 +44,8 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 | Norme clean-code | `ai-learn norm` | heuristique, blocage dur |
 | Banque de pièges | `ai-learn traps` → `.ai-learn/traps.json` | extraite des docs, citée `fichier:ligne` |
 | Ledger git/gh cross-projet | `~/.ai-learn/tracks/git.json` | 6 tiers, jamais remis à zéro |
+| Ledger de tests cross-projet | `~/.ai-learn/tracks/tests.json` | 6 tiers observés depuis les évidences `verify` |
+| Mode dirigeant mérité | `ai-learn mode` + `ai-learn check` | tiers 1-3 requis, ledger illisible = refus, écart signalé en erreur |
 | Ledger de domaine cross-projet | `~/.ai-learn/domains/<stack>.json` | couverture de concepts |
 | Journal de friction | `.ai-learn/dogfood.md` (par projet) + `docs/DOGFOODING.md` (agrégé) | prose |
 

@@ -24,6 +24,7 @@ const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
 const { guardConfigIssues, loadGuardConfig } = require("./guard");
+const { MODE_DIRIGEANT, formatLedgerRefusal, requiredTiersStatus } = require("./mode");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
 const {
@@ -47,7 +48,7 @@ const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 // hole is well-placed.
 const HOLE_MARKER_RE = /\[\s*\.\.\.\s*\]|…|\bTODO\b|à (?:compl[ée]ter|finir)|\.\.\.\s*$/im;
 
-function checkProject(dir) {
+function checkProject(dir, { home } = {}) {
   const issues = { errors: [], warnings: [] };
   const { config, exists } = readProgress(dir);
 
@@ -135,6 +136,26 @@ function checkProject(dir) {
   if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json"))) {
     for (const issue of guardConfigIssues(dir)) {
       issues.warnings.push({ file: ".ai-learn/guard.json", message: issue.message });
+    }
+
+    // `dirigeant` is earned through `ai-learn mode dirigeant`, which proves
+    // tiers 1-3 of the global ledger. A hand-edited guard.json can claim the
+    // mode without that proof, so the only place the divergence is visible is
+    // here — and it is an error, not a warning: the project is enforcing a
+    // property the learner has not demonstrated. An absent/corrupt ledger
+    // proves nothing either (fail closed, like the gate itself).
+    if (loadGuardConfig(dir).mode === MODE_DIRIGEANT) {
+      const ledger = requiredTiersStatus({ home });
+
+      if (!ledger.ok) {
+        issues.errors.push({
+          file: ".ai-learn/guard.json",
+          message:
+            "mode is \"dirigeant\" but the test ledger does not prove tiers 1-3: " +
+            `${formatLedgerRefusal(ledger)} — switch with \`ai-learn mode dirigeant\`, ` +
+            "never by hand-editing guard.json",
+        });
+      }
     }
 
     // An implementation scope that matches nothing makes source-hash, norm and

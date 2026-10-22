@@ -236,6 +236,17 @@ function main() {
       break;
     }
 
+    case "mode": {
+      // Switches `.ai-learn/guard.json` between `apprenti` and `dirigeant`.
+      // `dirigeant` is gated on tiers 1-3 of the global test-mastery ledger;
+      // `apprenti` is always permitted (see lib/mode.js).
+      const { modeCommand } = require("./lib/mode");
+      const { parseArgs } = require("./lib/args");
+      const { positionals } = parseArgs(commandArgs, { valueFlags: ["--dir", "--platform"] });
+      modeCommand({ dir, target: positionals[0] || null });
+      break;
+    }
+
     case "guard": {
       // PreToolUse hook (hot path): refuses the AI any write into the learner's
       // solution files. Reads the hook JSON on stdin, responds allow/deny.
@@ -290,6 +301,7 @@ Usage:
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
   ai-learn norm [--dir <dir>]
+  ai-learn mode <apprenti|dirigeant> [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn upgrade
@@ -337,6 +349,10 @@ Commands:
            count) against the project's norm (.ai-learn/norm.json or the stack
            pack's defaults) — read-only, non-zero exit on violation. Same engine
            verify/check hard-block on; run standalone for fast local feedback
+  mode     Switch between apprenti and dirigeant. Dirigeant is earned: tiers 1-3
+           of ~/.ai-learn/tracks/tests.json must be achieved (a killed mutant, a
+           100 % mutation score, red-before-green). An absent/corrupt ledger
+           refuses; returning to apprenti is always permitted
   guard    PreToolUse hook: refuses the AI any write into the learner's solution
            files (src/** by default, .ai-learn/guard.json). Wired by init/update —
            the learner types that code, the AI cannot
