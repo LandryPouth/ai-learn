@@ -13,6 +13,8 @@ const {
   predictionsPath,
   journalPath,
   predictionsReport,
+  normalizePredictionsRequired,
+  formatPredictionsGap,
 } = require("../bin/lib/predictions");
 const { tmpProject, writeFile, sampleProgress } = require("./helpers");
 
@@ -220,4 +222,92 @@ test("ensurePredictionsFile is idempotent and never touches an existing file", (
 
   assert.ok(!second.created);
   assert.strictEqual(JSON.parse(fs.readFileSync(predictionsPath(dir), "utf8")).entries[0].id, "kept");
+});
+
+// -----------------------------------------------------------------------
+// Story 05.01 — prediction types (`code` / `casse` / `reality`) and a
+// `predictionsRequired` requirement that can be ventilated per type.
+// -----------------------------------------------------------------------
+
+test("normalizePredictionsRequired: integer stays a total-only requirement (legacy format)", () => {
+  assert.deepStrictEqual(normalizePredictionsRequired(3), { total: 3, byType: null });
+  assert.deepStrictEqual(normalizePredictionsRequired(0), { total: 0, byType: null });
+  assert.deepStrictEqual(normalizePredictionsRequired(undefined), { total: 0, byType: null });
+});
+
+test("normalizePredictionsRequired: an object is summed into a total and kept per type", () => {
+  assert.deepStrictEqual(normalizePredictionsRequired({ code: 2, reality: 1 }), {
+    total: 3,
+    byType: { code: 2, reality: 1 },
+  });
+  assert.deepStrictEqual(normalizePredictionsRequired({ reality: 0, casse: 1 }), { total: 1, byType: { casse: 1 } });
+  assert.deepStrictEqual(normalizePredictionsRequired({ unknown: 5 }), { total: 0, byType: null });
+});
+
+test("recording a --type reality prediction stores the type and renders it in the journal", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, type: "reality", prediction: "GET /x → 500" });
+
+  assert.strictEqual(entry.type, "reality");
+  const { data } = readPredictions(dir);
+  assert.strictEqual(data.entries[0].type, "reality");
+
+  const rendered = fs.readFileSync(journalPath(dir), "utf8");
+  assert.match(rendered, /^- Type : reality$/m);
+});
+
+test("a prediction recorded without --type defaults to code — no migration for existing entries", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "GET /x → 200" });
+
+  assert.strictEqual(entry.type, "code");
+});
+
+test("an unknown --type is refused instead of silently recorded", () => {
+  const dir = tmpProject(sampleProgress());
+
+  assert.throws(
+    () => recordPrediction(dir, sampleProgress(), { phaseId: 0, type: "vibes", prediction: "x" }),
+    /--type must be one of code, casse, reality/,
+  );
+});
+
+test("predictionsReport: an untyped legacy entry counts as code, not as a fourth type", () => {
+  const dir = tmpProject(sampleProgress());
+  writePredictionsFixture(dir, [{ id: "a", phaseId: 0, at: "2026-01-01T00:00:00.000Z", prediction: "x" }]);
+
+  const report = predictionsReport({ dir, phase: { id: 0, predictionsRequired: { code: 1 } } });
+
+  assert.deepStrictEqual(report.countByType, { code: 1 });
+  assert.strictEqual(report.missing, 0);
+});
+
+test("predictionsReport: a missing reality prediction is named with its real/expected count", () => {
+  const dir = tmpProject(sampleProgress());
+  writePredictionsFixture(dir, [
+    { id: "a", phaseId: 0, at: "2026-01-01T00:00:00.000Z", type: "code", prediction: "x" },
+    { id: "b", phaseId: 0, at: "2026-01-01T00:00:01.000Z", type: "code", prediction: "y" },
+  ]);
+
+  const phase = { id: 0, predictionsRequired: { code: 2, reality: 1 } };
+  const report = predictionsReport({ dir, phase });
+
+  assert.deepStrictEqual(report.missingByType, { reality: { expected: 1, actual: 0, missing: 1 } });
+  assert.strictEqual(report.missing, 1);
+  assert.match(formatPredictionsGap(phase, report), /reality 0\/1/);
+});
+
+test("predictionsReport: an integer requirement ignores types and keeps counting them all together", () => {
+  const dir = tmpProject(sampleProgress());
+  writePredictionsFixture(dir, [
+    { id: "a", phaseId: 0, at: "2026-01-01T00:00:00.000Z", type: "code", prediction: "x" },
+    { id: "b", phaseId: 0, at: "2026-01-01T00:00:01.000Z", type: "reality", prediction: "y" },
+  ]);
+
+  const report = predictionsReport({ dir, phase: { id: 0, predictionsRequired: 2 } });
+
+  assert.strictEqual(report.missing, 0);
+  assert.deepStrictEqual(report.missingByType, {});
 });

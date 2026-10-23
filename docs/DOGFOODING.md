@@ -105,7 +105,9 @@ Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées
   prédictions de code qui interroge, pas un blocage.
 - **Workaround** : le consigner à la main dans le journal de prédictions, en confondant les deux
   types d'entrée — ce qui rend le compte `predictionsRequired` moins lisible.
-- **Résolution** :
+- **Résolution** : story 05.01 — `ai-learn predict --type code|casse|reality` enregistre le type,
+  `predictionsRequired` accepte un objet par type, et `verify`/`check` bloquent ou signalent le
+  type réellement manquant (`reality 0/1`). Plus besoin de confondre les entrées.
 
 ### `medium` — rien ne resurgit un travail prouvé-mais-pas-atterri après un `/clear`
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)

@@ -233,3 +233,23 @@ test("verify --stale re-proves a stale phase without a positional id (story 04.0
   assert.strictEqual(result.status, 0);
   assert.match(result.stdout, /toujours vert : 1 phase\(s\)/);
 });
+
+test("predict --type reality records the type end to end and renders it in the journal", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-predict-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({ version: 1, project: "demo", phases: [{ id: 0, name: "Zero", status: "pending" }] }),
+  );
+
+  const result = spawnSync(
+    process.execPath,
+    [BIN, "predict", "--dir", dir, "--phase", "0", "--type", "reality", "--prediction", "POST /x → 201"],
+    { encoding: "utf8", env: isolatedEnv() },
+  );
+
+  assert.strictEqual(result.status, 0);
+  const data = JSON.parse(fs.readFileSync(path.join(dir, ".ai-learn", "predictions.json"), "utf8"));
+  assert.strictEqual(data.entries[0].type, "reality");
+  const journal = fs.readFileSync(path.join(dir, "docs", "plans", "predictions.md"), "utf8");
+  assert.match(journal, /- Type : reality/);
+});

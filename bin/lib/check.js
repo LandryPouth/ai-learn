@@ -39,6 +39,7 @@ const {
   readPredictions,
   countByPhase,
   countIATyped,
+  normalizePredictionsRequired,
   predictionsReport,
   formatPredictionsGap,
 } = require("./predictions");
@@ -369,7 +370,7 @@ function checkProject(dir, { home } = {}) {
   // Counting is per phase: summing across phases let 6 predictions on phase 0
   // satisfy phase 1's requirement too (the bug this story fixes).
   const required = (config.phases || []).reduce(
-    (sum, phase) => sum + (Number.isFinite(phase.predictionsRequired) ? phase.predictionsRequired : 0),
+    (sum, phase) => sum + normalizePredictionsRequired(phase.predictionsRequired).total,
     0,
   );
   const journalMdPath = predictionsJournalPath(dir);
@@ -423,16 +424,16 @@ function checkProject(dir, { home } = {}) {
     // its own count here — informative only (a warning, never a block; see
     // predictionsReport's own retro-compat contract).
     for (const phase of config.phases || []) {
-      const phaseRequired = Number.isFinite(phase.predictionsRequired) ? phase.predictionsRequired : 0;
+      const phaseRequired = normalizePredictionsRequired(phase.predictionsRequired).total;
 
       if (phaseRequired <= 0) {
         continue;
       }
 
       const have = countsByPhase[phase.id] || 0;
-      const report = predictions.valid
+      const report = predictions.valid || predictions.exists
         ? predictionsReport({ dir, phase, predictions })
-        : { required: phaseRequired, count: have, missing: Math.max(0, phaseRequired - have) };
+        : { required: phaseRequired, count: have, missing: Math.max(0, phaseRequired - have), missingByType: {} };
 
       if (report.missing > 0) {
         const legacyHint = jsonEmptyOverNonEmptyLegacy

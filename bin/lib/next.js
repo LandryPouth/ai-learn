@@ -9,6 +9,7 @@ const { log, fail, normalizePortable } = require("./util");
 const { readProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
+const { normalizePredictionsRequired } = require("./predictions");
 
 // Same broken-done detection `nextCommand` prints as text, shared by the
 // JSON builder below so the two can never disagree on which phase is next.
@@ -62,6 +63,8 @@ function buildNextReport(dir) {
     return { version: 1, dir: normalizePortable(dir), done: true, phasesTotal: phases.length, broken, stale, uncommitted: uncommittedCount(dir) };
   }
 
+  const predictionRequirement = normalizePredictionsRequired(next.predictionsRequired);
+
   return {
     version: 1,
     dir: normalizePortable(dir),
@@ -78,7 +81,8 @@ function buildNextReport(dir) {
       // it used to mean "next is itself the stale phase". `next` is now always
       // the real following phase, so read `stale` instead.
       mustReprove: false,
-      predictionsRequired: next.predictionsRequired || 0,
+      predictionsRequired: predictionRequirement.total,
+      predictionsByType: predictionRequirement.byType,
       artifacts: Array.isArray(next.artifacts) ? next.artifacts : [],
     },
   };
@@ -136,8 +140,14 @@ function nextCommand({ dir, json }) {
     log(`  Status: ${next.status}`);
     log(`  Checkpoint: ${next.checkpoint || "(no checkpoint defined)"}`);
 
-    if (next.predictionsRequired) {
-      log(`  Predictions required: ${next.predictionsRequired}`);
+    const predictionRequirement = normalizePredictionsRequired(next.predictionsRequired);
+
+    if (predictionRequirement.total > 0) {
+      const byType = predictionRequirement.byType
+        ? ` (${Object.entries(predictionRequirement.byType).map(([type, count]) => `${type} ${count}`).join(", ")})`
+        : "";
+
+      log(`  Predictions required: ${predictionRequirement.total}${byType}`);
       log("  Protocole : AGENTS.md § « prédire avant de révéler » — une prédiction par écrit, dans le chat,");
       log("  AVANT chaque révélation ; puis consignée dans docs/plans/predictions.md (format en tête du fichier).");
     }

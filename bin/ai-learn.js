@@ -170,6 +170,7 @@ function main() {
 
       const { entry, render } = recordPrediction(dir, config, {
         phaseId,
+        type: getFlagValue("--type", null),
         prediction: getFlagValue("--prediction", null),
         gaps: getFlagValue("--gaps", null),
         score: getFlagValue("--score", null),
@@ -300,9 +301,9 @@ Usage:
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--gaps <text>] [--score <text>]
-             [--strengths <text>] [--weaknesses <text>] [--flash <text>] [--corrected <text>]
-             [--corrected-by <apprenant|IA>] [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality>]
+             [--gaps <text>] [--score <text>] [--strengths <text>] [--weaknesses <text>]
+             [--flash <text>] [--corrected <text>] [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual

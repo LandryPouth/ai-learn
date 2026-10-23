@@ -973,3 +973,73 @@ test("verify --stale keeps going when one stale phase has lost its checkpoint, a
   assert.strictEqual(process.exitCode, 1);
   process.exitCode = 0;
 });
+
+// -----------------------------------------------------------------------
+// Story 05.01 — `predictionsRequired` ventilé par type. A phase that demands
+// a reality check cannot go `done` on code predictions alone.
+// -----------------------------------------------------------------------
+
+test("verify blocks when a required reality prediction is missing, naming the type and its real/expected count", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = { code: 2, reality: 1 };
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "one" });
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "two" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /phase 0: 2\/3 recorded predictions; 1 missing \(reality 0\/1\)/);
+  assert.doesNotMatch(out, /marked done/);
+  assert.strictEqual(process.exitCode, 1);
+  process.exitCode = 0;
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+});
+
+test("verify marks done once every required prediction type is covered", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = { code: 1, reality: 1 };
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "one" });
+  recordPrediction(dir, progress, { phaseId: 0, type: "reality", prediction: "two" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /Prédictions/);
+  assert.match(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
+test("an integer predictionsRequired still counts every type together (legacy format unchanged)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 2;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "one" });
+  recordPrediction(dir, progress, { phaseId: 0, type: "reality", prediction: "two" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /Prédictions/);
+  assert.match(out, /marked done/);
+});
+
+test("verify's evidence records the per-type gap of a ventilated requirement", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = { code: 1, reality: 1 };
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "one" });
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+
+  assert.strictEqual(evidence.predictions.ok, false);
+  assert.deepStrictEqual(evidence.predictions.requiredByType, { code: 1, reality: 1 });
+  assert.deepStrictEqual(evidence.predictions.countByType, { code: 1 });
+  assert.deepStrictEqual(evidence.predictions.missingByType, { reality: { expected: 1, actual: 0, missing: 1 } });
+  process.exitCode = 0;
+});

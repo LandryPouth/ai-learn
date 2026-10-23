@@ -723,6 +723,7 @@ test("le séparateur tiret ordinaire est compté — legacy .md with a plain hyp
 test("predictions.json corrompu est une erreur, jamais silencieusement accepté", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/predictions.json", "{ not json");
+  writeFile(dir, "docs/plans/predictions.md", "# Journal des prédictions\n");
 
   const entry = checkProject(dir);
 
@@ -1302,4 +1303,58 @@ test("init then check is clean; deleting the native memory stub makes check warn
   fs.unlinkSync(path.join(dir, "CLAUDE.md"));
 
   assert.ok(checkProject(dir, { home }).issues.warnings.some((w) => w.file === "CLAUDE.md"));
+});
+
+// -----------------------------------------------------------------------
+// Story 05.01 — a done phase that required a reality check but only has code
+// predictions must be signalled, with the missing type named.
+// -----------------------------------------------------------------------
+
+test("check signals a done phase missing its required reality prediction", () => {
+  const dir = tmpProject(sampleProgress({
+    phases: [
+      {
+        id: 0,
+        name: "Zero",
+        status: "done",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: { code: 1, reality: 1 },
+      },
+    ],
+  }));
+  writeFile(
+    dir,
+    ".ai-learn/predictions.json",
+    JSON.stringify(predictionsData([{ id: "a", phaseId: 0, at: "2026-01-01T00:00:00.000Z", type: "code", prediction: "x" }])),
+  );
+
+  const entry = checkProject(dir);
+  const warning = entry.issues.warnings.find((w) => /^phase 0:/.test(w.message));
+
+  assert.ok(warning);
+  assert.match(warning.message, /reality 0\/1/);
+});
+
+test("check names the missing reality type even when predictions.json is corrupted", () => {
+  const dir = tmpProject(sampleProgress({
+    phases: [
+      {
+        id: 0,
+        name: "Zero",
+        status: "done",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: { code: 1, reality: 1 },
+      },
+    ],
+  }));
+  writeFile(dir, ".ai-learn/predictions.json", "{ not json");
+  writeFile(dir, "docs/plans/predictions.md", "# Journal des prédictions\n");
+
+  const entry = checkProject(dir);
+  const warning = entry.issues.warnings.find((w) => /^phase 0:/.test(w.message));
+
+  assert.ok(warning);
+  assert.match(warning.message, /reality 0\/1/);
 });
