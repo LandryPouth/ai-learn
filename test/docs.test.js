@@ -13,6 +13,9 @@ const {
   listSources,
   docSourceList,
   sourceKind,
+  generateDigest,
+  digestPath,
+  digestCitations,
   MAX_SOURCES,
   SOURCE_PRESETS,
   docsCommand,
@@ -268,6 +271,96 @@ test("list shows the sources and their state", () => {
   assert.match(out, /web/);
   assert.match(out, /\[remote\]/);
   assert.match(out, /online/);
+});
+
+function digestProject(sections, extraPhase = {}) {
+  const dir = tmpProject({
+    version: 1,
+    project: "demo",
+    technology: "Fastify",
+    docSource: {
+      type: "local",
+      sources: [{ name: "fastify-docs", mode: "local", path: "docs/sources/fastify-docs" }],
+    },
+    phases: [{ id: 1, name: "Routes", status: "pending", sections, ...extraPhase }],
+  });
+  writeFile(
+    dir,
+    "docs/sources/fastify-docs/Reference/Routes.md",
+    "# Routes\n\nline three\nline four\nline five\nline six\n",
+  );
+  return dir;
+}
+
+test("docs digest copies the declared line ranges and cites them", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "Reference/Routes.md", from: 3, to: 5 }]);
+
+  const target = generateDigest({ dir, phaseId: "1" });
+  const content = fs.readFileSync(target, "utf8");
+
+  assert.strictEqual(target, digestPath(dir, 1));
+  assert.match(content, /## fastify-docs\/Reference\/Routes\.md:3-5/);
+  assert.match(content, /line three\nline four\nline five/);
+  assert.doesNotMatch(content, /line six/);
+  assert.doesNotMatch(content, /^# Routes$/m);
+  assert.deepStrictEqual(digestCitations(content), [
+    { path: "fastify-docs/Reference/Routes.md", from: 3, to: 5 },
+  ]);
+});
+
+test("docs digest widens its fence when the excerpt contains code fences", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "Reference/Routes.md", from: 1, to: 3 }]);
+  writeFile(dir, "docs/sources/fastify-docs/Reference/Routes.md", "# Routes\n```js\ncode\n```\n");
+
+  const content = fs.readFileSync(generateDigest({ dir, phaseId: "1" }), "utf8");
+
+  assert.match(content, /^````markdown$/m);
+  assert.match(content, /^````$/m);
+});
+
+test("docs digest refuses a citation that does not point at real lines", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "Reference/Routes.md", from: 3, to: 99 }]);
+
+  assert.throws(() => generateDigest({ dir, phaseId: "1" }), /exceeds the file \(6 lines\)/);
+  assert.strictEqual(fs.existsSync(digestPath(dir, 1)), false);
+});
+
+test("docs digest refuses a file that escapes its source", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "../secrets.md", from: 1, to: 2 }]);
+
+  assert.throws(() => generateDigest({ dir, phaseId: "1" }), /escapes source/);
+});
+
+test("docs digest regenerates and overwrites a stale digest", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "Reference/Routes.md", from: 3, to: 5 }]);
+  const target = generateDigest({ dir, phaseId: "1" });
+  assert.match(fs.readFileSync(target, "utf8"), /line four/);
+
+  writeFile(
+    dir,
+    "docs/sources/fastify-docs/Reference/Routes.md",
+    "# Routes\n\nline three\nline FOUR updated\nline five\nline six\n",
+  );
+  generateDigest({ dir, phaseId: "1" });
+
+  const content = fs.readFileSync(target, "utf8");
+  assert.match(content, /line FOUR updated/);
+  assert.doesNotMatch(content, /line four\n/);
+});
+
+test("docs digest without declared sections says so and writes no file", () => {
+  const dir = digestProject([]);
+
+  const out = capture(() => generateDigest({ dir, phaseId: "1" }));
+
+  assert.match(out, /aucune section ciblée/);
+  assert.strictEqual(fs.existsSync(digestPath(dir, 1)), false);
+});
+
+test("docs digest without --phase fails with usage", () => {
+  const dir = digestProject([]);
+
+  assert.throws(() => docsCommand({ dir, args: ["digest"] }), /usage: ai-learn docs digest --phase <id>/);
 });
 
 test("SOURCE_PRESETS maps the two vetted complements", () => {

@@ -19,23 +19,35 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
 
 ## Decisions
 
-- Décision à prendre : l'extrait est **mécanique** (copie de plages de lignes), jamais résumé par un modèle — cohérent avec « jamais inventée » de `traps`.
-- Décision à prendre : format de déclaration des sections (plage de lignes ou titre) à fixer ici, une seule forme.
+- **Extrait mécanique.** `docs digest` copie des plages de lignes, il ne résume
+  jamais : aucune phrase du digest n'est inventée, seulement citée.
+- **Format de déclaration : plages de lignes, une seule forme.**
+  `phase.sections = [{ source, file, from, to }]`, lignes 1-indexées et inclusives.
+  Les titres sont écartés : un titre peut être renommé ou dupliqué, une plage
+  existe ou n'existe pas. `docs/plans/plan-apprentissage.md` reste en lecture
+  seule — les ✅/⏭️ sont matérialisés par les plages déclarées, tout le reste est
+  ignoré.
+- **Citation machine dans un commentaire HTML.** Chaque section écrit
+  `<!-- digest: <source>/<file>:<from>-<to> -->` en plus du titre lisible : un
+  extrait de doc markdown peut contenir des `##`, qui ne doivent jamais être
+  confondus avec une nouvelle citation par `check`.
+- **`check` avertit, ne bloque pas.** Un digest périmé se répare par
+  `docs digest --phase <id>`, ce n'est pas un projet cassé.
 
 ## Test Plan
 
-- [ ] Unit : extraction de plages, citation valide/invalide.
-- [ ] Intégration : source temporaire + phase + digest.
+- [x] Unit : extraction de plages, citation valide/invalide.
+- [x] Intégration : source temporaire + phase + digest.
 
 ## Acceptance Traceability
 
 | Acceptance criterion | Test proving it |
 | --- | --- |
-| Given une phase avec des sections ciblées déclarées, when `docs digest… | `Unit : extraction de plages, citation valide/invalide.` (à nommer `file::test` au `/flow-run`) |
-| Given une citation, when elle est vérifiée, then `fichier:ligne` point… | `Intégration : source temporaire + phase + digest.` (à nommer `file::test` au `/flow-run`) |
-| Given un digest déjà généré et une source modifiée, when `docs digest`… | `Intégration : source temporaire + phase + digest.` (à nommer `file::test` au `/flow-run`) |
-| Given une phase sans sections ciblées, when `digest` tourne, then mess… | `Intégration : source temporaire + phase + digest.` (à nommer `file::test` au `/flow-run`) |
-| Given `check`, when le digest d'une phase pointe vers une ligne dispar… | `Intégration : source temporaire + phase + digest.` (à nommer `file::test` au `/flow-run`) |
+| Given une phase avec des sections ciblées déclarées, when `docs digest… | `test/docs.test.js::docs digest copies the declared line ranges and cites them` |
+| Given une citation, when elle est vérifiée, then `fichier:ligne` point… | `test/docs.test.js::docs digest refuses a citation that does not point at real lines` |
+| Given un digest déjà généré et une source modifiée, when `docs digest`… | `test/docs.test.js::docs digest regenerates and overwrites a stale digest` |
+| Given une phase sans sections ciblées, when `digest` tourne, then mess… | `test/docs.test.js::docs digest without declared sections says so and writes no file` |
+| Given `check`, when le digest d'une phase pointe vers une ligne dispar… | `test/check.test.js::check warns when a phase digest cites lines the source no longer has` |
 
 ## Commands
 

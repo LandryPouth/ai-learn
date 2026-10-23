@@ -19,7 +19,7 @@ const {
   latestAnyEvidenceForPhase,
   phaseVerdict,
 } = require("./progress");
-const { docSourceList } = require("./docs");
+const { docSourceList, digestPath, digestCitations, digestCitationProblem } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const {
   NATIVE_MEMORY_FILE,
@@ -472,6 +472,8 @@ function checkProject(dir, { home } = {}) {
     const ev = latestEvidenceForPhase(dir, phase.id);
     const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
 
+    checkDigest(dir, config, phase, issues);
+
     if (phase.status === "done") {
       if (!phase.checkpoint) {
         issues.warnings.push({
@@ -585,6 +587,32 @@ function checkProject(dir, { home } = {}) {
   }
 
   return { dir, config, issues };
+}
+
+// Story 06.02 — a generated digest is a snapshot of line ranges. The source
+// can move under it (a doc update, a hand edit), so `check` re-resolves every
+// citation and warns when a range no longer exists. A warning, never an error:
+// the fix is `ai-learn docs digest --phase <id>`, not a broken project.
+function checkDigest(dir, config, phase, issues) {
+  const target = digestPath(dir, phase.id);
+
+  if (!fs.existsSync(target)) {
+    return;
+  }
+
+  const content = fs.readFileSync(target, "utf8");
+  const relative = normalizePortable(path.relative(dir, target));
+
+  for (const citation of digestCitations(content)) {
+    const problem = digestCitationProblem(dir, config, citation);
+
+    if (problem) {
+      issues.warnings.push({
+        file: relative,
+        message: `phase ${phase.id} digest: ${problem} — regenerate with \`ai-learn docs digest --phase ${phase.id}\``,
+      });
+    }
+  }
 }
 
 // A `generated` source was never cloned — the AI had to recreate the doc

@@ -12,6 +12,7 @@ const { readProgress } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
 const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome } = require("./helpers");
 const { scaffold } = require("../bin/lib/init");
+const { generateDigest } = require("../bin/lib/docs");
 const { findLearningProjects } = require("../bin/lib/util");
 
 function initRepo(dir) {
@@ -102,6 +103,39 @@ test("a phase marked done without evidence is an error", () => {
   const entry = checkProject(dir);
   assert.ok(entry.issues.errors.some((e) => /marked done but has no passing evidence/.test(e.message)));
   assert.strictEqual(entry.issues.warnings.length, 0);
+});
+
+test("check warns when a phase digest cites lines the source no longer has", () => {
+  const progress = sampleProgress({
+    docSource: {
+      type: "local",
+      sources: [{ name: "fastify-docs", mode: "local", path: "docs/sources/fastify-docs" }],
+    },
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+        sections: [{ source: "fastify-docs", file: "Reference/Routes.md", from: 2, to: 4 }],
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/fastify-docs/Reference/Routes.md", "# Routes\nline two\nline three\nline four\n");
+  generateDigest({ dir, phaseId: "1" });
+
+  writeFile(dir, "docs/sources/fastify-docs/Reference/Routes.md", "# Routes\nline two\n");
+
+  const entry = checkProject(dir);
+
+  assert.ok(
+    entry.issues.warnings.some(
+      (warning) => /phase 1 digest/.test(warning.message) && /past the end of the file/.test(warning.message),
+    ),
+  );
 });
 
 test("a norm violation in the learner's files is an error (hard block), not a warning", () => {
