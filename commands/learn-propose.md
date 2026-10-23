@@ -4,10 +4,10 @@ argument-hint: ""
 allowed-tools: ["Bash"]
 ---
 
-# ai-learn: propose
+# ai-learn: learn-propose
 
-L'apprenant ne sait pas quoi construire ? `/propose` lui donne un projet, et le
-**projet entier se monte tout seul**. L'apprenant tape `/propose` — **aucune
+L'apprenant ne sait pas quoi construire ? `/learn-propose` lui donne un projet, et le
+**projet entier se monte tout seul**. L'apprenant tape `/learn-propose` — **aucune
 option, il n'a pas à connaître l'outil**.
 
 ## Neutralité — jamais de biais dans ce que voit l'apprenant
@@ -22,7 +22,7 @@ d'où vient l'idée.
 
 ## Flux — tout est automatique
 
-1. L'apprenant tape `/propose`.
+1. L'apprenant tape `/learn-propose`.
 2. L'IA choisit les filtres d'après la conversation (stack, niveau), ou pose
    **une** question simple et neutre si besoin : *« tu préfères quelque chose de
    réseau, un outil, ou un jeu ? »*

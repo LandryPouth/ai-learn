@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { parseCommandFile, listCommandFiles } = require("../bin/lib/platforms/commands");
+const { parseCommandFile, listCommands } = require("../bin/lib/platforms/commands");
 const { renderCommand: renderGemini } = require("../bin/lib/platforms/gemini");
 const { renderCommand: renderOpencode } = require("../bin/lib/platforms/opencode");
 const { renderCommand: renderAntigravity } = require("../bin/lib/platforms/antigravity");
@@ -27,10 +27,10 @@ function tmpDir(prefix) {
 }
 
 test("gemini renderCommand produces valid TOML (prompt + description)", () => {
-  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "next.md"));
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-next.md"));
   const { filename, content } = renderGemini(parsed);
 
-  assert.strictEqual(filename, "next.toml");
+  assert.strictEqual(filename, "learn-next.toml");
   assert.match(content, /^description = "/);
   assert.match(content, /prompt = """/);
   assert.match(content, /ai-learn next/);
@@ -43,20 +43,20 @@ test("gemini renderCommand escapes quotes in the description", () => {
 });
 
 test("opencode renderCommand produces frontmatter + body", () => {
-  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "status.md"));
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-status.md"));
   const { filename, content } = renderOpencode(parsed);
 
-  assert.strictEqual(filename, "status.md");
+  assert.strictEqual(filename, "learn-status.md");
   assert.match(content, /^---\ndescription: "/);
   assert.match(content, /ai-learn status/);
 });
 
 test("antigravity renderCommand produces a flat skills/<name>/SKILL.md layout", () => {
-  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "next.md"));
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-next.md"));
   const { filename, content } = renderAntigravity(parsed);
 
-  assert.strictEqual(filename, "ai-learn-next/SKILL.md");
-  assert.match(content, /^---\nname: ai-learn-next\ndescription: "/);
+  assert.strictEqual(filename, "ai-learn-learn-next/SKILL.md");
+  assert.match(content, /^---\nname: ai-learn-learn-next\ndescription: "/);
   assert.match(content, /ai-learn next/);
 });
 
@@ -65,7 +65,7 @@ test("antigravity renderCommand quotes a description containing a bare colon (re
   // mid-sentence ":", which breaks YAML plain-scalar parsing when emitted
   // unquoted — validated with Python's PyYAML against the actual generated
   // file before this was fixed.
-  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "docs.md"));
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-docs.md"));
   assert.match(parsed.description, /:/); // sanity: the fixture still has the colon
 
   const { content } = renderAntigravity(parsed);
@@ -78,13 +78,14 @@ test("antigravity renderCommand escapes embedded double quotes", () => {
   assert.match(content, /description: "a \\"quoted\\" word"/);
 });
 
-test("install antigravity writes 7 flat skill directories, all YAML-parseable", () => {
+test("install antigravity writes one flat skill directory per command and alias, all YAML-parseable", () => {
   const home = tmpDir("ai-learn-antigravity-");
   capture(() => installCommand({ platform: "antigravity", home }));
 
   const skillsDir = path.join(home, ".gemini", "antigravity", "skills");
   const entries = fs.readdirSync(skillsDir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  assert.strictEqual(entries.length, listCommandFiles(COMMANDS_DIR).length);
+  assert.strictEqual(entries.length, listCommands(COMMANDS_DIR).length);
+  assert.ok(fs.existsSync(path.join(skillsDir, "ai-learn-learn-next", "SKILL.md")));
   assert.ok(fs.existsSync(path.join(skillsDir, "ai-learn-next", "SKILL.md")));
 
   for (const entry of entries) {
@@ -101,8 +102,9 @@ test("install gemini writes one namespaced .toml per command", () => {
 
   const dir = path.join(home, ".gemini", "commands", "ai-learn");
   const files = fs.readdirSync(dir);
-  assert.strictEqual(files.length, 7);
-  assert.ok(files.includes("next.toml"));
+  assert.strictEqual(files.length, 13);
+  assert.ok(files.includes("learn-next.toml"));
+  assert.ok(files.includes("next.toml"), "the legacy /next alias still ships");
 });
 
 test("install opencode writes one namespaced .md per command", () => {
@@ -111,8 +113,9 @@ test("install opencode writes one namespaced .md per command", () => {
 
   const dir = path.join(home, ".config", "opencode", "command", "ai-learn");
   const files = fs.readdirSync(dir);
-  assert.strictEqual(files.length, 7);
-  assert.ok(files.includes("next.md"));
+  assert.strictEqual(files.length, 13);
+  assert.ok(files.includes("learn-next.md"));
+  assert.ok(files.includes("next.md"), "the legacy /next alias still ships");
 });
 
 test("codex-guard renderConfig emits only literal paths (no aborting dir + dir/** pair)", () => {

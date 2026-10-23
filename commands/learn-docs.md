@@ -4,7 +4,7 @@ argument-hint: "list | add <nom> <chemin|url|preset> [--online] [--regen] | remo
 allowed-tools: ["Bash"]
 ---
 
-# ai-learn: docs
+# ai-learn: learn-docs
 
 Gère les sources de documentation de référence du projet.
 

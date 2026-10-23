@@ -5,7 +5,7 @@
 // triangulated from opencode.ai's public docs (description/agent/model
 // frontmatter + prompt body) — confirmed against opencode 1.18.18 installed
 // locally: after `ai-learn install opencode`, `opencode debug config` (no
-// model call) resolves all 7 commands under "command": {"ai-learn/<name>":
+// model call) resolves every command under "command": {"ai-learn/<name>":
 // {description, template}}, template being the markdown body verbatim.
 
 function renderCommand({ name, description, body }) {

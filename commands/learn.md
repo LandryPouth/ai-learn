@@ -90,7 +90,7 @@ donnes à `--technology`). Simple lecture de fichier, jamais bloquée.
 
 - S'il existe : **ne génère aucune phase sur un concept déjà `achieved`**
   dans ce ledger — c'est l'invariant de non-régression déjà appliqué par
-  `/scan` à l'intérieur d'un projet, étendu ici à travers plusieurs projets.
+  `/learn-scan` à l'intérieur d'un projet, étendu ici à travers plusieurs projets.
   Démarre directement au-dessus du tier le plus haut déjà prouvé.
 - C'est ce qui rend « quelques projets suffisent pour devenir expert »
   mesurable plutôt que déclaratif : `ai-learn status` affichera la couverture
@@ -185,7 +185,7 @@ ai-learn next
 Présente ensuite à l'utilisateur :
 
 - le résumé du parcours (phases, doc source)
-- la commande `/next` pour voir quoi faire
+- la commande `/learn-next` pour voir quoi faire
 - la consigne : chaque phase commence par une **prédiction écrite** avant tout code.
 
 ## Règles

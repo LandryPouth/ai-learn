@@ -176,7 +176,33 @@ test("update --platform installs that platform's slash commands into an isolated
 
   try {
     capture(() => updateCommand({ root: dir, platform: "codex" }));
-    assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
+    assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-learn-next.md")));
+  } finally {
+    process.env.HOME = original.HOME;
+    process.env.USERPROFILE = original.USERPROFILE;
+  }
+});
+
+test("update --platform rewrites a pre-04.05 install with the new names, keeping old names as aliases", () => {
+  const dir = tmpProject(project());
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-migration-"));
+  const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  // A project scaffolded before story 04.05: only the old codex prompt exists,
+  // carrying the old canonical body.
+  writeFile(home, ".codex/prompts/ai-learn-next.md", "---\ndescription: \"Prochaine phase à faire\"\n---\n\nExécute `ai-learn next`.\n");
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+
+  try {
+    capture(() => updateCommand({ root: dir, platform: "codex" }));
+
+    const prompts = path.join(home, ".codex", "prompts");
+    assert.ok(fs.existsSync(path.join(prompts, "ai-learn-learn-next.md")), "the new name is installed");
+
+    const alias = fs.readFileSync(path.join(prompts, "ai-learn-next.md"), "utf8");
+    assert.match(alias, /Nom déprécié/);
+    assert.match(alias, /learn-next/);
+    assert.match(alias, /ai-learn next/, "the alias forwards the canonical body, not the stale old one");
   } finally {
     process.env.HOME = original.HOME;
     process.env.USERPROFILE = original.USERPROFILE;

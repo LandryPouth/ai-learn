@@ -4,7 +4,7 @@ argument-hint: ""
 allowed-tools: ["Bash"]
 ---
 
-# ai-learn: next
+# ai-learn: learn-next
 
 Montre la prochaine phase à travailler dans le projet courant.
 
@@ -20,4 +20,4 @@ preuve est périmée (avec la commande `ai-learn verify <id>`) ou absente.
 
 Une preuve périmée ne remplace jamais la prochaine action : elle est listée
 après. Si tout est fini et prouvé, `ai-learn next` le dit — propose alors
-`/check` pour confirmer que tout est prouvé.
+`/learn-check` pour confirmer que tout est prouvé.

@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { parseCommandFile, listCommandFiles } = require("../bin/lib/platforms/commands");
+const { parseCommandFile, listCommandFiles, listCommands } = require("../bin/lib/platforms/commands");
 const { renderCommand } = require("../bin/lib/platforms/codex");
 const { installCommand, linkOrCopy } = require("../bin/lib/install");
 const { capture } = require("./helpers");
@@ -18,9 +18,9 @@ function tmpHome() {
 }
 
 test("parseCommandFile reads frontmatter and body from a real command file", () => {
-  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "next.md"));
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-next.md"));
 
-  assert.strictEqual(parsed.name, "next");
+  assert.strictEqual(parsed.name, "learn-next");
   assert.strictEqual(parsed.description, "Prochaine phase à faire");
   assert.strictEqual(parsed.argumentHint, "");
   assert.deepStrictEqual(parsed.allowedTools, ["Bash"]);
@@ -34,11 +34,26 @@ test("listCommandFiles finds all 7 source commands", () => {
   assert.ok(files.every((f) => f.endsWith(".md")));
 });
 
+test("listCommands derives one deprecated alias per old name, from the canonical body", () => {
+  const commands = listCommands(COMMANDS_DIR);
+  const byName = new Map(commands.map((command) => [command.name, command]));
+
+  for (const name of ["learn", "learn-next", "learn-status", "learn-scan", "learn-propose", "learn-check", "learn-docs"]) {
+    assert.ok(byName.has(name), `${name} is a canonical command`);
+    assert.strictEqual(byName.get(name).aliasOf, undefined);
+  }
+
+  const alias = byName.get("next");
+  assert.strictEqual(alias.aliasOf, "learn-next");
+  assert.match(alias.body, /^> ⚠ Nom déprécié — cette commande s'appelle désormais `\/learn-next`\.$/m);
+  assert.ok(alias.body.endsWith(byName.get("learn-next").body), "alias forwards the canonical body verbatim");
+});
+
 test("codex renderCommand produces a namespaced prompt with valid frontmatter", () => {
-  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "docs.md"));
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-docs.md"));
   const { filename, content } = renderCommand(parsed);
 
-  assert.strictEqual(filename, "ai-learn-docs.md");
+  assert.strictEqual(filename, "ai-learn-learn-docs.md");
   assert.match(content, /^---\ndescription: "/);
   assert.match(content, /argument-hint: "/);
   assert.match(content, /ai-learn docs/);
@@ -56,8 +71,13 @@ test("install codex writes one prompt file per command, no guard/hook wiring", (
   const promptsDir = path.join(home, ".codex", "prompts");
   const files = fs.readdirSync(promptsDir);
 
-  assert.strictEqual(files.length, 7);
-  assert.ok(files.includes("ai-learn-next.md"));
+  assert.strictEqual(files.length, 13);
+  assert.ok(files.includes("ai-learn-learn-next.md"), "the canonical /learn-next command");
+  assert.ok(files.includes("ai-learn-next.md"), "the /next alias still ships");
+
+  const alias = fs.readFileSync(path.join(promptsDir, "ai-learn-next.md"), "utf8");
+  assert.match(alias, /Nom déprécié/);
+  assert.match(alias, /ai-learn next/);
   assert.ok(!fs.existsSync(path.join(home, ".claude")));
 });
 
@@ -68,11 +88,47 @@ test("install claude symlinks commands and the binary, idempotently", () => {
   const binLink = path.join(home, ".local", "bin", "ai-learn");
   const commandsDir = path.join(home, ".claude", "commands");
   assert.ok(fs.lstatSync(binLink).isSymbolicLink());
-  assert.strictEqual(fs.readdirSync(commandsDir).length, 7);
+  assert.strictEqual(fs.readdirSync(commandsDir).length, 13);
+  assert.ok(fs.lstatSync(path.join(commandsDir, "learn-next.md")).isSymbolicLink());
+  assert.ok(!fs.lstatSync(path.join(commandsDir, "next.md")).isSymbolicLink(), "aliases are generated files");
+
+  const alias = fs.readFileSync(path.join(commandsDir, "next.md"), "utf8");
+  assert.match(alias, /Nom déprécié/);
+  assert.match(alias, /ai-learn next/);
 
   // Second run: nothing new, no error on existing symlinks.
   const output = capture(() => installCommand({ platform: "claude", home }));
   assert.match(output, /already installed/);
+});
+
+test("install claude replaces a pre-04.05 alias symlink instead of writing through it", () => {
+  const home = tmpHome();
+  const commandsDir = path.join(home, ".claude", "commands");
+  fs.mkdirSync(commandsDir, { recursive: true });
+
+  // A project scaffolded before the rename: `next.md` is a symlink to the
+  // canonical source, which story 04.05 moved to `learn-next.md`.
+  const staleSource = path.join(COMMANDS_DIR, "next.md");
+  fs.symlinkSync(staleSource, path.join(commandsDir, "next.md"));
+
+  capture(() => installCommand({ platform: "claude", home }));
+
+  const aliasPath = path.join(commandsDir, "next.md");
+  assert.ok(!fs.lstatSync(aliasPath).isSymbolicLink(), "the stale symlink is replaced by a generated alias");
+  assert.match(fs.readFileSync(aliasPath, "utf8"), /Nom déprécié/);
+  assert.ok(!fs.existsSync(staleSource), "writing through the link would resurrect the removed source file");
+});
+
+test("install claude never overwrites a user's own command that shares an alias name", () => {
+  const home = tmpHome();
+  const commandsDir = path.join(home, ".claude", "commands");
+  fs.mkdirSync(commandsDir, { recursive: true });
+  fs.writeFileSync(path.join(commandsDir, "status.md"), "ma commande perso\n");
+
+  capture(() => installCommand({ platform: "claude", home }));
+
+  assert.equal(fs.readFileSync(path.join(commandsDir, "status.md"), "utf8"), "ma commande perso\n");
+  assert.match(fs.readFileSync(path.join(commandsDir, "next.md"), "utf8"), /Nom déprécié/);
 });
 
 test("install with no platform lists available platforms without writing anything", () => {
@@ -125,4 +181,14 @@ test("linkOrCopy re-throws errors unrelated to symlink permissions", () => {
   } finally {
     fs.symlinkSync = original;
   }
+});
+
+test("README documents the /learn-* names and their legacy aliases", () => {
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+
+  for (const name of ["learn", "learn-status", "learn-next", "learn-scan", "learn-propose", "learn-check", "learn-docs"]) {
+    assert.match(readme, new RegExp(`\`/${name}\``), `README lists /${name}`);
+  }
+
+  assert.match(readme, /restent des \*\*alias\*\*/);
 });
