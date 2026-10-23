@@ -373,8 +373,15 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     !tutorInvalid &&
     !transfertMissing;
 
+  const generatedAt = new Date().toISOString();
+
   const evidence = {
-    generatedAt: new Date().toISOString(),
+    generatedAt,
+    // The date a proof covers (story 07.01), stamped here from the evidence
+    // itself rather than declared by the learner. Only a passing run carries
+    // it: a failed run is not a proof, and must never refresh a revisit due
+    // date (story 07.02's failed revisit relies on this).
+    lastProvenAt: ok ? generatedAt : null,
     project: config.project,
     technology: config.technology || null,
     phaseId: phase.id,

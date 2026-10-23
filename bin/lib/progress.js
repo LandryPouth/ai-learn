@@ -9,6 +9,7 @@ const path = require("path");
 const { readJson, writeJson } = require("./util");
 
 const PHASE_STATUSES = ["pending", "in_progress", "done"];
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function progressPath(dir) {
   return path.join(dir, "progress.json");
@@ -186,6 +187,19 @@ function validateProgress(config) {
         });
       }
     }
+
+    // Optional: how many days a proven phase stays fresh before `next`
+    // suggests revisiting it (story 07.01). Same hard discipline as
+    // readingBudgetMin: a malformed value would silently disable the reminder,
+    // so it is an error rather than a warning.
+    if (phase.reviewAfterDays !== undefined && phase.reviewAfterDays !== null) {
+      if (!Number.isInteger(phase.reviewAfterDays) || phase.reviewAfterDays <= 0) {
+        issues.push({
+          level: "error",
+          message: `phase ${phase.id} has an invalid reviewAfterDays (${phase.reviewAfterDays}) — expected a positive integer (days)`,
+        });
+      }
+    }
   }
 
   return issues;
@@ -193,6 +207,50 @@ function validateProgress(config) {
 
 function findPhase(config, id) {
   return (config && Array.isArray(config.phases) && config.phases.find((p) => p && p.id === id)) || null;
+}
+
+// When a phase was last actually proven, read off its evidence — never from a
+// hand-written field. `verify` stamps `lastProvenAt` on passing evidence (the
+// same instant as `generatedAt`); evidence written before that field existed
+// falls back to `generatedAt` (a failed run's `null` does not), so old ledgers keep working unchanged.
+function lastProvenAt(evidence) {
+  if (!evidence) {
+    return null;
+  }
+
+  // `lastProvenAt: null` is a failed run (verify.js): not a proof, so no
+  // fallback. Only a missing field means "evidence predating the stamp".
+  const stamp = evidence.lastProvenAt === undefined ? evidence.generatedAt : evidence.lastProvenAt;
+
+  return typeof stamp === "string" && !Number.isNaN(Date.parse(stamp)) ? stamp : null;
+}
+
+// Spaced repetition (story 07.01): a done phase whose latest passing proof is
+// older than its `reviewAfterDays` is due for a revisit. Pure on purpose — the
+// caller passes `now` in, so day-boundary behaviour is testable without
+// freezing the process clock. Returns null when the phase is not done, has no
+// `reviewAfterDays`, or has no proof to age from: an absent field changes
+// nothing for existing ledgers.
+function revisitState({ phase, evidence, now }) {
+  const days = phase && phase.reviewAfterDays;
+
+  if (!phase || phase.status !== "done" || !Number.isInteger(days) || days <= 0) {
+    return null;
+  }
+
+  const provenAt = lastProvenAt(evidence);
+
+  if (!provenAt) {
+    return null;
+  }
+
+  const ageMs = now.getTime() - Date.parse(provenAt);
+
+  return {
+    due: ageMs > days * DAY_MS,
+    lastProvenAt: provenAt,
+    reviewAfterDays: days,
+  };
 }
 
 // The verdict of a phase's proof — the single place `check`, `status` and
@@ -271,4 +329,6 @@ module.exports = {
   latestAnyEvidenceForPhase,
   allEvidenceForPhase,
   phaseVerdict,
+  lastProvenAt,
+  revisitState,
 };

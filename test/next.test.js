@@ -5,6 +5,9 @@ const assert = require("node:assert");
 const { tmpProject, capture, sampleProgress, writeFile, spawnGit } = require("./helpers");
 const { nextCommand, buildNextReport } = require("../bin/lib/next");
 const { verifyCommand } = require("../bin/lib/verify");
+const { latestEvidenceForPhase } = require("../bin/lib/progress");
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // nextCommand logs to stdout via `log`; reset the exit code between tests so a
 // fail() in one test cannot leak into the next.
@@ -202,6 +205,76 @@ test("with several stale phases and no phase left, next warns about all of them"
   assert.match(out, /ai-learn verify --stale/);
   assert.doesNotMatch(out, /ai-learn verify \d/);
   assert.doesNotMatch(out, /Next: Phase/);
+});
+
+// -----------------------------------------------------------------------
+// Spaced repetition (story 07.01) — an overdue revisit is a separate signal,
+// printed after the normal next action, never folded into `next`.
+// -----------------------------------------------------------------------
+
+test("next proposes an overdue revisit after the normal suite, with an injected clock", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [
+        { id: 0, name: "Zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0, reviewAfterDays: 30 },
+        { id: 1, name: "One", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+      ],
+    }),
+  );
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const evidence = latestEvidenceForPhase(dir, 0);
+  assert.ok(evidence.lastProvenAt, "verify writes lastProvenAt on passing evidence");
+
+  const now = new Date(Date.parse(evidence.lastProvenAt) + 31 * DAY_MS);
+  const out = capture(() => nextCommand({ dir, now }));
+
+  const nextAt = out.indexOf("Next: Phase 1");
+  const revisitAt = out.indexOf("Revisite échue");
+
+  assert.ok(nextAt !== -1);
+  assert.ok(revisitAt > nextAt, "the revisit is a separate mention after the normal next action");
+  assert.match(out, /Phase 0 — Zero .*prouvée le/);
+  assert.match(out, /ai-learn verify 0/);
+});
+
+test("next --json exposes overdue revisit ids separately from next", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [
+        { id: 0, name: "Zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0, reviewAfterDays: 30 },
+        { id: 1, name: "One", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+      ],
+    }),
+  );
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const evidence = latestEvidenceForPhase(dir, 0);
+  const now = new Date(Date.parse(evidence.lastProvenAt) + 31 * DAY_MS);
+  const parsed = JSON.parse(capture(() => nextCommand({ dir, json: true, now })));
+
+  assert.deepStrictEqual(parsed.revisit, [0]);
+  assert.strictEqual(parsed.next.id, 1);
+  assert.strictEqual(parsed.done, false);
+});
+
+test("next leaves a phase without reviewAfterDays unchanged, however old its proof (backward-compatible)", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const now = new Date(Date.parse(latestEvidenceForPhase(dir, 0).lastProvenAt) + 3650 * DAY_MS);
+  const out = capture(() => nextCommand({ dir, now }));
+  const parsed = buildNextReport(dir, { now });
+
+  assert.doesNotMatch(out, /Revisite échue/);
+  assert.deepStrictEqual(parsed.revisit, []);
 });
 
 test("next fails cleanly without a progress.json", () => {

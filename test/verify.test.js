@@ -54,6 +54,8 @@ test("verify runs a passing checkpoint, records evidence, marks the phase done",
   const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
   assert.strictEqual(evidence.ok, true);
   assert.strictEqual(evidence.phaseId, 0);
+  assert.strictEqual(evidence.lastProvenAt, evidence.generatedAt);
+  assert.ok(!Number.isNaN(Date.parse(evidence.lastProvenAt)));
   assert.strictEqual(process.exitCode, 0);
 });
 
@@ -68,6 +70,10 @@ test("verify fails on a failing checkpoint and does not mark the phase done", ()
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
   assert.strictEqual(process.exitCode, 1);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.lastProvenAt, null, "a failed run is not a proof and never refreshes the revisit date");
 });
 
 test("verify with a passing stressCheckpoint marks done once both checkpoints pass", () => {

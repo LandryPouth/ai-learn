@@ -6,15 +6,20 @@
 
 const fs = require("fs");
 const { log, fail, normalizePortable } = require("./util");
-const { readProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
+const { readProgress, latestEvidenceForPhase, phaseVerdict, revisitState } = require("./progress");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { normalizePredictionsRequired } = require("./predictions");
 
-// Same broken-done detection `nextCommand` prints as text, shared by the
-// JSON builder below so the two can never disagree on which phase is next.
-function findBrokenDone(dir, phases) {
-  const brokenDone = [];
+// The done phases, split into the two ways one stops being actionable proof:
+// `broken` (never proven, or stale) and `revisits` (proven, but old enough to
+// redo from memory — story 07.01). One walk, shared by the text renderer and
+// the JSON builder, so the two can never disagree on which phase is which.
+// `now` is injected rather than read here so the day-boundary behaviour is
+// testable (see progress.js#revisitState).
+function analyzeDonePhases(dir, phases, now) {
+  const broken = [];
+  const revisits = [];
 
   for (const phase of phases) {
     if (!phase || phase.status !== "done") {
@@ -27,18 +32,27 @@ function findBrokenDone(dir, phases) {
     const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
 
     if (verdict.state === "unproven" || verdict.state === "stale") {
-      brokenDone.push({ phase, verdict });
+      broken.push({ phase, verdict });
+      continue;
+    }
+
+    const revisit = revisitState({ phase, evidence: ev, now });
+
+    // A stale/unproven phase is already an urgent warning; never list it a
+    // second time as a revisit. Reachability comes before retention.
+    if (revisit && revisit.due) {
+      revisits.push({ phase, ...revisit });
     }
   }
 
-  return brokenDone;
+  return { broken, revisits };
 }
 
 // The JSON-facing calc: never throws — a missing or corrupt progress.json
 // becomes an `error` field instead of a stack (see spec.md's edge cases).
 // When no phase remains, `done: true` is the dedicated field an agent reads
 // instead of parsing the "All N/N phases done." sentence.
-function buildNextReport(dir) {
+function buildNextReport(dir, { now = new Date() } = {}) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -51,16 +65,29 @@ function buildNextReport(dir) {
   }
 
   const phases = Array.isArray(config.phases) ? config.phases : [];
-  const brokenDone = findBrokenDone(dir, phases);
+  const { broken: brokenDone, revisits } = analyzeDonePhases(dir, phases, now);
   const broken = brokenDone.map(({ phase, verdict }) => ({ id: phase.id, name: phase.name, verdict: verdict.state }));
   // Stale proofs no longer replace the real next action (story 04.02): they are
   // reported separately so a consumer sees "where the learner goes next" and
   // "what must be re-proven" as two independent facts.
   const stale = brokenDone.filter((entry) => entry.verdict.state === "stale").map(({ phase }) => phase.id);
+  // Revisits are their own field, never folded into `next` (story 07.01):
+  // redoing an old phase from memory is a parallel recommendation, not the
+  // next unproven step.
+  const revisit = revisits.map(({ phase }) => phase.id);
   const next = phases.find((phase) => phase && phase.status !== "done");
 
   if (!next) {
-    return { version: 1, dir: normalizePortable(dir), done: true, phasesTotal: phases.length, broken, stale, uncommitted: uncommittedCount(dir) };
+    return {
+      version: 1,
+      dir: normalizePortable(dir),
+      done: true,
+      phasesTotal: phases.length,
+      broken,
+      stale,
+      revisit,
+      uncommitted: uncommittedCount(dir),
+    };
   }
 
   const predictionRequirement = normalizePredictionsRequired(next.predictionsRequired);
@@ -71,6 +98,7 @@ function buildNextReport(dir) {
     done: false,
     broken,
     stale,
+    revisit,
     uncommitted: uncommittedCount(dir),
     next: {
       id: next.id,
@@ -88,9 +116,9 @@ function buildNextReport(dir) {
   };
 }
 
-function nextCommand({ dir, json }) {
+function nextCommand({ dir, json, now = new Date() }) {
   if (json) {
-    const report = buildNextReport(dir);
+    const report = buildNextReport(dir, { now });
     log(JSON.stringify(report));
 
     if (report.error) {
@@ -111,7 +139,7 @@ function nextCommand({ dir, json }) {
   // proven and now stale — are drift the learner should know about. A stale
   // proof no longer replaces the real next action (story 04.02): `next` names
   // where the learner actually goes, then lists what must be re-proven.
-  const brokenDone = findBrokenDone(dir, phases);
+  const { broken: brokenDone, revisits } = analyzeDonePhases(dir, phases, now);
   const staleDone = brokenDone.filter((entry) => entry.verdict.state === "stale");
   const next = phases.find((phase) => phase && phase.status !== "done");
 
@@ -173,6 +201,19 @@ function nextCommand({ dir, json }) {
   if (staleDone.length > 0) {
     log("");
     logBroken(brokenDone);
+  }
+
+  // Spaced repetition (story 07.01): a proven phase gone stale in memory is a
+  // separate recommendation, printed after the normal path — never a blocker,
+  // never a replacement for the real next action.
+  if (revisits.length > 0) {
+    log("");
+    log("Revisite échue — refaire de mémoire, sans relire notes ni journal :");
+
+    for (const { phase, lastProvenAt: provenAt, reviewAfterDays } of revisits) {
+      log(`  Phase ${phase.id} — ${phase.name} — prouvée le ${provenAt.slice(0, 10)}, revisite conseillée après ${reviewAfterDays} jour(s).`);
+      log(`    Rejouez son checkpoint de mémoire : \`ai-learn verify ${phase.id}\`.`);
+    }
   }
 
   printCommitReminder(dir);
