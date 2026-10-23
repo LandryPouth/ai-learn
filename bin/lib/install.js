@@ -2,15 +2,17 @@
 
 // `ai-learn install <platform>` — replaces the single-purpose
 // scripts/install-claude.sh with a generic entry point that stays inside the
-// zero-dependency CLI. Each platform gets the same 7 commands (commands/*.md,
-// the canonical source) re-rendered into its native format; Claude Code keeps
-// symlinking the source files directly since its format IS the source format.
+// zero-dependency CLI. Each platform gets the same 7 canonical commands
+// (commands/learn-*.md) plus one generated alias per pre-04.05 name (`/next`,
+// …), re-rendered into its native format; Claude Code keeps symlinking the
+// canonical sources directly since its format IS the source format, and writes
+// only the aliases as generated files.
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { log, fail, mkdirp } = require("./util");
-const { parseCommandFile, listCommandFiles } = require("./platforms/commands");
+const { listCommands, serializeClaudeCommand, DEPRECATION_MARKER } = require("./platforms/commands");
 
 const COMMANDS_DIR = path.join(__dirname, "..", "..", "commands");
 const BIN_SOURCE = path.join(__dirname, "..", "ai-learn.js");
@@ -62,6 +64,47 @@ function linkOrCopy(src, dest) {
   }
 }
 
+// A pre-04.05 install has `next.md` as a symlink into the repo. The source
+// file was renamed, so that link is now broken — and writing through it would
+// re-create the old file inside commands/. Unlink it first, then write the
+// generated alias as a regular file, overwriting a stale copy from a previous
+// version. Returns true when the content actually changed.
+function writeGeneratedCommand(dest, content) {
+  try {
+    if (fs.lstatSync(dest).isSymbolicLink()) {
+      fs.unlinkSync(dest);
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  let existing = null;
+
+  try {
+    existing = fs.readFileSync(dest, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  if (existing === content) {
+    return false;
+  }
+
+  // Alias names (`next`, `status`, `check`…) are generic: a regular file there
+  // that is not one of our generated aliases is the user's own command, and
+  // the pre-04.05 installer never overwrote it either.
+  if (existing !== null && !existing.includes(DEPRECATION_MARKER)) {
+    return false;
+  }
+
+  fs.writeFileSync(dest, content);
+  return true;
+}
+
 function installClaude({ home }) {
   const localBin = path.join(home, ".local", "bin");
   const claudeCommands = path.join(home, ".claude", "commands");
@@ -76,11 +119,18 @@ function installClaude({ home }) {
     created.push(binLink);
   }
 
-  for (const file of listCommandFiles(COMMANDS_DIR)) {
-    const dest = path.join(claudeCommands, path.basename(file));
+  for (const command of listCommands(COMMANDS_DIR)) {
+    const dest = path.join(claudeCommands, `${command.name}.md`);
+
+    if (command.aliasOf) {
+      if (writeGeneratedCommand(dest, serializeClaudeCommand(command))) {
+        created.push(dest);
+      }
+      continue;
+    }
 
     if (!fs.existsSync(dest)) {
-      linkOrCopy(file, dest);
+      linkOrCopy(command.filePath, dest);
       created.push(dest);
     }
   }
@@ -99,9 +149,8 @@ function installRendered({ targetDir, adapterModule }) {
 
   const created = [];
 
-  for (const file of listCommandFiles(COMMANDS_DIR)) {
-    const parsed = parseCommandFile(file);
-    const { filename, content } = renderCommand(parsed);
+  for (const command of listCommands(COMMANDS_DIR)) {
+    const { filename, content } = renderCommand(command);
     const dest = path.join(targetDir, filename);
     mkdirp(path.dirname(dest));
     fs.writeFileSync(dest, content);

@@ -4,7 +4,7 @@ argument-hint: ""
 allowed-tools: ["Bash"]
 ---
 
-# ai-learn: check
+# ai-learn: learn-check
 
 Croise les `progress.json` contre la réalité sur toute la racine de projet(s)
 d'apprentissage.

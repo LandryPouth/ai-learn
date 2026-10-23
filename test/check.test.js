@@ -1276,6 +1276,19 @@ test("check does not warn about a native memory stub that imports AGENTS.md", ()
   assert.ok(!entry.issues.warnings.some((w) => w.file === "CLAUDE.md"));
 });
 
+test("check reports a legacy-only command install as a migration warning, never an error", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "AGENTS.md", "# protocol\n");
+  writeFile(dir, "CLAUDE.md", "@AGENTS.md\n");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+  writeFile(home, ".claude/commands/next.md", "# next\n"); // pre-04.05 install: old names only
+
+  const entry = checkProject(dir, { home });
+
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => /anciens noms/.test(w.message) && /migration/.test(w.message)));
+});
+
 test("init then check is clean; deleting the native memory stub makes check warn", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-init-"));
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));

@@ -37,8 +37,10 @@ test("opencode actually discovers the commands ai-learn install generates", { sk
   const config = JSON.parse(raw);
 
   assert.ok(config.command, "opencode resolved no \"command\" key at all");
-  assert.strictEqual(Object.keys(config.command).length, 7);
-  assert.ok(config.command["ai-learn/next"]);
-  assert.match(config.command["ai-learn/next"].description, /Prochaine phase/);
-  assert.match(config.command["ai-learn/next"].template, /ai-learn next/);
+  assert.strictEqual(Object.keys(config.command).length, 13);
+  assert.ok(config.command["ai-learn/learn-next"], "the canonical /learn-next command");
+  assert.match(config.command["ai-learn/learn-next"].description, /Prochaine phase/);
+  assert.match(config.command["ai-learn/learn-next"].template, /ai-learn next/);
+  assert.ok(config.command["ai-learn/next"], "the legacy /next alias still resolves");
+  assert.match(config.command["ai-learn/next"].template, /Nom déprécié/);
 });

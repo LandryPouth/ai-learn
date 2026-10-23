@@ -18,8 +18,14 @@
 // broken, only the /… shortcuts are missing.
 //
 // Cheap by design: checked via a single marker file per platform (one of the
-// 7 commands each installer writes) rather than re-writing all 7 files on
-// every single CLI invocation — a no-op once installed.
+// commands each installer writes) rather than re-writing every file on every
+// single CLI invocation — a no-op once installed.
+//
+// Since story 04.05 the marker is one of the `/learn-*` names. A home that
+// only carries the pre-04.05 names (`next`, `status`, …) therefore reads as
+// not-yet-installed and gets the additive install: the new names appear, and
+// the old ones are rewritten as one-line-deprecated aliases (`check` reports
+// that state as a migration warning, never an error).
 
 const fs = require("fs");
 const path = require("path");
@@ -28,6 +34,16 @@ const { detectPlatform } = require("./detect");
 const { PLATFORMS, INSTALLERS } = require("../install");
 
 const MARKER_FILE = {
+  claude: (home) => path.join(home, ".claude", "commands", "learn-next.md"),
+  codex: (home) => path.join(home, ".codex", "prompts", "ai-learn-learn-next.md"),
+  gemini: (home) => path.join(home, ".gemini", "commands", "ai-learn", "learn-next.toml"),
+  opencode: (home) => path.join(home, ".config", "opencode", "command", "ai-learn", "learn-next.md"),
+  antigravity: (home) => path.join(home, ".gemini", "antigravity", "skills", "ai-learn-learn-next", "SKILL.md"),
+};
+
+// The pre-04.05 names, still written as aliases. A platform whose legacy
+// marker exists but whose current marker does not is installed-but-outdated.
+const LEGACY_MARKER_FILE = {
   claude: (home) => path.join(home, ".claude", "commands", "next.md"),
   codex: (home) => path.join(home, ".codex", "prompts", "ai-learn-next.md"),
   gemini: (home) => path.join(home, ".gemini", "commands", "ai-learn", "next.toml"),
@@ -94,19 +110,32 @@ function ensureNativeMemoryFile(dir, platform) {
   return { file: filename, action: existing === null ? "created" : "appended" };
 }
 
+function markerExists(markers, platform, home) {
+  try {
+    return fs.existsSync(markers[platform](home));
+  } catch {
+    return false;
+  }
+}
+
 // Which platforms have their /… commands installed in this home. This is the
 // only signal `check` has: a project cannot know which agents open it, but an
-// installed platform is proof the learner means to use it.
+// installed platform is proof the learner means to use it. Either marker
+// counts — a legacy-only install is still an installed platform, it just has
+// not been migrated to the /learn-* names yet.
 function detectedPlatforms(home = os.homedir()) {
-  return Object.entries(MARKER_FILE)
-    .filter(([, marker]) => {
-      try {
-        return fs.existsSync(marker(home));
-      } catch {
-        return false;
-      }
-    })
-    .map(([platform]) => platform);
+  return Object.keys(MARKER_FILE).filter(
+    (platform) => markerExists(MARKER_FILE, platform, home) || markerExists(LEGACY_MARKER_FILE, platform, home),
+  );
+}
+
+// Platforms installed under the old names only (pre-04.05). This is a
+// migration state, never an error: the next `ai-learn update --platform <p>`
+// rewrites the old names as aliases of the new ones.
+function legacyOnlyPlatforms(home = os.homedir()) {
+  return Object.keys(MARKER_FILE).filter(
+    (platform) => !markerExists(MARKER_FILE, platform, home) && markerExists(LEGACY_MARKER_FILE, platform, home),
+  );
 }
 
 // Never throws — a broken self-heal must not break the command that
@@ -122,7 +151,7 @@ function ensurePlatformCommands(explicitPlatform) {
   try {
     const home = os.homedir();
 
-    if (fs.existsSync(MARKER_FILE[platform](home))) {
+    if (markerExists(MARKER_FILE, platform, home)) {
       return null;
     }
 
@@ -137,7 +166,9 @@ module.exports = {
   ensurePlatformCommands,
   ensureNativeMemoryFile,
   detectedPlatforms,
+  legacyOnlyPlatforms,
   hasNativeMemoryImport,
   MARKER_FILE,
+  LEGACY_MARKER_FILE,
   NATIVE_MEMORY_FILE,
 };

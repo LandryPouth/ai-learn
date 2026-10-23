@@ -21,7 +21,12 @@ const {
 } = require("./progress");
 const { docSourceList } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
-const { NATIVE_MEMORY_FILE, detectedPlatforms, hasNativeMemoryImport } = require("./platforms/ensure");
+const {
+  NATIVE_MEMORY_FILE,
+  detectedPlatforms,
+  legacyOnlyPlatforms,
+  hasNativeMemoryImport,
+} = require("./platforms/ensure");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
@@ -250,6 +255,18 @@ function checkProject(dir, { home } = {}) {
   // all — the exact silent skip this command exists to surface. Same warning
   // discipline as the Codex guard above: actionable, never fatal.
   if (fs.existsSync(path.join(dir, "AGENTS.md"))) {
+    // Pre-04.05 installs only carry the old slash names (`/next`, …). The new
+    // `/learn-*` names are additive, so this is a migration warning — never an
+    // error, and never something the learner has to fix by hand.
+    for (const platform of legacyOnlyPlatforms(home)) {
+      issues.warnings.push({
+        file: `/… commands (${platform})`,
+        message:
+          `commandes ${platform} installées sous les anciens noms seulement — les noms /learn-* ` +
+          `manquent. Lance \`ai-learn update --platform ${platform}\` pour les ajouter (migration, non bloquant).`,
+      });
+    }
+
     for (const platform of detectedPlatforms(home)) {
       const filename = NATIVE_MEMORY_FILE[platform];
 

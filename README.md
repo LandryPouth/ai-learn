@@ -45,11 +45,17 @@ bash scripts/install-claude.sh   # rend `ai-learn` dispo partout + commandes Cla
 | Commande | Rôle |
 |---|---|
 | `/learn` | Crée un parcours d'apprentissage : doc solide + questions + plan + `progress.json` |
-| `/status` | Où j'en suis : phases et leur état |
-| `/next` | La prochaine phase à faire |
-| `/scan` | Analyse un projet déjà avancé, montre où tu en es, propose une suite d'approfondissement |
-| `/propose` | Je ne sais pas quoi faire : propose-moi des projets à construire (chaque étape sourcée) |
-| `/check` | Scanner : tout est-il cohérent et prouvé ? |
+| `/learn-status` | Où j'en suis : phases et leur état |
+| `/learn-next` | La prochaine phase à faire |
+| `/learn-scan` | Analyse un projet déjà avancé, montre où tu en es, propose une suite d'approfondissement |
+| `/learn-propose` | Je ne sais pas quoi faire : propose-moi des projets à construire (chaque étape sourcée) |
+| `/learn-check` | Scanner : tout est-il cohérent et prouvé ? |
+| `/learn-docs` | Gère les sources de doc du projet |
+
+Les anciens noms (`/status`, `/next`, `/scan`, `/propose`, `/check`, `/docs`)
+restent des **alias** : ils fonctionnent toujours et renvoient à la même
+commande, avec une note de dépréciation. Aucun projet déjà installé ne casse —
+`ai-learn update` réécrit les anciens noms en alias.
 
 Il n'y a pas de `/verify` : la preuve est **automatique**. En clôture de chaque phase, l'agent lance `ai-learn verify <id>` lui-même — il n'écrit jamais `done` à la main. Et `ai-learn check` refuse tout checkpoint écrit mais jamais prouvé : `verify` ne peut être skippé, même par omission.
 
@@ -75,7 +81,7 @@ ai-learn install antigravity # skills en ai-learn-<nom>/SKILL.md (~/.gemini/anti
 | Claude Code | ✓ | **mécanique** — hook `PreToolUse`, l'écriture n'a jamais lieu | **mécanique** — même hook `PreToolUse` : toute commande `git`/`gh` de l'IA est refusée, lecture incluse |
 | Codex CLI | ✓ (format vérifié contre la doc embarquée du paquet) | **mécanique** — profil de permissions bac à sable OS (`.codex/config.toml`, câblé par `init`/`update`) ; vérifié avec `codex sandbox` (bloque écriture shell **et** Python dans `src/**`, sans toucher au reste du workspace), **pas encore vérifié en session interactive réelle** (pas d'abonnement Codex) ; nécessite que le projet soit « trusted » côté Codex (approbation ponctuelle, comportement normal de leur modèle de sécurité) | **non traité** — le sandbox Codex bloque par *chemin de fichier*, pas par intention/binaire exécuté ; un blocage exec `git`/`gh` au niveau sandbox casserait aussi les checkpoints internes d'`ai-learn` qui appellent `git`/`gh` légitimement (ex. les checkpoints des tiers 3-5 du module git/gh). Limite ouverte, documentée ici plutôt que silencieuse |
 | Gemini CLI | ✓ (syntaxe TOML validée avec un parseur strict ; **découverte réelle par `gemini` non vérifiée**, pas de moyen non-interactif trouvé pour le confirmer sans appel modèle) | non câblé — un hook `BeforeTool` existe (confirmé dans la doc embarquée du paquet installé), mais le nom exact du champ `tool_input` pour un chemin de fichier n'a pas pu être confirmé sans casser un vrai hook silencieusement inopérant ; `AGENTS.md` + trous non-collables seuls protègent `src/**` | non câblé — même limite que le garde-fou `src/**` ; `AGENTS.md` §3bis seul |
-| OpenCode | ✓ (**découverte confirmée en conditions réelles** : `opencode debug config` après `ai-learn install opencode` résout les 7 commandes, test automatisé dans `test/integration-opencode.test.js`, auto-skip si `opencode` absent) | non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; `AGENTS.md` + trous non-collables seuls | non câblé — même limite ; `AGENTS.md` §3bis seul |
+| OpenCode | ✓ (**découverte confirmée en conditions réelles** : `opencode debug config` après `ai-learn install opencode` résout les commandes `/learn-*` et leurs alias, test automatisé dans `test/integration-opencode.test.js`, auto-skip si `opencode` absent) | non câblé — nécessiterait un plugin TS event-driven, pas encore écrit ; `AGENTS.md` + trous non-collables seuls | non câblé — même limite ; `AGENTS.md` §3bis seul |
 | Antigravity | ✓ (**structure confirmée sur disque** — `~/.gemini/antigravity/skills/<nom>/SKILL.md`, identique aux skills Gemini CLI, retrouvée réellement installée sur une machine de dev ; le YAML est validé avec un parseur strict, un vrai bug de description non-quotée — un `:` mi-phrase cassait le frontmatter — a été trouvé et corrigé ainsi ; découverte effective par Antigravity non vérifiée faute de session live) | non câblé — un système `hooks.json` plus riche existe côté doc publique mais n'a pas pu être confirmé sur l'install réelle disponible ; `AGENTS.md` + trous non-collables seuls | non câblé — même limite ; `AGENTS.md` §3bis seul |
 
 Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la création de lien symbolique est refusée par l'OS (`EPERM`) — `ai-learn` bascule alors automatiquement sur une copie de fichier, testé en conditions réelles (PowerShell + Node natif Windows).

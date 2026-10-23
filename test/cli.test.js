@@ -102,6 +102,7 @@ test("any command with --platform mechanically installs that platform's commands
   });
 
   assert.strictEqual(result.status, 0);
+  assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-learn-next.md")));
   assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
 });
 
@@ -113,7 +114,7 @@ test("a command with CLAUDECODE=1 in its env self-heals Claude Code's commands, 
   });
 
   assert.strictEqual(result.status, 0);
-  assert.ok(fs.existsSync(path.join(home, ".claude", "commands", "next.md")));
+  assert.ok(fs.existsSync(path.join(home, ".claude", "commands", "learn-next.md")));
 });
 
 test("self-heal is a one-time no-op: a second run doesn't rewrite already-installed commands", () => {
@@ -121,7 +122,7 @@ test("self-heal is a one-time no-op: a second run doesn't rewrite already-instal
   const env = { ...process.env, ...homeEnvOverrides(home, { CLAUDECODE: "" }) };
 
   spawnSync(process.execPath, [BIN, "--platform", "gemini", "--help"], { encoding: "utf8", env });
-  const marker = path.join(home, ".gemini", "commands", "ai-learn", "next.toml");
+  const marker = path.join(home, ".gemini", "commands", "ai-learn", "learn-next.toml");
   const before = fs.statSync(marker).mtimeMs;
 
   spawnSync(process.execPath, [BIN, "--platform", "gemini", "--help"], { encoding: "utf8", env });
@@ -182,6 +183,7 @@ test("install --home <path> claude retains claude as the platform, not the path 
   });
 
   assert.strictEqual(result.status, 0);
+  assert.ok(fs.existsSync(path.join(home, ".claude", "commands", "learn-next.md")));
   assert.ok(fs.existsSync(path.join(home, ".claude", "commands", "next.md")));
 });
 

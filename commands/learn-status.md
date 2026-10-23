@@ -4,7 +4,7 @@ argument-hint: ""
 allowed-tools: ["Bash"]
 ---
 
-# ai-learn: status
+# ai-learn: learn-status
 
 Affiche l'état du parcours d'apprentissage dans le projet courant.
 

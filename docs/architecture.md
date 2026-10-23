@@ -27,7 +27,8 @@ bin/lib/
   stacks/*.js            packs par langage : concepts, directions, recipes, stresses, norm
   platforms/*.js         adaptateurs des 5 plateformes + détection + self-heal
 templates/               AGENTS-apprentissage.md, plan, predictions, dogfood, commit-msg
-commands/                les 7 commandes /… (markdown, format Claude Code)
+commands/                les 7 commandes /learn-* (markdown, format Claude Code) ;
+                         les anciens noms en sont des alias générés à l'install
 ```
 
 ## Invariants structurels
