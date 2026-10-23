@@ -54,6 +54,11 @@ const { duplicateSlugs, reviewState } = require("./reviews");
 // hole is well-placed.
 const HOLE_MARKER_RE = /\[\s*\.\.\.\s*\]|…|\bTODO\b|à (?:compl[ée]ter|finir)|\.\.\.\s*$/im;
 
+// Story 06.03 — the fixed reading speed used to turn a digest's word count into
+// an estimated reading time. A documented constant, not a per-project setting:
+// the budget is a nudge, never a proof.
+const READING_WORDS_PER_MINUTE = 200;
+
 function checkProject(dir, { home } = {}) {
   const issues = { errors: [], warnings: [] };
   const { config, exists } = readProgress(dir);
@@ -610,6 +615,23 @@ function checkDigest(dir, config, phase, issues) {
       issues.warnings.push({
         file: relative,
         message: `phase ${phase.id} digest: ${problem} — regenerate with \`ai-learn docs digest --phase ${phase.id}\``,
+      });
+    }
+  }
+
+  // Story 06.03 — a declared reading budget turns the digest into a checked
+  // promise: over it, the learner is back to pre-reading whole files. A
+  // warning, never an error: the budget is a nudge, not a proof.
+  if (Number.isInteger(phase.readingBudgetMin) && phase.readingBudgetMin > 0) {
+    const words = (content.match(/\S+/g) || []).length;
+    const minutes = Math.ceil(words / READING_WORDS_PER_MINUTE);
+
+    if (minutes > phase.readingBudgetMin) {
+      issues.warnings.push({
+        file: relative,
+        message:
+          `phase ${phase.id} digest is ~${minutes} min of reading (${words} words at ` +
+          `${READING_WORDS_PER_MINUTE} wpm), over the declared readingBudgetMin (${phase.readingBudgetMin} min)`,
       });
     }
   }

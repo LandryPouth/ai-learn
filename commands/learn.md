@@ -55,6 +55,14 @@ Découpe en **6-10 phases** progressives, chacune avec :
 - `artifacts`: le doc de phase qui sera rédigé (ex. `docs/phase-N-<sujet>.md`)
 - `predictionsRequired`: nombre de prédictions écrites exigées (2-3 par phase
   pour un protocole solide)
+- `sections`: les plages de doc que la phase doit lire,
+  `[{ source, file, from, to }]` (lignes 1-indexées, inclusives).
+  `ai-learn docs digest --phase <id>` en fait un extrait
+  `docs/digests/phase-<id>.md`, copié mécaniquement et cité
+  `source/fichier:ligne`.
+- `readingBudgetMin` (optionnel) : budget de lecture de la phase, en minutes
+  entières. `ai-learn check` avertit quand le digest dépasse ce budget
+  (200 mots/min).
 - `mutation` (optionnel, `true`) : exige que les tests de la phase protègent le
   code — `ai-learn verify` lance la mutation après le checkpoint et bloque si un
   mutant a **survécu** (un mutant **tué** = le test s'en est aperçu). À activer
@@ -65,6 +73,15 @@ Découpe en **6-10 phases** progressives, chacune avec :
 Séquence type API web (modèle à adapter à la techno choisie) : mise en route →
 routes → validation d'entrée → architecture/modularité → persistance/IO →
 logique métier → gestion des erreurs → config/tests → prod.
+
+### Lire un extrait, pas des pointeurs
+
+La préparation d'une phase se fait sur son **digest**, pas sur une liste de
+pointeurs vers de gros fichiers. Une phase sans `sections` (donc sans digest),
+ou dont la préparation tient en « lis `Reference/Routes.md` (1 006 lignes) »,
+est incomplète : découpe la doc en plages ciblées, déclare-les dans `sections`,
+génère `ai-learn docs digest --phase <id>`, puis lis cet extrait. Le but est de
+lire les lignes utiles, pas de parcourir des fichiers entiers.
 
 ### Ne jamais noter une prédiction sur une techno support
 

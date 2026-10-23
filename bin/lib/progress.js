@@ -174,6 +174,18 @@ function validateProgress(config) {
     if (phase.mutation !== undefined && phase.mutation !== null && typeof phase.mutation !== "boolean") {
       issues.push({ level: "warning", message: `phase ${phase.id} has a non-boolean mutation flag` });
     }
+
+    // Optional: the reading budget of the phase's digest, in minutes (story
+    // 06.03). A malformed value is an error, not a warning: `check` would
+    // otherwise skip its over-budget warning in silence.
+    if (phase.readingBudgetMin !== undefined && phase.readingBudgetMin !== null) {
+      if (!Number.isInteger(phase.readingBudgetMin) || phase.readingBudgetMin <= 0) {
+        issues.push({
+          level: "error",
+          message: `phase ${phase.id} has an invalid readingBudgetMin (${phase.readingBudgetMin}) — expected a positive integer (minutes)`,
+        });
+      }
+    }
   }
 
   return issues;

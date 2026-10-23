@@ -162,6 +162,123 @@ test("a project with no norm violation reports none (no regression on the clean-
   assert.ok(!entry.issues.errors.some((e) => /\[function-length\]|\[file-length\]|\[nesting-depth\]|\[param-count\]/.test(e.message)));
 });
 
+test("check warns when a phase digest exceeds its declared reading budget", () => {
+  const progress = sampleProgress({
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+        readingBudgetMin: 30,
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/digests/phase-1.md", "word ".repeat(12000));
+
+  const entry = checkProject(dir);
+
+  assert.ok(
+    entry.issues.warnings.some(
+      (warning) =>
+        /~60 min of reading/.test(warning.message) &&
+        /12000 words/.test(warning.message) &&
+        /readingBudgetMin \(30 min\)/.test(warning.message),
+    ),
+  );
+});
+
+test("a phase without readingBudgetMin keeps check silent about reading time", () => {
+  const progress = sampleProgress({
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/digests/phase-1.md", "word ".repeat(12000));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((warning) => /reading/.test(warning.message)));
+});
+
+test("a digest within its reading budget stays silent", () => {
+  const progress = sampleProgress({
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+        readingBudgetMin: 30,
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/digests/phase-1.md", "word ".repeat(100));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((warning) => /reading/.test(warning.message)));
+});
+
+test("a digest exactly at its reading budget stays silent", () => {
+  const progress = sampleProgress({
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+        readingBudgetMin: 30,
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/digests/phase-1.md", "word ".repeat(6000));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((warning) => /reading/.test(warning.message)));
+});
+
+test("readingBudgetMin accepts a positive integer and rejects anything else", () => {
+  const phase = (readingBudgetMin) => ({
+    id: 1,
+    name: "Routes",
+    status: "pending",
+    checkpoint: 'node -e "process.exit(0)"',
+    artifacts: [],
+    predictionsRequired: 0,
+    readingBudgetMin,
+  });
+
+  const valid = tmpProject(sampleProgress({ phases: [phase(30)] }));
+  assert.ok(!checkProject(valid).issues.errors.some((error) => /readingBudgetMin/.test(error.message)));
+
+  for (const bad of [0, -5, 1.5, "30"]) {
+    const dir = tmpProject(sampleProgress({ phases: [phase(bad)] }));
+    assert.ok(
+      checkProject(dir).issues.errors.some((error) => /invalid readingBudgetMin/.test(error.message)),
+      `expected an error for ${JSON.stringify(bad)}`,
+    );
+  }
+});
+
 test("an out-of-range gitTier is a warning, not an error; a valid one is silent", () => {
   const progress = sampleProgress();
   progress.phases[0].gitTier = 9;

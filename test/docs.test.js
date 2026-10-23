@@ -363,6 +363,15 @@ test("docs digest without --phase fails with usage", () => {
   assert.throws(() => docsCommand({ dir, args: ["digest"] }), /usage: ai-learn docs digest --phase <id>/);
 });
 
+test("the learn command requires a per-phase digest and forbids pointer lists", () => {
+  const content = fs.readFileSync(path.join(__dirname, "..", "commands", "learn.md"), "utf8");
+
+  assert.match(content, /docs digest --phase/);
+  assert.match(content, /readingBudgetMin/);
+  assert.match(content, /Lire un extrait, pas des pointeurs/);
+  assert.match(content, /liste de\s+pointeurs/);
+});
+
 test("SOURCE_PRESETS maps the two vetted complements", () => {
   assert.strictEqual(SOURCE_PRESETS["build-your-own-x"].mode, "clone");
   assert.match(SOURCE_PRESETS["build-your-own-x"].source, /codecrafters-io\/build-your-own-x/);
