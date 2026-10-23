@@ -8,6 +8,7 @@ const path = require("path");
 
 const { scaffold } = require("../bin/lib/init");
 const { readJson } = require("../bin/lib/util");
+const { capture, withHome } = require("./helpers");
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-init-"));
@@ -187,4 +188,103 @@ test("init keeps an existing AGENTS.md and writes the protocol to docs/plans/ in
     fs.readFileSync(path.join(dir, "docs", "plans", "mode-apprentissage.md"), "utf8"),
     /prédire avant de révéler/,
   );
+});
+
+test("init writes the platform's native memory file importing AGENTS.md (claude)", () => {
+  const dir = tmpDir();
+  const home = tmpDir();
+
+  const { created } = withHome(home, () =>
+    scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" }),
+  );
+
+  const claudePath = path.join(dir, "CLAUDE.md");
+  assert.ok(fs.existsSync(claudePath));
+  assert.match(fs.readFileSync(claudePath, "utf8"), /^\s*@AGENTS\.md\s*$/m);
+  assert.ok(created.includes("CLAUDE.md"));
+});
+
+test("init appends only the missing import to a customized CLAUDE.md, idempotently", () => {
+  const dir = tmpDir();
+  const claudePath = path.join(dir, "CLAUDE.md");
+  fs.writeFileSync(claudePath, "# Mes règles\n\n- déjà là\n");
+
+  withHome(tmpDir(), () => {
+    scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" });
+    scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" });
+  });
+
+  const content = fs.readFileSync(claudePath, "utf8");
+  assert.ok(content.startsWith("# Mes règles\n\n- déjà là\n"));
+  assert.strictEqual((content.match(/^\s*@AGENTS\.md\s*$/gm) || []).length, 1);
+});
+
+test("init writes no native memory stub for platforms that read AGENTS.md natively", () => {
+  for (const platform of ["codex", "opencode", "cli-nu"]) {
+    const dir = tmpDir();
+
+    withHome(tmpDir(), () =>
+      scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform }),
+    );
+
+    assert.ok(!fs.existsSync(path.join(dir, "CLAUDE.md")), `unexpected CLAUDE.md for ${platform}`);
+    assert.ok(!fs.existsSync(path.join(dir, "GEMINI.md")), `unexpected GEMINI.md for ${platform}`);
+  }
+});
+
+test(
+  "init does not throw and signal when the native memory file is not writable",
+  { skip: typeof process.getuid === "function" && process.getuid() === 0 },
+  () => {
+    const dir = tmpDir();
+    const claudePath = path.join(dir, "CLAUDE.md");
+    fs.writeFileSync(claudePath, "# perso\n");
+    fs.chmodSync(claudePath, 0o444);
+
+    try {
+      const out = capture(() =>
+        withHome(tmpDir(), () =>
+          scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" }),
+        ),
+      );
+
+      assert.strictEqual(fs.readFileSync(claudePath, "utf8"), "# perso\n");
+      assert.match(out, /CLAUDE\.md non inscriptible/);
+    } finally {
+      fs.chmodSync(claudePath, 0o644);
+    }
+  },
+);
+
+test("init keeps the learner's existing bytes intact when appending the import", () => {
+  const dir = tmpDir();
+  const claudePath = path.join(dir, "CLAUDE.md");
+  const original = Buffer.concat([Buffer.from("# Règles "), Buffer.from([0xff, 0xfe]), Buffer.from("\n")]);
+  fs.writeFileSync(claudePath, original);
+
+  withHome(tmpDir(), () =>
+    scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "claude" }),
+  );
+
+  const after = fs.readFileSync(claudePath);
+  assert.ok(after.subarray(0, original.length).equals(original));
+  assert.match(after.toString("utf8"), /@AGENTS\.md\s*$/);
+});
+
+test("init refuses to write through a CLAUDE.md symlink", () => {
+  const dir = tmpDir();
+  const outside = path.join(tmpDir(), "outside.md");
+  fs.writeFileSync(outside, "hors projet\n");
+
+  try {
+    fs.symlinkSync(outside, path.join(dir, "CLAUDE.md"));
+  } catch {
+    return; // symlinks unavailable on this platform
+  }
+
+  withHome(tmpDir(), () =>
+    scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "claude" }),
+  );
+
+  assert.strictEqual(fs.readFileSync(outside, "utf8"), "hors projet\n");
 });

@@ -7,7 +7,7 @@ const os = require("os");
 const path = require("path");
 
 const { updateCommand } = require("../bin/lib/update");
-const { tmpProject, writeFile, capture } = require("./helpers");
+const { tmpProject, writeFile, capture, withHome } = require("./helpers");
 
 const MARKER = "Instructions pour les agents IA — projet d'apprentissage";
 
@@ -260,4 +260,41 @@ test("update walks a root and refreshes every learning project", () => {
   for (const name of ["proj-a", "proj-b"]) {
     assert.match(fs.readFileSync(path.join(root, name, "AGENTS.md"), "utf8"), /Banque de pièges/);
   }
+});
+
+test("update backfills a missing CLAUDE.md without touching a customized AGENTS.md", () => {
+  const dir = tmpProject(project());
+  const agentsPath = writeFile(dir, "AGENTS.md", "# Custom AGENTS\nMY OWN RULES\n");
+
+  const out = capture(() => updateCommand({ root: dir }));
+
+  assert.strictEqual(fs.readFileSync(agentsPath, "utf8"), "# Custom AGENTS\nMY OWN RULES\n");
+
+  const claudePath = path.join(dir, "CLAUDE.md");
+  assert.ok(fs.existsSync(claudePath));
+  assert.match(fs.readFileSync(claudePath, "utf8"), /^\s*@AGENTS\.md\s*$/m);
+  assert.match(out, /native memory: CLAUDE\.md created/);
+});
+
+test("update appends only the missing import to a customized CLAUDE.md, idempotently", () => {
+  const dir = tmpProject(project());
+  const claudePath = writeFile(dir, "CLAUDE.md", "# Mes règles\n- déjà là\n");
+
+  capture(() => updateCommand({ root: dir }));
+  capture(() => updateCommand({ root: dir }));
+
+  const content = fs.readFileSync(claudePath, "utf8");
+  assert.ok(content.startsWith("# Mes règles\n- déjà là\n"));
+  assert.strictEqual((content.match(/^\s*@AGENTS\.md\s*$/gm) || []).length, 1);
+});
+
+test("update writes no native memory stub for a platform that reads AGENTS.md natively", () => {
+  const dir = tmpProject(project());
+
+  withHome(fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-home-")), () =>
+    capture(() => updateCommand({ root: dir, platform: "codex" })),
+  );
+
+  assert.ok(!fs.existsSync(path.join(dir, "CLAUDE.md")));
+  assert.ok(!fs.existsSync(path.join(dir, "GEMINI.md")));
 });

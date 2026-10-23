@@ -3,13 +3,15 @@
 const { test, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const { checkProject, checkCommand, buildCheckReport, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
-const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
+const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome } = require("./helpers");
+const { scaffold } = require("../bin/lib/init");
 const { findLearningProjects } = require("../bin/lib/util");
 
 function initRepo(dir) {
@@ -1247,4 +1249,44 @@ test("check never launches a checkpoint command to audit mutation (fast, read-on
   }
 
   assert.strictEqual(calls, 0);
+});
+
+test("check warns when a detected platform's native memory stub is missing", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "AGENTS.md", "# protocol\n");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+  writeFile(home, ".claude/commands/next.md", "# next\n");
+
+  const entry = checkProject(dir, { home });
+
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => w.file === "CLAUDE.md" && /learning protocol/.test(w.message)));
+});
+
+test("check does not warn about a native memory stub that imports AGENTS.md", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "AGENTS.md", "# protocol\n");
+  writeFile(dir, "CLAUDE.md", "@AGENTS.md\n");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+  writeFile(home, ".claude/commands/next.md", "# next\n");
+
+  const entry = checkProject(dir, { home });
+
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(!entry.issues.warnings.some((w) => w.file === "CLAUDE.md"));
+});
+
+test("init then check is clean; deleting the native memory stub makes check warn", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-init-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+
+  withHome(home, () =>
+    scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" }),
+  );
+
+  assert.ok(!checkProject(dir, { home }).issues.warnings.some((w) => w.file === "CLAUDE.md"));
+
+  fs.unlinkSync(path.join(dir, "CLAUDE.md"));
+
+  assert.ok(checkProject(dir, { home }).issues.warnings.some((w) => w.file === "CLAUDE.md"));
 });

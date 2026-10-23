@@ -7,6 +7,7 @@
 // the command that makes "the AI skipped the rule" visible.
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { log, findLearningProjects, spawnGit, normalizePortable } = require("./util");
 const {
@@ -20,6 +21,7 @@ const {
 } = require("./progress");
 const { docSourceList } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
+const { NATIVE_MEMORY_FILE, detectedPlatforms, hasNativeMemoryImport } = require("./platforms/ensure");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
@@ -239,6 +241,41 @@ function checkProject(dir, { home } = {}) {
       expected: "le profil de permissions ai-learn-guard aurait dû être câblé dans .codex/config.toml par init/update",
       problem: "guard.json existe mais .codex/config.toml ne porte pas le marqueur ai-learn (absent, ou fichier personnalisé jamais rafraîchi)",
     });
+  }
+
+  // A platform that does not read AGENTS.md on its own (Claude Code, Gemini)
+  // only sees the protocol through its native memory file. When that platform
+  // is installed on the machine and the project has an AGENTS.md but no import
+  // line, a generalist session opens the project with no learning protocol at
+  // all — the exact silent skip this command exists to surface. Same warning
+  // discipline as the Codex guard above: actionable, never fatal.
+  if (fs.existsSync(path.join(dir, "AGENTS.md"))) {
+    for (const platform of detectedPlatforms(home)) {
+      const filename = NATIVE_MEMORY_FILE[platform];
+
+      if (!filename) {
+        continue;
+      }
+
+      let content = null;
+
+      try {
+        content = fs.readFileSync(path.join(dir, filename), "utf8");
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          continue; // unreadable is not the same as missing — not this check's job
+        }
+      }
+
+      if (content === null || !hasNativeMemoryImport(content)) {
+        issues.warnings.push({
+          file: filename,
+          message:
+            `AGENTS.md exists but ${filename} does not import @AGENTS.md — ${platform} sessions ` +
+            "open the project without the learning protocol. Run `ai-learn update --root <dir>`.",
+        });
+      }
+    }
   }
 
   // The commit-msg hook (mechanical, Conventional Commits — see

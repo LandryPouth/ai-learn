@@ -17,6 +17,7 @@ const { ensureMutateConfig } = require("./mutate");
 const { ensurePredictionsFile, predictionsPath } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
+const { ensureNativeMemoryFile } = require("./platforms/ensure");
 const os = require("os");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
@@ -100,6 +101,22 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     fs.writeFileSync(rulesFile, rulesContent);
     created.push(normalizePortable(path.relative(abs, rulesFile)));
     log("  note    AGENTS.md existe déjà — protocole écrit dans docs/plans/mode-apprentissage.md");
+  }
+
+  // A generalist session only loads the protocol if the platform's native
+  // memory file imports AGENTS.md — Claude Code reads CLAUDE.md, Gemini reads
+  // GEMINI.md; Codex/OpenCode already read AGENTS.md itself (story 04.01).
+  // Append-only and best-effort: an existing, customized file keeps its lines.
+  const nativeMemory = ensureNativeMemoryFile(abs, platform);
+
+  if (nativeMemory) {
+    if (nativeMemory.action === "created") {
+      created.push(normalizePortable(path.relative(abs, path.join(abs, nativeMemory.file))));
+    } else if (nativeMemory.action === "appended") {
+      log(`  note    ${nativeMemory.file}: import @AGENTS.md ajouté (contenu conservé)`);
+    } else if (nativeMemory.action === "failed") {
+      log(`  note    ${nativeMemory.file} non inscriptible — import @AGENTS.md non ajouté`);
+    }
   }
 
   // The learner-file block: the AI must never write the learner's solution code.
