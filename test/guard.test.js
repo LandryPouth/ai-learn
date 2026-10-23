@@ -1015,3 +1015,23 @@ test("dirigeant : formes collées de tar/unzip/patch vers test/ sont refusées",
     assert.strictEqual(bash(command), "allow", command);
   }
 });
+
+test("dirigeant : ln -s vers test/ et touch dans test/ sont refusés, ln -s interne à src/ reste permis", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "ln -s ../test src/t && echo x > src/t/a.js",
+    "ln -s ../test src/t; echo x > src/t/a.js",
+    "ln -sf ../test/a.js src/a.js",
+    "touch test/a.js",
+    "cd test; touch a.js",
+    "cd test && touch a.js",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+
+  assert.strictEqual(bash("ln -s b.js src/a.js"), "allow");
+  assert.strictEqual(bash("touch src/a.js"), "allow");
+});

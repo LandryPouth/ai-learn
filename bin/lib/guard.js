@@ -635,12 +635,27 @@ function shellWriteTargets(command, depth = 0) {
             targets.push(resolveShellTarget(cwd, operand));
           }
         }
+
+        // `ln -s ../test src/t` plants a link whose later writes land in the
+        // link target; a same-command `&& echo x > src/t/a.js` is checked
+        // before the link exists. A relative link target resolves against the
+        // link's own directory, so a link into a learner path is itself denied.
+        if (token === "ln" && !targetDir && operands.length >= 2) {
+          const destination = normalizePortable(operands[operands.length - 1]);
+          for (const source of operands.slice(0, -1)) {
+            const linked = path.posix.isAbsolute(source)
+              ? source
+              : path.posix.join(path.posix.dirname(destination), normalizePortable(source));
+            targets.push(resolveShellTarget(cwd, linked));
+          }
+        }
         continue;
       }
 
-      // `rm` and `truncate` destroy/rewrite their operands; `rm -rf .ai-learn`
-      // must be caught even though the target is the directory, not guard.json.
-      if (token === "rm" || token === "truncate") {
+      // `rm`, `truncate` and `touch` destroy/rewrite/create their operands;
+      // `rm -rf .ai-learn` must be caught even though the target is the
+      // directory, not guard.json.
+      if (token === "rm" || token === "truncate" || token === "touch") {
         for (let j = i + 1; j < tokens.length; j++) {
           const t = tokens[j];
           if (t === "|" || t === "&&" || t === "||" || t === ";") {
