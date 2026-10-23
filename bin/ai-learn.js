@@ -238,7 +238,15 @@ function main() {
       // Standalone, read-only clean-code check (file/function length, nesting,
       // params) — same engine verify/check hard-block on, but callable anytime
       // for a fast local feedback loop. Exits non-zero on any violation.
-      const { normCommand } = require("./lib/norm");
+      // `--hook` is the PostToolUse entry point (story 07.03): it reads the
+      // hook JSON on stdin, measures only the written file, and never blocks.
+      const { normCommand, normHookCommand } = require("./lib/norm");
+
+      if (flags.has("--hook")) {
+        normHookCommand({ inputFile: getFlagValue("--input", null) });
+        break;
+      }
+
       normCommand({ dir });
       break;
     }
@@ -308,7 +316,7 @@ Usage:
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--secondary] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
-  ai-learn norm [--dir <dir>]
+  ai-learn norm [--dir <dir>]   (--hook: hook PostToolUse interne, lecture seule)
   ai-learn mode <apprenti|dirigeant> [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
@@ -362,7 +370,10 @@ Commands:
   norm     Check clean-code metrics (file/function length, nesting depth, param
            count) against the project's norm (.ai-learn/norm.json or the stack
            pack's defaults) — read-only, non-zero exit on violation. Same engine
-           verify/check hard-block on; run standalone for fast local feedback
+           verify/check hard-block on; run standalone for fast local feedback.
+           --hook is the PostToolUse entry point: init/update wire it for
+           claude-code so a write into src/** gets the violation immediately,
+           without blocking (the block stays in verify/check)
   mode     Switch between apprenti and dirigeant. Dirigeant is earned: tiers 1-3
            of ~/.ai-learn/tracks/tests.json must be achieved (a killed mutant, a
            100 % mutation score, red-before-green). An absent/corrupt ledger

@@ -98,6 +98,25 @@ test("update wires the learner-file guard (hook, policy, solutions README refres
   assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
 });
 
+test("update wires the consultative norm hook and documents the no-hook fallback", () => {
+  const dir = tmpProject(project());
+
+  capture(() => updateCommand({ root: dir }));
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  const ours = (settings.hooks.PostToolUse || []).find((entry) =>
+    /ai-learn\.js\\?"? norm --hook/.test(JSON.stringify(entry)),
+  );
+  assert.ok(ours, "a PostToolUse norm hook is wired");
+  assert.match(ours.matcher, /Write/);
+  assert.match(fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8"), /après chaque brique/);
+
+  // Idempotent: a second update adds nothing and keeps settings.json intact.
+  const before = fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8");
+  capture(() => updateCommand({ root: dir }));
+  assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
+});
+
 test("update creates .ai-learn/norm.json once and never rewrites a learner's edits", () => {
   const dir = tmpProject(project());
 

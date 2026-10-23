@@ -94,6 +94,8 @@ Sur une violation, le rôle de l'IA est d'**expliquer**, jamais de corriger à l
 - Laisser l'apprenant refactorer **lui-même** dans son éditeur — l'IA n'écrit **jamais** dans `src/**` pour corriger une violation à sa place (déjà mécaniquement impossible via `ai-learn guard`, mais le rappeler évite un réflexe de proposer un diff prêt à coller).
 - `ai-learn norm` (lecture seule, sans lancer `verify`) donne un retour rapide à tout moment pendant que l'apprenant retravaille sa fonction.
 
+Sur Claude Code, `init`/`update` câblent un hook **PostToolUse** : après chaque écriture dans `src/**`, `ai-learn norm --hook` mesure **ce seul fichier** et remonte la violation (`fichier:ligne — message [règle]`) à l'agent, sans bloquer l'écriture — le blocage reste dans `verify`/`check`. Sur une plateforme sans hook équivalent (Codex, Gemini, OpenCode, Antigravity), rien n'est câblé automatiquement : appeler `ai-learn norm` après chaque brique écrite.
+
 ### 3quinquies. Les tests doivent protéger le code — prédire quel test tombe (mutation)
 
 Sur une phase qui porte `mutation: true`, `ai-learn verify` exige en plus du checkpoint que ses tests **protègent réellement** le code de l'apprenant. Vocabulaire, en une phrase chacun : un **mutant** est une copie de `src/**` cassée d'une façon précise et minuscule ; un **opérateur de mutation** est la règle de casse (inverser une comparaison, changer un `true` en `false`…) définie par le stack pack ; un mutant est **tué** quand le checkpoint échoue dessus (le test s'en est aperçu), **survécu** quand le checkpoint passe malgré la casse (le test ne protège pas cette ligne). `ai-learn mutate --phase <id>` les liste au format `fichier:ligne — opérateur — SURVÉCU/TUÉ` ; un seul mutant survécu fait échouer `verify`.

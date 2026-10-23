@@ -14,7 +14,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { writeFile, homeEnvOverrides } = require("./helpers");
+const { writeFile, homeEnvOverrides, withHome } = require("./helpers");
 const {
   analyzeFile,
   detectFunctionsBrace,
@@ -25,7 +25,9 @@ const {
   resolveThresholds,
   formatViolation,
   ensureNormConfig,
+  ensureNormHook,
 } = require("../bin/lib/norm");
+const { scaffold } = require("../bin/lib/init");
 
 afterEach(() => {
   process.exitCode = 0;
@@ -459,4 +461,144 @@ test("ensureNormConfig writes the detected stack's concrete thresholds once, nev
 
   const stillCustom = JSON.parse(fs.readFileSync(configPath, "utf8"));
   assert.equal(stillCustom.maxFunctionLines, 999);
+});
+
+// ---------------------------------------------------------------------------
+// M4 — `ai-learn norm --hook`: PostToolUse feedback, one file, never blocking.
+// ---------------------------------------------------------------------------
+
+function runNormHook(dir, rel, { toolName = "Write", cwd = dir } = {}) {
+  const input = path.join(dir, `_hook-${Math.random().toString(16).slice(2)}.json`);
+  fs.writeFileSync(
+    input,
+    JSON.stringify({ tool_name: toolName, tool_input: { file_path: path.join(dir, rel) }, cwd }),
+  );
+
+  return spawnSync(process.execPath, [BIN, "norm", "--hook", "--input", input], {
+    encoding: "utf8",
+    env: isolatedEnv(),
+  });
+}
+
+test("ai-learn norm --hook reports the written file's violation to the agent without blocking", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/index.js", jsFunctionOfLength("tooLong", 5));
+
+  const result = runNormHook(dir, "src/index.js");
+  assert.strictEqual(result.status, 0);
+
+  const payload = JSON.parse(result.stdout);
+  assert.strictEqual(payload.hookSpecificOutput.hookEventName, "PostToolUse");
+  assert.match(
+    payload.hookSpecificOutput.additionalContext,
+    /src\/index\.js:1 — function `tooLong` is 7 lines \(max 3\) \[function-length\]/,
+  );
+  assert.ok(!("decision" in payload), "the hook never blocks the write");
+  assert.ok(!("permissionDecision" in payload.hookSpecificOutput));
+});
+
+test("ai-learn norm --hook stays silent on a clean write", () => {
+  const dir = tmpDir();
+  writeFile(dir, "src/index.js", "function clean() {\n  return 1;\n}\n");
+
+  const result = runNormHook(dir, "src/index.js");
+  assert.strictEqual(result.status, 0);
+  assert.strictEqual(result.stdout, "");
+});
+
+test("ai-learn norm --hook measures only the written file, never the whole src/**", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/other.js", jsFunctionOfLength("preExisting", 5));
+  writeFile(dir, "src/index.js", "function clean() {\n  return 1;\n}\n");
+
+  const result = runNormHook(dir, "src/index.js");
+  assert.strictEqual(result.status, 0);
+  assert.strictEqual(result.stdout, "", "an unrelated violating file must not be reported");
+});
+
+test("ai-learn norm --hook ignores a write outside the implementation scope", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "scripts/build.js", jsFunctionOfLength("outOfScope", 5));
+
+  const result = runNormHook(dir, "scripts/build.js");
+  assert.strictEqual(result.status, 0);
+  assert.strictEqual(result.stdout, "");
+});
+
+test("ensureNormHook merges a PostToolUse hook without clobbering existing settings, idempotently", () => {
+  const dir = tmpDir();
+  writeFile(
+    dir,
+    ".claude/settings.json",
+    JSON.stringify({
+      permissions: { allow: ["Bash(ls)"] },
+      hooks: {
+        PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "other-guard" }] }],
+        PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "other-post" }] }],
+      },
+    }),
+  );
+
+  const first = ensureNormHook(dir);
+  assert.strictEqual(first.wired, false);
+  assert.deepStrictEqual(first.created, [".claude/settings.json"]);
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  assert.deepStrictEqual(settings.permissions, { allow: ["Bash(ls)"] });
+  assert.strictEqual(settings.hooks.PreToolUse.length, 1);
+  assert.strictEqual(settings.hooks.PostToolUse.length, 2);
+
+  const ours = settings.hooks.PostToolUse.find((entry) => /ai-learn\.js\\?"? norm --hook/.test(JSON.stringify(entry)));
+  assert.ok(ours);
+  assert.match(ours.matcher, /Write/);
+
+  const before = fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8");
+  const second = ensureNormHook(dir);
+  assert.strictEqual(second.wired, true);
+  assert.strictEqual(second.created.length, 0);
+  assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
+});
+
+test("ensureNormHook never rewrites a settings.json it cannot safely merge", () => {
+  const cases = ["{oops", JSON.stringify({ hooks: { PostToolUse: { a: 1 } }, x: 1 }), JSON.stringify({ hooks: [] })];
+
+  for (const raw of cases) {
+    const dir = tmpDir();
+    writeFile(dir, ".claude/settings.json", raw);
+
+    const result = ensureNormHook(dir);
+
+    assert.strictEqual(result.skipped, true);
+    assert.deepStrictEqual(result.created, []);
+    assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), raw);
+  }
+});
+
+test("ensureNormHook quotes the binary path so a path with spaces still runs", () => {
+  const dir = tmpDir();
+  ensureNormHook(dir);
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  assert.match(settings.hooks.PostToolUse[0].hooks[0].command, /^node ".*ai-learn\.js" norm --hook$/);
+});
+
+test("init wires the norm hook for claude-code and wires nothing for a platform without one", () => {
+  const claudeDir = tmpDir();
+  const codexDir = tmpDir();
+
+  withHome(tmpDir(), () => {
+    scaffold({ dir: claudeDir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "claude" });
+    scaffold({ dir: codexDir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "codex" });
+  });
+
+  const claudeSettings = JSON.parse(fs.readFileSync(path.join(claudeDir, ".claude", "settings.json"), "utf8"));
+  assert.ok(/norm --hook/.test(JSON.stringify(claudeSettings.hooks.PostToolUse)));
+
+  const codexSettings = JSON.parse(fs.readFileSync(path.join(codexDir, ".claude", "settings.json"), "utf8"));
+  assert.ok(!/norm --hook/.test(JSON.stringify(codexSettings)));
+
+  assert.match(fs.readFileSync(path.join(codexDir, "AGENTS.md"), "utf8"), /après chaque brique/);
 });

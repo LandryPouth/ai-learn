@@ -12,7 +12,7 @@ const { log, writeJson, mkdirp, normalizePortable } = require("./util");
 const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
-const { ensureNormConfig } = require("./norm");
+const { ensureNormConfig, ensureNormHook } = require("./norm");
 const { ensureMutateConfig } = require("./mutate");
 const { ensureTutorConfig } = require("./tutor");
 const { ensurePredictionsFile, predictionsPath } = require("./predictions");
@@ -128,6 +128,19 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
 
   for (const file of guard.created) {
     created.push(file);
+  }
+
+  // The consultative norm hook (story 07.03): claude-code only, since it is
+  // the sole platform with a PostToolUse hook. Any other platform wires
+  // nothing and relies on the documented fallback in AGENTS.md §3quater.
+  if (platform === "claude") {
+    const normHook = ensureNormHook(abs);
+
+    for (const file of normHook.created) {
+      if (!created.includes(file)) {
+        created.push(file);
+      }
+    }
   }
 
   // The commit-msg hook (mechanical, Conventional Commits) — silent no-op if

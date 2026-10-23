@@ -20,7 +20,7 @@ const { readProgress } = require("./progress");
 const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
-const { ensureNormConfig } = require("./norm");
+const { ensureNormConfig, ensureNormHook } = require("./norm");
 const { ensureMutateConfig } = require("./mutate");
 const {
   ensurePredictionsFile,
@@ -237,6 +237,9 @@ function updateCommand({ root, platform }) {
 
     const { traps } = regenerateTraps(project);
     const guard = ensureGuardHook(project);
+    // claude-code is the only platform with a PostToolUse hook; an explicit
+    // other --platform wires nothing (AGENTS.md §3quater documents the fallback).
+    const normHook = !platform || platform === "claude" ? ensureNormHook(project) : null;
     const dogfood = syncDogfood(project);
     const checkpointReadme = syncCheckpointReadme(project);
     const commitHook = ensureCommitMsgHook(project);
@@ -275,6 +278,14 @@ function updateCommand({ root, platform }) {
     log(
       `  guard (claude): ${guard.wired ? "hook already wired" : "hook wired"} — ${guardCreated}${guardRefreshed}`,
     );
+    if (normHook) {
+      const state = normHook.skipped
+        ? "settings.json illisible ou de forme inattendue — non modifié"
+        : normHook.wired
+          ? "hook already wired"
+          : "hook wired";
+      log(`  norm hook (claude): ${state}`);
+    }
     log(
       `  guard (codex): ${guard.codex.skipped ? "customized .codex/config.toml — not touched" : ".codex/config.toml up to date"}`,
     );

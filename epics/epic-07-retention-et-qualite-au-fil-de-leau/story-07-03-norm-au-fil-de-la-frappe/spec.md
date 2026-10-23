@@ -10,11 +10,11 @@
 
 ## Acceptance Criteria
 
-- [ ] Given un projet claude-code initialisé, when `.claude/settings.json` est lu, then un hook PostToolUse (matcher écriture/édition) appelle `ai-learn norm --hook`.
-- [ ] Given une écriture qui crée une violation de norme, when le hook tourne, then la violation (`fichier:ligne — message [règle]`) est remontée à l'agent sans bloquer l'écriture.
-- [ ] Given une écriture sans violation, when le hook tourne, then aucune sortie (zéro bruit).
-- [ ] Given un `settings.json` déjà personnalisé, when `update` tourne, then le hook est ajouté sans écraser les entrées existantes (marqueur `ai-learn`, comme `guard`).
-- [ ] Given une plateforme sans hook équivalent, when `init` tourne, then rien n'est câblé et AGENTS.md §3quater décrit le repli (appeler `ai-learn norm` après chaque brique).
+- [x] Given un projet claude-code initialisé, when `.claude/settings.json` est lu, then un hook PostToolUse (matcher écriture/édition) appelle `ai-learn norm --hook`.
+- [x] Given une écriture qui crée une violation de norme, when le hook tourne, then la violation (`fichier:ligne — message [règle]`) est remontée à l'agent sans bloquer l'écriture.
+- [x] Given une écriture sans violation, when le hook tourne, then aucune sortie (zéro bruit).
+- [x] Given un `settings.json` déjà personnalisé, when `update` tourne, then le hook est ajouté sans écraser les entrées existantes (marqueur `ai-learn`, comme `guard`).
+- [x] Given une plateforme sans hook équivalent, when `init` tourne, then rien n'est câblé et AGENTS.md §3quater décrit le repli (appeler `ai-learn norm` après chaque brique).
 
 ## Edge Cases
 
