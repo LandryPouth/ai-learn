@@ -957,3 +957,61 @@ test("dirigeant : perl -pi, patch, dd of=, tar -C, unzip -d et rsync vers test/ 
     assert.strictEqual(bash(command), "allow", command);
   }
 });
+
+test("dirigeant : un guard.json imbriqué planté dans src/ ne devient pas la racine ni ne s'écrit", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src", ".ai-learn"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "test"), { recursive: true });
+  const decoy = path.join(dir, "src", ".ai-learn", "guard.json");
+
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: decoy }), dir).decision, "deny");
+
+  // Même si le leurre existe déjà (planté hors du guard), la racine reste la plus haute.
+  fs.writeFileSync(decoy, JSON.stringify({ version: 1, mode: "apprenti", learnerFiles: ["nothing/**"] }));
+  assert.strictEqual(findProjectRoot(path.join(dir, "src")), dir);
+
+  const input = path.join(dir, "_hook-input.json");
+  for (const target of ["test/a.test.ts", ".ai-learn/guard.json"]) {
+    fs.writeFileSync(
+      input,
+      JSON.stringify({ cwd: path.join(dir, "src"), tool_name: "Write", tool_input: { file_path: path.join(dir, target) } }),
+    );
+    let status = 0;
+    try {
+      execFileSync(process.execPath, [BIN, "guard", "--input", input], { encoding: "utf8", stdio: "pipe" });
+    } catch (error) {
+      status = error.status;
+    }
+    assert.strictEqual(status, 2, target);
+  }
+});
+
+test("dirigeant : formes collées de tar/unzip/patch vers test/ sont refusées", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "tar xf a.tar -Ctest",
+    "tar -xCf test a.tar",
+    "tar xCf test a.tar",
+    "tar x -f a.tar --directory test",
+    "tar x -f a.tar --directory=test",
+    "unzip a.zip -dtest",
+    "patch -i p.diff test/a.js",
+    "patch -p1 test/a.js",
+    "patch -o test/out.js src/a.js",
+    "patch --output=test/out.js src/a.js",
+    "patch -d test < x.diff",
+    "patch -dtest < x.diff",
+    "patch --directory=test -p0 < x.diff",
+    "tar xf a.tar --one-top-level=test",
+    "tar xf a.tar --one-top-level test",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+  for (const command of ["patch -i p.diff src/a.js", "patch -p1 src/a.js", "tar xf a.tar -Csrc", "unzip a.zip -dsrc", "patch -d src < x.diff", "tar xf a.tar --one-top-level=src"]) {
+    assert.strictEqual(bash(command), "allow", command);
+  }
+});

@@ -30,6 +30,8 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
 - **Résolu — le texte suit le mode.** Les raisons de refus, le README généré de `docs/solutions/` et le profil Codex sont dérivés du mode : en dirigeant, l'IA lit « spécification de l'apprenant, écris `src/**` » et non « dépose le code de révélation ».
 - **Résolu — le défaut est le plus restrictif.** Seul le littéral exact `"dirigeant"` sélectionne le mode inverse. Toute autre valeur (absente, mal orthographiée, non-chaîne, config corrompue) résout vers `apprenti` : une config cassée ne peut jamais ouvrir `src/**` à l'IA.
 
+- **Résolu — la racine est l'ancêtre le plus haut portant un `guard.json`.** `findProjectRoot` ne prend pas le plus proche : en dirigeant l'IA écrit `src/**` et pouvait y planter `src/.ai-learn/guard.json` (mode `apprenti`) pour en faire la racine après un `cd src` (revue 2, P1). Défense double : racine = ancêtre le plus haut, et `isProtectedPath` refuse `.ai-learn/guard.json` (et `.ai-learn`) à toute profondeur.
+
 ## Test Plan
 
 - [x] Matrice complète de décision du guard (unit) — `test/guard.test.js`.
@@ -70,6 +72,8 @@ Revert du commit de la story ; aucune migration de données hors champs additifs
 - **Racine de projet** : `guardCommand` remonte depuis `hook.cwd` jusqu'au premier `.ai-learn/guard.json` (`findProjectRoot`). Avant, un cwd en sous-dossier (`cd src`) retombait sur `apprenti` et laissait passer `test/**` et `guard.json`.
 - **Liens symboliques** : `toRelative` résout les symlinks sur l'ancêtre existant le plus profond (`realResolve`) ; `src/t -> test` ne blanchit plus une écriture.
 - **Bash** : `perl -pi`/`sed -ni` (flags groupés), `patch`, `dd of=`, `tar -C`, `unzip -d` et `rsync` sont reconnus comme écrivains.
+
+- **Revue 2** : racine par ancêtre le plus haut + `guard.json` imbriqué protégé (P1) ; `tar -Cdir`/`-xCf`/`--directory`, `unzip -ddir`, `patch -o`/`-i`/`-p` couverts (P2). Revue 3 : `patch -d/--directory` et `tar --one-top-level` traités comme cibles (P2). Limite connue : `cd test && patch < x.diff` (cibles dans l'en-tête du diff) reste non détecté. Limite restante : un monorepo dont un parent porte un `guard.json` en fait la racine.
 
 ## Residual Risks
 

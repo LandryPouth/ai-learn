@@ -388,6 +388,12 @@ function isProtectedPath(relative, platform = process.platform) {
   const fold = caseInsensitiveFs(platform);
   const candidate = fold ? relative.toLowerCase() : relative;
 
+  // A nested `.ai-learn/guard.json` (`src/.ai-learn/guard.json`) is a decoy
+  // policy: protected at any depth, like the directory that holds it.
+  if (/(^|\/)\.ai-learn(\/guard\.json)?$/.test(candidate)) {
+    return true;
+  }
+
   return PROTECTED_FILES.some((file) => {
     const protectedFile = fold ? file.toLowerCase() : file;
     // A protected path is also its own directory: `rm -rf .ai-learn` removes
@@ -658,8 +664,26 @@ function shellWriteTargets(command, depth = 0) {
           }
           if (token === "dd" && t.startsWith("of=")) {
             targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(3))));
-          } else if (token === "patch" && !t.startsWith("-")) {
-            targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+          } else if (token === "patch") {
+            // `-i`/`-p` never name a written file (the diff, a strip count);
+            // `-o out` does, and `-d dir` is where the diff's files are written.
+            if (t === "-d" || t === "--directory") {
+              targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j + 1] || "")));
+              j += 1;
+            } else if (t.startsWith("--directory=")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice("--directory=".length))));
+            } else if (/^-d.+/.test(t)) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(2))));
+            } else if (t === "-o" || t === "--output") {
+              targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j + 1] || "")));
+              j += 1;
+            } else if (t.startsWith("--output=")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice("--output=".length))));
+            } else if (t === "-i" || t === "--input" || t === "-p" || t === "--strip") {
+              j += 1;
+            } else if (!t.startsWith("-")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+            }
           }
         }
         continue;
@@ -675,11 +699,23 @@ function shellWriteTargets(command, depth = 0) {
           if (t === "|") {
             break;
           }
-          if ((token === "tar" && (t === "-C" || t === "--directory")) || (token === "unzip" && t === "-d")) {
-            targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j + 1] || "")));
-            j += 1;
-          } else if (t.startsWith("--directory=")) {
-            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice("--directory=".length))));
+          // `-C dir`, `-Cdir`, `--directory dir`, `--directory=dir`, and bundled
+          // short flags (`-xCf dir`, `xCf dir`) where the next word is the
+          // directory. Over-collecting a neighbour is harmless: it only denies
+          // when it matches a learner pattern.
+          const tarBundle = token === "tar" && (/^-[a-zA-Z]*C/.test(t) || (j === i + 1 && /^[a-zA-Z]*C[a-zA-Z]*$/.test(t)));
+          const dirFlag = (token === "tar" && (t === "--directory" || t === "--one-top-level")) || (token === "unzip" && t === "-d");
+          if (tarBundle || dirFlag) {
+            const attached = token === "tar" && /^-C.+/.test(t) ? t.slice(2) : null;
+            const dir = attached !== null ? attached : tokens[j + 1] || "";
+            targets.push(resolveShellTarget(cwd, stripQuotes(dir)));
+            if (attached === null) {
+              j += 1;
+            }
+          } else if (token === "unzip" && /^-d.+/.test(t)) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(2))));
+          } else if (t.startsWith("--directory=") || t.startsWith("--one-top-level=")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(t.indexOf("=") + 1))));
           } else if (!t.startsWith("-")) {
             operands.push(t);
           }
@@ -1000,34 +1036,37 @@ function recordDenial({ root, hook, result }) {
   }
 }
 
-// The hook entry point. Root comes from the hook's `cwd` when present — the
-// project where Claude Code runs — otherwise the process cwd. Any error inside
-// the guard itself is a fail-open allow: a broken guard must not break a session.
 // The hook's `cwd` is the session's directory, not necessarily the project
 // root: after a `cd src` it is `<project>/src`, where no `.ai-learn/guard.json`
 // exists and the guard would resolve to the `apprenti` defaults with every
 // path outside `src/` dropped by `toRelative` (a bypass of the `dirigeant`
-// wall and of the policy self-protection). Walk up to the nearest directory
-// holding the guard config; fall back to `start` when there is none.
+// wall and of the policy self-protection). Walk up to the OUTERMOST directory
+// holding the guard config, never the nearest: in `dirigeant` the AI may write
+// `src/**`, so it could plant `src/.ai-learn/guard.json` (mode `apprenti`) and
+// make that fake file the root. Fall back to `start` when there is none.
 function findProjectRoot(start) {
   let dir = path.resolve(start);
+  let found = null;
 
   for (;;) {
     try {
       if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json"))) {
-        return dir;
+        found = dir;
       }
     } catch {
-      return start;
+      return found || start;
     }
     const parent = path.dirname(dir);
     if (parent === dir) {
-      return start;
+      return found || start;
     }
     dir = parent;
   }
 }
 
+// The hook entry point. Root comes from the hook's `cwd` when present — the
+// project where Claude Code runs — otherwise the process cwd. Any error inside
+// the guard itself is a fail-open allow: a broken guard must not break a session.
 function guardCommand({ inputFile = null } = {}) {
   let hook = null;
   let root = process.cwd();
