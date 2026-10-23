@@ -207,3 +207,27 @@ test("no platform identifiable (no --platform, no CLAUDECODE): commands stay unt
   assert.ok(!fs.existsSync(path.join(home, ".claude")));
   assert.ok(!fs.existsSync(path.join(home, ".codex")));
 });
+
+test("verify --stale re-proves a stale phase without a positional id (story 04.03)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-verify-stale-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({
+      version: 1,
+      project: "demo",
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "index.js"), "console.log('hi');\n");
+
+  const first = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0"], { encoding: "utf8", env: isolatedEnv() });
+  assert.strictEqual(first.status, 0);
+
+  fs.writeFileSync(path.join(dir, "src", "index.js"), "console.log('changed');\n");
+
+  const result = spawnSync(process.execPath, [BIN, "verify", "--stale", "--dir", dir], { encoding: "utf8", env: isolatedEnv() });
+
+  assert.strictEqual(result.status, 0);
+  assert.match(result.stdout, /toujours vert : 1 phase\(s\)/);
+});

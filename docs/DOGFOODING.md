@@ -46,6 +46,13 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `low` — `worktree place` crée une branche/worktree alors que la consigne explicite est « sur main »
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `/flow-run` → `ai-flow worktree place --epic … --story …`
+- **Problème** : l'utilisateur demande explicitement d'exécuter la story 04.03 sur `main` ; `worktree place` crée quand même `../ai-learn-worktrees/story-04-03-…` sur une branche dédiée, au motif que la chaîne s1 « occupe » le checkout. Aucun flag ne permet de dire « la consigne humaine prime, reste sur main ».
+- **Workaround** : `git worktree remove ../ai-learn-worktrees/story-04-03-…` juste après `place`, puis `worktree lock` depuis `main`.
+- **Résolution** : ouverte (paquet `coding-flow`). Piste : `place` devrait accepter/respecter une destination explicite (`--branch main`) ou ne pas créer de worktree quand le checkout courant est déjà la branche demandée.
+
 ### `low` — `worktree place`/`autoland` refusent la même arbre à point de fusion, avec un remède qui ne s'applique pas à `autoland`
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
 - **Surface** : `/flow-run` (`ai-flow worktree place --epic … --story …`, puis `ai-flow worktree autoland --epic … --story …`)
@@ -58,7 +65,7 @@ Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées
 
 - `high` — `AGENTS.md` n'est chargé par aucune session généraliste (aucun fichier mémoire natif). **Surface** : init/update. **Résolution** : planifiée, story-04-01.
 - `medium` — `next`/`status` répondent par une phase périmée avant la vraie suite. **Surface** : next, status. **Résolution** : planifiée, story-04-02.
-- `medium` — `stale` recouvre faux positif et régression réelle, sans moyen de les distinguer. **Surface** : verify, check. **Résolution** : planifiée, story-04-03.
+- `medium` — `stale` recouvre faux positif et régression réelle, sans moyen de les distinguer. **Surface** : verify, check. **Résolution** : résolue, story-04-03 (`verify --stale`).
 - `medium` — aucun rappel de commit entre deux réponses ; commande git donnée sans explication. **Surface** : status, verify. **Résolution** : planifiée, story-04-04.
 - `medium` — commandes `/…` sans préfixe commun, non découvrables. **Surface** : install. **Résolution** : planifiée, story-04-05.
 - `high` — règles de session dictées à la main : synthèse ciblée, relecture de `src/**`, cas d'échec, pas de solution avant la frappe, révélation dans le chat. **Surface** : AGENTS.md §1-§3. **Résolution** : planifiée, stories 05-02 à 05-04.

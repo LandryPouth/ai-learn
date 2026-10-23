@@ -6,8 +6,9 @@ const fs = require("fs");
 const path = require("path");
 
 const os = require("os");
-const { verifyCommand } = require("../bin/lib/verify");
-const { readProgress, runsDir, progressPath } = require("../bin/lib/progress");
+const { verifyCommand, staleCommand, findStalePhases } = require("../bin/lib/verify");
+const { readProgress, runsDir, progressPath, latestEvidenceForPhase } = require("../bin/lib/progress");
+const { computeSourceHash } = require("../bin/lib/source-hash");
 const { readGitTracks } = require("../bin/lib/tracks/git");
 const { recordPrediction } = require("../bin/lib/predictions");
 const { mutateConfigPath, mutateLockPath } = require("../bin/lib/mutate");
@@ -846,4 +847,125 @@ test("verify réussit même si le sync tests.json échoue", () => {
 
   assert.match(out, /marked done/);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+});
+
+// -----------------------------------------------------------------------
+// verify --stale (story 04.03) — re-prove every stale done phase through the
+// normal verify path, then separate "toujours vert" from a real regression.
+// -----------------------------------------------------------------------
+
+function twoPhaseProgress() {
+  return sampleProgress({
+    phases: [
+      { id: 0, name: "Zero", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 },
+      { id: 1, name: "One", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 },
+    ],
+  });
+}
+
+test("verify --stale re-proves every stale phase that still passes and lists them as toujours vert", () => {
+  const dir = tmpProject(twoPhaseProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 1 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /toujours vert : 2 phase\(s\)/);
+  assert.match(out, /✓ Phase 0 — Zero/);
+  assert.match(out, /✓ Phase 1 — One/);
+  assert.doesNotMatch(out, /régression :/);
+  assert.strictEqual(process.exitCode, 0);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+  assert.strictEqual(config.phases[1].status, "done");
+  assert.strictEqual(fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json")).length, 4);
+
+  const currentHash = computeSourceHash(dir, {});
+  for (const id of [0, 1]) {
+    assert.strictEqual(latestEvidenceForPhase(dir, id).sourceHash.digest, currentHash.digest);
+  }
+});
+
+test("verify --stale classifies a failing checkpoint as a regression, cites the failure and leaves it unproven", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const { config } = readProgress(dir);
+  config.phases[0].checkpoint = 'node -e "process.exit(3)"';
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /régression : 1 phase\(s\)/);
+  assert.match(out, /✗ Phase 0 — Phase zero — exit 3/);
+  assert.match(out, /demoted: done → in_progress/);
+  assert.doesNotMatch(out, /toujours vert :/);
+  assert.strictEqual(process.exitCode, 1);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "in_progress");
+});
+
+test("verify --stale without a stale phase says so, exits 0 and writes nothing", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  const before = fs.readdirSync(runsDir(dir)).sort();
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /Aucune phase périmée/);
+  assert.strictEqual(process.exitCode, 0);
+  assert.deepStrictEqual(fs.readdirSync(runsDir(dir)).sort(), before);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+});
+
+test("verify --stale leaves status writes to verify: a re-proof is marked applied by the normal path", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /Phase 0 marked done/);
+  assert.strictEqual(latestEvidenceForPhase(dir, 0).marking, "applied");
+});
+
+test("findStalePhases only returns done phases whose passing proof no longer matches the source", () => {
+  const dir = tmpProject(twoPhaseProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  let { config } = readProgress(dir);
+  config.phases[1].status = "in_progress";
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  ({ config } = readProgress(dir));
+  assert.deepStrictEqual(findStalePhases(dir, config).map((phase) => phase.id), [0]);
+});
+
+test("verify --stale keeps going when one stale phase has lost its checkpoint, and reports it as a regression", () => {
+  const dir = tmpProject(twoPhaseProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 1 }));
+
+  const { config } = readProgress(dir);
+  delete config.phases[0].checkpoint;
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /toujours vert : 1 phase\(s\)/);
+  assert.match(out, /régression : 1 phase\(s\)/);
+  assert.match(out, /✗ Phase 0 — Zero — .*no checkpoint/);
+  assert.strictEqual(process.exitCode, 1);
+  process.exitCode = 0;
 });

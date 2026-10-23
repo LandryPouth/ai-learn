@@ -120,13 +120,19 @@ function main() {
     }
 
     case "verify": {
-      const { verifyCommand } = require("./lib/verify");
+      const { verifyCommand, staleCommand } = require("./lib/verify");
+
+      if (flags.has("--stale")) {
+        staleCommand({ dir });
+        break;
+      }
+
       const { parseArgs } = require("./lib/args");
       const { positionals } = parseArgs(commandArgs, { valueFlags: ["--dir"] });
       const phaseId = Number.parseInt(positionals[0] || "", 10);
 
       if (!Number.isFinite(phaseId)) {
-        fail("verify requires a phase id, ex: ai-learn verify 0");
+        fail("verify requires a phase id or --stale, ex: ai-learn verify 0");
       }
 
       verifyCommand({ dir, phaseId, noMark: flags.has("--no-mark") });
@@ -292,6 +298,7 @@ Usage:
   ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
+  ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
   ai-learn predict --phase <id> --prediction <text> [--gaps <text>] [--score <text>]
              [--strengths <text>] [--weaknesses <text>] [--flash <text>] [--corrected <text>]
@@ -329,7 +336,9 @@ Commands:
   propose  Suggest projects to build when you don't know what to do; every stage
            backed by a verifiable resource; --validate refuses an invented
            project with an unsourced stage
-  verify   Run a phase checkpoint, record executed evidence, mark it done on success
+  verify   Run a phase checkpoint, record executed evidence, mark it done on success.
+           --stale re-proves every done phase whose proof went stale, and separates
+           "toujours vert" (fresh proof) from "régression" (the checkpoint now fails)
   mutate   Mutation testing: break the learner's code one way, run the phase
            checkpoint against it, report SURVÉCU (the test missed it) or TUÉ
            (the test caught it) per site — the file is always restored after

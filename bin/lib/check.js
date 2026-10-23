@@ -487,7 +487,7 @@ function checkProject(dir, { home } = {}) {
 
           issues.errors.push({
             file: "progress.json",
-            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}.${mutationClause} Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
+            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}.${mutationClause} Run \`ai-learn verify --stale\` to re-prove it.`,
           });
         }
       }

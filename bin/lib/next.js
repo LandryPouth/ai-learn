@@ -107,7 +107,7 @@ function nextCommand({ dir, json }) {
   const logBroken = (entries) => {
     for (const { phase, verdict } of entries) {
       if (verdict.state === "stale") {
-        log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but its proof is stale — re-prove it: \`ai-learn verify ${phase.id}\`.`);
+        log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but its proof is stale — re-prove it: \`ai-learn verify --stale\`.`);
       } else {
         log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but has no passing evidence (unproven).`);
       }

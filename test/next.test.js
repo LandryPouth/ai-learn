@@ -130,7 +130,8 @@ test("next never presents a stale-only track as finished, and names the re-prove
   const out = capture(() => nextCommand({ dir }));
   assert.match(out, /stale/);
   assert.match(out, /All 1\/1 phases are marked done, but 1 proof\(s\) do not hold/);
-  assert.match(out, /ai-learn verify 0/);
+  assert.match(out, /ai-learn verify --stale/);
+  assert.doesNotMatch(out, /ai-learn verify \d/);
   assert.doesNotMatch(out, /All 1\/1 phases done\./);
   assert.doesNotMatch(out, /Next: Phase 0/);
 });
@@ -152,7 +153,7 @@ test("next names the real following phase even when an earlier proof is stale", 
   const out = capture(() => nextCommand({ dir }));
   assert.match(out, /Next: Phase 1 — One/);
   assert.match(out, /⚠ Phase 0 — Zero .*stale/);
-  assert.match(out, /ai-learn verify 0/);
+  assert.match(out, /ai-learn verify --stale/);
   assert.doesNotMatch(out, /Next: Phase 0/);
 });
 
@@ -176,8 +177,8 @@ test("with several stale phases, next names the never-started phase and warns fo
   assert.match(out, /Next: Phase 2 — Two/);
   assert.match(out, /⚠ Phase 0 — Zero .*stale/);
   assert.match(out, /⚠ Phase 1 — One .*stale/);
-  assert.match(out, /ai-learn verify 0/);
-  assert.match(out, /ai-learn verify 1/);
+  assert.match(out, /ai-learn verify --stale/);
+  assert.doesNotMatch(out, /re-prove it: `ai-learn verify \d`/);
   assert.doesNotMatch(out, /Next: Phase 0/);
 });
 
@@ -198,8 +199,8 @@ test("with several stale phases and no phase left, next warns about all of them"
 
   const out = capture(() => nextCommand({ dir }));
   assert.match(out, /All 2\/2 phases are marked done, but 2 proof\(s\) do not hold/);
-  assert.match(out, /ai-learn verify 0/);
-  assert.match(out, /ai-learn verify 1/);
+  assert.match(out, /ai-learn verify --stale/);
+  assert.doesNotMatch(out, /ai-learn verify \d/);
   assert.doesNotMatch(out, /Next: Phase/);
 });
 

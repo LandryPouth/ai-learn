@@ -7,8 +7,8 @@
 
 const fs = require("fs");
 const path = require("path");
-const { log, fail } = require("./util");
-const { readProgress, runsDir, findPhase, setPhaseStatus } = require("./progress");
+const { log, fail, UsageError } = require("./util");
+const { readProgress, runsDir, findPhase, setPhaseStatus, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { syncGitTrack } = require("./tracks/git");
 const { syncTestsTrack } = require("./tracks/tests");
 const { syncDomainLedger } = require("./tracks/domain");
@@ -50,6 +50,151 @@ function writeEvidence(dir, evidence) {
 
   fs.writeFileSync(outputPath, `${JSON.stringify(evidence, null, 2)}\n`);
   return outputPath;
+}
+
+// The done phases whose latest passing evidence no longer matches the current
+// source — exactly the verdict `next`, `status` and `check` warn about (see
+// `phaseVerdict`). Read-only and local to verify: `--stale` re-proves what
+// those commands already flag, never a second definition of "périmé".
+function findStalePhases(dir, config) {
+  const phases = Array.isArray(config.phases) ? config.phases : [];
+  const stale = [];
+
+  for (const phase of phases) {
+    if (!phase || phase.status !== "done") {
+      continue;
+    }
+
+    const evidence = latestEvidenceForPhase(dir, phase.id);
+
+    // No passing evidence at all is `unproven`, not `stale` — re-proving it
+    // would not be a "the proof no longer covers the code" case.
+    if (!evidence || !evidence.sourceHash) {
+      continue;
+    }
+
+    const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
+    const currentHash = computeSourceHash(dir, { checkpointFile });
+    const verdict = phaseVerdict({ phase, evidence, currentHash, checkpointFileExists: Boolean(checkpointFile) });
+
+    if (verdict.state === "stale") {
+      stale.push(phase);
+    }
+  }
+
+  return stale;
+}
+
+// The real reason a re-proof failed, for the bulk summary: the failing
+// checkpoint's own last output when there is one, otherwise the non-command
+// gate that blocked it (norm, artifacts, predictions, mutation) — never a
+// generic "échec" that leaves the learner hunting.
+function failureDetail(outcome) {
+  if (outcome.error) {
+    return outcome.error;
+  }
+
+  const failed = (outcome.results || []).find((result) => !result.ok);
+
+  if (failed) {
+    const tail = (failed.stderrTail || failed.stdoutTail || "")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(-1)[0];
+    const status = failed.timedOut ? "timeout" : `exit ${failed.exitCode}`;
+    return tail ? `${status} — ${tail}` : status;
+  }
+
+  const evidence = outcome.evidence || {};
+
+  if (Array.isArray(evidence.missingArtifacts) && evidence.missingArtifacts.length > 0) {
+    return `artefacts manquants : ${evidence.missingArtifacts.join(", ")}`;
+  }
+
+  if (evidence.norm && evidence.norm.ok === false) {
+    return `norme : ${evidence.norm.violations.length} violation(s)`;
+  }
+
+  if (evidence.predictions && evidence.predictions.missing > 0) {
+    return `prédictions manquantes : ${evidence.predictions.missing}`;
+  }
+
+  if (evidence.mutation && evidence.mutation.ok === false) {
+    return `mutation : ${(evidence.mutation.survived || []).length} mutant(s) survivant(s)`;
+  }
+
+  return "échec sans détail";
+}
+
+// `ai-learn verify --stale` — re-prove every done phase whose proof is stale,
+// one phase at a time through the normal `verifyCommand` path, then separate
+// "toujours vert" (the proof no longer covered the code, but the checkpoint
+// still passes) from "régression" (the checkpoint itself now fails). The
+// normal path stays the only writer of a phase's status: this command never
+// calls `setPhaseStatus` itself.
+function staleCommand({ dir, home }) {
+  const { config, exists } = readProgress(dir);
+
+  if (!exists || !config) {
+    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+  }
+
+  const stale = findStalePhases(dir, config);
+
+  if (stale.length === 0) {
+    log("Aucune phase périmée — rien à re-prouver.");
+    return;
+  }
+
+  log(`Re-prouvant ${stale.length} phase(s) périmée(s), via le chemin verify normal.\n`);
+
+  const green = [];
+  const regressions = [];
+
+  for (const phase of stale) {
+    let outcome;
+
+    try {
+      outcome = verifyCommand({ dir, phaseId: phase.id, home });
+    } catch (error) {
+      // A usage error on one phase (e.g. its checkpoint was removed) must not
+      // abort the bulk run and lose the summary: it is a failed re-proof.
+      if (!(error instanceof UsageError)) {
+        throw error;
+      }
+
+      log(error.message);
+      outcome = { ok: false, phaseId: phase.id, phaseName: phase.name, error: error.message };
+    }
+
+    if (outcome.ok) {
+      green.push(outcome);
+    } else {
+      regressions.push(outcome);
+    }
+
+    log("");
+  }
+
+  log("Résumé — re-preuve en bloc :");
+
+  if (green.length > 0) {
+    log(`  toujours vert : ${green.length} phase(s) — preuve rafraîchie`);
+    for (const outcome of green) {
+      log(`    ✓ Phase ${outcome.phaseId} — ${outcome.phaseName}`);
+    }
+  }
+
+  if (regressions.length > 0) {
+    log(`  régression : ${regressions.length} phase(s) — le checkpoint échoue maintenant`);
+    for (const outcome of regressions) {
+      log(`    ✗ Phase ${outcome.phaseId} — ${outcome.phaseName} — ${failureDetail(outcome)}`);
+    }
+  } else {
+    log("  aucune régression.");
+  }
+
+  process.exitCode = regressions.length > 0 ? 1 : 0;
 }
 
 function verifyCommand({ dir, phaseId, noMark = false, home }) {
@@ -291,6 +436,8 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
   if (!ok) {
     process.exitCode = 1;
   }
+
+  return { ok, phaseId: phase.id, phaseName: phase.name, results, evidence, outputPath };
 }
 
-module.exports = { verifyCommand, runCommand, writeEvidence, captureEnvironment };
+module.exports = { verifyCommand, staleCommand, findStalePhases, runCommand, writeEvidence, captureEnvironment };

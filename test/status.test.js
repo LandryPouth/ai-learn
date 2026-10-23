@@ -197,7 +197,7 @@ test("status displays the stale state for a phase whose proof no longer covers t
 // Found in review (story 01.01): the stale label named the state but not
 // what to do about it, unlike check.js/next.js which both name the exact
 // command — spec.md's UX Note requires a périmé state to say what to do.
-test("status's stale label names the exact verify command to re-prove the phase", () => {
+test("status's stale label names the bulk verify command to re-prove stale phases", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
@@ -206,7 +206,8 @@ test("status's stale label names the exact verify command to re-prove the phase"
 
   const home = tmpHome();
   const out = capture(() => statusCommand({ dir, home }));
-  assert.match(out, /ai-learn verify 0/);
+  assert.match(out, /ai-learn verify --stale/);
+  assert.doesNotMatch(out, /ai-learn verify \d/);
 });
 
 test("status marks a stale phase in ledger order without reordering the following phase", () => {
