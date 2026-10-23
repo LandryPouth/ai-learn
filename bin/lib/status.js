@@ -12,6 +12,7 @@ const { normProject } = require("./norm");
 const { loadGuardConfig } = require("./guard");
 const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 
 // The mark and, where useful, the French label shown next to a phase —
 // derived from the same verdict `check` and `next` consume, not re-derived
@@ -227,7 +228,12 @@ function buildStatusReport(dir) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    return { version: 1, dir: normalizePortable(dir), error: `No progress.json in ${dir}. Run \`ai-learn init\` first.` };
+    return {
+      version: 1,
+      dir: normalizePortable(dir),
+      error: `No progress.json in ${dir}. Run \`ai-learn init\` first.`,
+      uncommitted: uncommittedCount(dir),
+    };
   }
 
   const phases = (config.phases || []).map((phase) => {
@@ -256,6 +262,7 @@ function buildStatusReport(dir) {
     phasesDone: phases.filter((phase) => phase.status === "done").length,
     phasesTotal: phases.length,
     phases,
+    uncommitted: uncommittedCount(dir),
     progressIssues: validateProgress(config).map((issue) => issue.message),
   };
 }
@@ -292,6 +299,7 @@ function statusCommand({ dir, home, json }) {
   printGitTracksSummary({ home });
   printDomainSummary({ dir, home });
   printNormSummary({ dir });
+  printCommitReminder(dir);
 }
 
 module.exports = {

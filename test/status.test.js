@@ -23,7 +23,7 @@ const { verifyCommand } = require("../bin/lib/verify");
 const { defaultGitTracks, writeGitTracks } = require("../bin/lib/tracks/git");
 const { defaultDomainLedger, writeDomainLedger } = require("../bin/lib/tracks/domain");
 const { loadStack } = require("../bin/lib/scan");
-const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
+const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
 
 function tmpHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-status-home-"));
@@ -480,4 +480,65 @@ test("status does not print the review summary in apprenti (non-regression)", ()
 
   const out = capture(() => statusCommand({ dir, home: tmpHome() }));
   assert.doesNotMatch(out, /Revues \(mode dirigeant\)/);
+});
+
+// -----------------------------------------------------------------------
+// Commit reminder (story 04.04) — read-only: status only reads
+// `git status --porcelain`, and explains each part of the suggested command.
+// -----------------------------------------------------------------------
+
+function gitProject() {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "a.txt", "x");
+  spawnGit(["init", "-b", "main"], { cwd: dir });
+  spawnGit(["add", "."], { cwd: dir });
+  spawnGit(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "feat: init"], { cwd: dir });
+  return dir;
+}
+
+test("status reminds about modified and untracked files, with the suggested command and its explanation", () => {
+  const dir = gitProject();
+  writeFile(dir, "a.txt", "changed");
+  writeFile(dir, "b.txt", "new");
+
+  const home = tmpHome();
+  const out = capture(() => statusCommand({ dir, home }));
+
+  assert.match(out, /Rappel — 2 fichier\(s\) modifié\(s\) non commité\(s\)/);
+  assert.match(out, /git add -A && git commit -m "feat: décrire le changement"/);
+  assert.match(out, /add -A\s+indexe tout/);
+  assert.match(out, /commit -m\s+enregistre/);
+  assert.match(out, /Conventional Commits/);
+  assert.match(out, /hook commit-msg/);
+});
+
+test("status stays silent on a clean tree and on a non-git directory", () => {
+  const clean = gitProject();
+  const cleanOut = capture(() => statusCommand({ dir: clean, home: tmpHome() }));
+  assert.doesNotMatch(cleanOut, /Rappel —/);
+
+  const plain = tmpProject(sampleProgress());
+  const plainOut = capture(() => statusCommand({ dir: plain, home: tmpHome() }));
+  assert.doesNotMatch(plainOut, /Rappel —/);
+});
+
+test("status --json exposes uncommitted: <n>", () => {
+  const dir = gitProject();
+  writeFile(dir, "a.txt", "changed");
+  writeFile(dir, "b.txt", "new");
+
+  assert.strictEqual(buildStatusReport(dir).uncommitted, 2);
+});
+
+test("the commit reminder never executes a git write command", () => {
+  const dir = gitProject();
+  writeFile(dir, "a.txt", "changed");
+
+  const beforeLog = spawnGit(["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const beforeStatus = spawnGit(["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).stdout;
+
+  capture(() => statusCommand({ dir, home: tmpHome() }));
+
+  assert.strictEqual(spawnGit(["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8" }).stdout.trim(), beforeLog);
+  assert.strictEqual(spawnGit(["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).stdout, beforeStatus);
 });

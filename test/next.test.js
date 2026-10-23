@@ -2,7 +2,7 @@
 
 const { test, afterEach } = require("node:test");
 const assert = require("node:assert");
-const { tmpProject, capture, sampleProgress, writeFile } = require("./helpers");
+const { tmpProject, capture, sampleProgress, writeFile, spawnGit } = require("./helpers");
 const { nextCommand, buildNextReport } = require("../bin/lib/next");
 const { verifyCommand } = require("../bin/lib/verify");
 
@@ -319,4 +319,37 @@ test("buildNextReport normalizes the dir path", () => {
   const dir = tmpProject(sampleProgress());
   const report = buildNextReport(dir);
   assert.doesNotMatch(report.dir, /\\/);
+});
+
+// -----------------------------------------------------------------------
+// Commit reminder (story 04.04) — shared with `status`, read-only.
+// -----------------------------------------------------------------------
+
+function gitProject() {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "a.txt", "x");
+  spawnGit(["init", "-b", "main"], { cwd: dir });
+  spawnGit(["add", "."], { cwd: dir });
+  spawnGit(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "feat: init"], { cwd: dir });
+  return dir;
+}
+
+test("next reminds about uncommitted files and exposes the count in --json", () => {
+  const dir = gitProject();
+  writeFile(dir, "a.txt", "changed");
+
+  const out = capture(() => nextCommand({ dir }));
+
+  assert.match(out, /Rappel — 1 fichier\(s\) modifié\(s\) non commité\(s\)/);
+  assert.match(out, /git add -A && git commit -m "feat: décrire le changement"/);
+  assert.strictEqual(buildNextReport(dir).uncommitted, 1);
+});
+
+test("next stays silent about commits on a clean tree and a non-git directory", () => {
+  const clean = gitProject();
+  assert.doesNotMatch(capture(() => nextCommand({ dir: clean })), /Rappel —/);
+
+  const plain = tmpProject(sampleProgress());
+  assert.doesNotMatch(capture(() => nextCommand({ dir: plain })), /Rappel —/);
+  assert.strictEqual(buildNextReport(plain).uncommitted, 0);
 });

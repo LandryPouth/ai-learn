@@ -8,6 +8,7 @@ const fs = require("fs");
 const { log, fail, normalizePortable } = require("./util");
 const { readProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 
 // Same broken-done detection `nextCommand` prints as text, shared by the
 // JSON builder below so the two can never disagree on which phase is next.
@@ -40,7 +41,12 @@ function buildNextReport(dir) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    return { version: 1, dir: normalizePortable(dir), error: `No progress.json in ${dir}. Run \`ai-learn init\` first.` };
+    return {
+      version: 1,
+      dir: normalizePortable(dir),
+      error: `No progress.json in ${dir}. Run \`ai-learn init\` first.`,
+      uncommitted: uncommittedCount(dir),
+    };
   }
 
   const phases = Array.isArray(config.phases) ? config.phases : [];
@@ -53,7 +59,7 @@ function buildNextReport(dir) {
   const next = phases.find((phase) => phase && phase.status !== "done");
 
   if (!next) {
-    return { version: 1, dir: normalizePortable(dir), done: true, phasesTotal: phases.length, broken, stale };
+    return { version: 1, dir: normalizePortable(dir), done: true, phasesTotal: phases.length, broken, stale, uncommitted: uncommittedCount(dir) };
   }
 
   return {
@@ -62,6 +68,7 @@ function buildNextReport(dir) {
     done: false,
     broken,
     stale,
+    uncommitted: uncommittedCount(dir),
     next: {
       id: next.id,
       name: next.name,
@@ -157,6 +164,8 @@ function nextCommand({ dir, json }) {
     log("");
     logBroken(brokenDone);
   }
+
+  printCommitReminder(dir);
 }
 
 module.exports = { nextCommand, buildNextReport };

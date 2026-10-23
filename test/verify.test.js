@@ -287,6 +287,10 @@ test("verify suggests a per-phase commit once the phase is marked done", () => {
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.match(out, /git add -A && git commit -m "feat\(phase-0\): Phase zero"/);
+  assert.match(out, /add -A\s+indexe tout/);
+  assert.match(out, /commit -m\s+enregistre/);
+  assert.match(out, /Conventional Commits/);
+  assert.match(out, /hook commit-msg/);
 });
 
 test("verify refuses an unknown phase id", () => {

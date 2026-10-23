@@ -7,7 +7,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { log, fail, UsageError } = require("./util");
+const { log, fail, UsageError, explainCommitCommand } = require("./util");
 const { readProgress, runsDir, findPhase, setPhaseStatus, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { syncGitTrack } = require("./tracks/git");
 const { syncTestsTrack } = require("./tracks/tests");
@@ -417,7 +417,10 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
       // teach. `ai-learn` only ever suggests the command; it never runs it.
       log("");
       log("Clôture propre — committez cette phase avant de continuer :");
-      log(`  git add -A && git commit -m "feat(phase-${phase.id}): ${phase.name}"`);
+
+      for (const line of explainCommitCommand(`git add -A && git commit -m "feat(phase-${phase.id}): ${phase.name}"`)) {
+        log(line);
+      }
     }
   } else if (!noMark && phase.status === "done") {
     // Symmetric to the promotion above: verify is the only writer of a
