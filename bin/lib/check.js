@@ -475,6 +475,10 @@ function checkProject(dir, { home } = {}) {
       // sourced review (`docs/reviews/<brique>.md`) is not proven.
       if (guard.mode === "dirigeant") {
         checkReview(dir, phase, issues, guard.implementationFiles, duplicateReviewNames);
+        // The other half of that judgment is the specification: the learner's
+        // test must provably kill at least one mutant. Reported separately from
+        // the review — they prove different things.
+        checkMutationKilled(phase, ev, issues);
       }
     } else {
       // A `--no-mark` run deliberately writes passing evidence without
@@ -702,6 +706,37 @@ function checkReview(dir, phase, issues, scope, duplicates) {
     file: review.path,
     message: `phase ${phase.id} ("${phase.name}") is done in dirigeant mode but ${review.path} ` +
       `${reasons[review.reason] || "is invalid"}`,
+  });
+}
+
+// The dirigeant mutation-killer tier (story 03.04): a done phase must show at
+// least one mutant killed by the learner's test. `verify` already wrote
+// `evidence.mutation` (story 02.03); check only reads it — recomputing would run
+// the checkpoint once per mutant on every `check`, the same fast/read-only
+// contract story 02.04 preserved. `killed === 0` proves no specification, and
+// `required: false` means `verify` never measured mutation for this phase, so
+// it proves nothing either. A phase with no passing evidence is already an
+// error ("marked done but has no passing evidence") — do not double-report.
+function checkMutationKilled(phase, ev, issues) {
+  if (!ev) {
+    return;
+  }
+
+  const measured = ev.mutation && ev.mutation.required === true;
+  const killed = measured ? ev.mutation.killed || 0 : 0;
+
+  if (killed >= 1) {
+    return;
+  }
+
+  const truncatedNote = measured && ev.mutation.truncated ? " — measure truncated, not every site was tried" : "";
+  const detail = measured ? `${killed} mutant(s) killed${truncatedNote}` : "mutation never measured for this phase";
+
+  issues.errors.push({
+    file: "progress.json",
+    message: `phase ${phase.id} ("${phase.name}") is done in dirigeant mode yet no mutant killed by the learner's test ` +
+      `is proven (${detail}) — the specification is the learner's only contribution; write a test that kills at ` +
+      `least one mutant, then run \`ai-learn verify ${phase.id}\``,
   });
 }
 

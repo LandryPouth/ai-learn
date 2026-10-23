@@ -10,17 +10,17 @@ Consolide s2 et s3.
 
 ## Acceptance Criteria
 
-- [ ] Given le mode dirigeant et une phase `done` dont l'évidence `mutation.killed >= 1`, when `check` tourne, then la phase est acceptée.
-- [ ] Given le mode dirigeant et une phase `done` avec `mutation.killed === 0` (ou `required: false`), when `check` tourne, then erreur nommant la phase.
-- [ ] Given le mode apprenti, when `check` tourne, then ce contrôle est absent (non-régression).
-- [ ] Given les revues (story 03), when `check` tourne en dirigeant, then les deux contrôles sont rapportés séparément.
-- [ ] Given `check --json`, when il tourne en dirigeant, then les deux verdicts sont exposés.
+- [x] Given le mode dirigeant et une phase `done` dont l'évidence `mutation.killed >= 1`, when `check` tourne, then la phase est acceptée.
+- [x] Given le mode dirigeant et une phase `done` avec `mutation.killed === 0` (ou `required: false`), when `check` tourne, then erreur nommant la phase.
+- [x] Given le mode apprenti, when `check` tourne, then ce contrôle est absent (non-régression).
+- [x] Given les revues (story 03), when `check` tourne en dirigeant, then les deux contrôles sont rapportés séparément.
+- [x] Given `check --json`, when il tourne en dirigeant, then les deux verdicts sont exposés.
 
 ## Edge Cases
 
-- [ ] Aucun cas limite propre à cette story au-delà des critères.
+- [x] Aucun cas limite propre à cette story au-delà des critères.
 
 ## Out of Scope
 
-- [ ] bin/lib/mutate.js
-- [ ] bin/lib/tracks/tests.js
+- [x] bin/lib/mutate.js
+- [x] bin/lib/tracks/tests.js

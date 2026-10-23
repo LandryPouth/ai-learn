@@ -59,6 +59,29 @@ function dirigeantProject() {
   return dir;
 }
 
+// Story 03.04: a dirigeant done phase whose evidence was written by a real
+// `verify` run. The review is valid so only the mutation-killer tier is under
+// test; pass `checkpoint`/`source` to control what mutation measured (the
+// strong fixture kills one mutant, the no-op one has no mutable site).
+function dirigeantMutationProject({ checkpoint = STRONG_CHECKPOINT, source, overrides = {} } = {}) {
+  const dir = tmpProject(mutationPhase(checkpoint, overrides));
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["src/**"] }));
+  writeFile(
+    dir,
+    "src/index.js",
+    source || "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n",
+  );
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:1\`\n\nDécision : accepter.\n`);
+  return dir;
+}
+
+// A source with no mutable site (no boolean/comparison literal), so a real
+// verify marks the phase done with `mutation.required: true` and `killed: 0`.
+const NO_MUTABLE_SITE_SOURCE = "module.exports = { add: (a, b) => a + b };\n";
+
+const NO_KILLED_MUTANT_RE = /no mutant killed by the learner's test/;
+
 beforeEach(() => {
   process.exitCode = 0;
 });
@@ -367,6 +390,95 @@ test("apprenti never requires the dirigeant reviews (non-regression)", () => {
 
   const entry = checkProject(dir);
   assert.ok(!entry.issues.errors.some((e) => /dirigeant mode but/.test(e.message)));
+});
+
+// -----------------------------------------------------------------------
+// Dirigeant mutation-killer tier (story 03.04): a done phase must prove at
+// least one mutant killed by the learner's test. Reads `evidence.mutation`
+// already written by `verify`; apprenti is untouched.
+// -----------------------------------------------------------------------
+
+test("dirigeant: a done phase whose evidence kills at least one mutant passes the mutation tier", () => {
+  const dir = dirigeantMutationProject();
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => NO_KILLED_MUTANT_RE.test(e.message)));
+});
+
+test("dirigeant: a done phase with zero killed mutants is an error naming the phase", () => {
+  const dir = dirigeantMutationProject({
+    checkpoint: 'node -e "process.exit(0)"',
+    source: NO_MUTABLE_SITE_SOURCE,
+  });
+
+  const error = checkProject(dir).issues.errors.find((e) => NO_KILLED_MUTANT_RE.test(e.message));
+  assert.ok(error);
+  assert.match(error.message, /phase 0 \("Phase zero"\)/);
+  assert.match(error.message, /0 mutant\(s\) killed/);
+});
+
+test("dirigeant: a done phase whose mutation was never required is an error", () => {
+  const dir = dirigeantMutationProject({ overrides: { mutation: false } });
+
+  const error = checkProject(dir).issues.errors.find((e) => NO_KILLED_MUTANT_RE.test(e.message));
+  assert.ok(error);
+  assert.match(error.message, /mutation never measured/);
+});
+
+test("dirigeant: a zero-kill error mentions when the mutation measure was truncated", () => {
+  const dir = dirigeantMutationProject({
+    checkpoint: 'node -e "process.exit(0)"',
+    source: NO_MUTABLE_SITE_SOURCE,
+  });
+  const runs = path.join(dir, ".ai-learn", "runs");
+  const files = fs.readdirSync(runs).filter((f) => f.endsWith("-verify.json"));
+  assert.ok(files.length > 0);
+  for (const f of files) {
+    const file = path.join(runs, f);
+    const ev = JSON.parse(fs.readFileSync(file, "utf8"));
+    ev.mutation.truncated = true;
+    fs.writeFileSync(file, JSON.stringify(ev));
+  }
+
+  const error = checkProject(dir).issues.errors.find((e) => NO_KILLED_MUTANT_RE.test(e.message));
+  assert.ok(error);
+  assert.match(error.message, /measure truncated/);
+});
+
+test("apprenti never requires the mutation-killer tier (non-regression)", () => {
+  const dir = tmpProject(mutationPhase('node -e "process.exit(0)"'));
+  writeFile(dir, "src/index.js", NO_MUTABLE_SITE_SOURCE);
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => NO_KILLED_MUTANT_RE.test(e.message)));
+});
+
+test("dirigeant: the review and mutation tiers are reported as separate errors", () => {
+  const dir = dirigeantMutationProject({
+    checkpoint: 'node -e "process.exit(0)"',
+    source: NO_MUTABLE_SITE_SOURCE,
+  });
+  fs.rmSync(path.join(dir, "docs/reviews/phase-zero.md"));
+
+  const errors = checkProject(dir).issues.errors;
+  assert.ok(errors.some((e) => /docs\/reviews\/phase-zero\.md is missing/.test(e.message)));
+  assert.ok(errors.some((e) => NO_KILLED_MUTANT_RE.test(e.message)));
+});
+
+test("check --json exposes both dirigeant verdicts as distinct entries", () => {
+  const dir = dirigeantMutationProject({
+    checkpoint: 'node -e "process.exit(0)"',
+    source: NO_MUTABLE_SITE_SOURCE,
+  });
+  fs.rmSync(path.join(dir, "docs/reviews/phase-zero.md"));
+
+  const report = buildCheckReport(dir);
+  const messages = report.projects[0].errorList.map((entry) => entry.message);
+
+  assert.ok(messages.some((message) => /docs\/reviews\/phase-zero\.md is missing/.test(message)));
+  assert.ok(messages.some((message) => NO_KILLED_MUTANT_RE.test(message)));
+  assert.strictEqual(report.ok, false);
 });
 
 test("the friction journal is counted but never gates check", () => {
