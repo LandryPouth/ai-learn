@@ -15,8 +15,9 @@ ai-learn next
 ```
 
 Affiche la sortie telle quelle : la phase suivante (id, nom, statut, checkpoint,
-prédictions exigées, artefact) et l'avertissement éventuel sur une phase `done`
-sans évidence.
+prédictions exigées, artefact) puis, en avertissement, les phases `done` dont la
+preuve est périmée (avec la commande `ai-learn verify <id>`) ou absente.
 
-Si tout est fini, `ai-learn next` le dit — propose alors `/check` pour confirmer
-que tout est prouvé.
+Une preuve périmée ne remplace jamais la prochaine action : elle est listée
+après. Si tout est fini et prouvé, `ai-learn next` le dit — propose alors
+`/check` pour confirmer que tout est prouvé.

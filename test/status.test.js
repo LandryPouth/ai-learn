@@ -209,6 +209,27 @@ test("status's stale label names the exact verify command to re-prove the phase"
   assert.match(out, /ai-learn verify 0/);
 });
 
+test("status marks a stale phase in ledger order without reordering the following phase", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [
+        { id: 0, name: "Zero", status: "done", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+        { id: 1, name: "One", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+      ],
+    }),
+  );
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const home = tmpHome();
+  const out = capture(() => statusCommand({ dir, home }));
+
+  assert.match(out, /⚠ Phase 0 — Zero.*périmé/);
+  assert.ok(out.indexOf("Phase 0") < out.indexOf("Phase 1"));
+});
+
 test("statusCommand includes the domain summary alongside the git/gh one", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, "src/index.js", 'app.get("/x", async (req, res) => { await Promise.resolve(); res.json({}); });\n');

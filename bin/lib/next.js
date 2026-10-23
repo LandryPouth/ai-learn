@@ -46,11 +46,14 @@ function buildNextReport(dir) {
   const phases = Array.isArray(config.phases) ? config.phases : [];
   const brokenDone = findBrokenDone(dir, phases);
   const broken = brokenDone.map(({ phase, verdict }) => ({ id: phase.id, name: phase.name, verdict: verdict.state }));
-  const staleFirst = brokenDone.find((entry) => entry.verdict.state === "stale");
-  const next = staleFirst ? staleFirst.phase : phases.find((phase) => phase && phase.status !== "done");
+  // Stale proofs no longer replace the real next action (story 04.02): they are
+  // reported separately so a consumer sees "where the learner goes next" and
+  // "what must be re-proven" as two independent facts.
+  const stale = brokenDone.filter((entry) => entry.verdict.state === "stale").map(({ phase }) => phase.id);
+  const next = phases.find((phase) => phase && phase.status !== "done");
 
   if (!next) {
-    return { version: 1, dir: normalizePortable(dir), done: true, phasesTotal: phases.length, broken };
+    return { version: 1, dir: normalizePortable(dir), done: true, phasesTotal: phases.length, broken, stale };
   }
 
   return {
@@ -58,12 +61,16 @@ function buildNextReport(dir) {
     dir: normalizePortable(dir),
     done: false,
     broken,
+    stale,
     next: {
       id: next.id,
       name: next.name,
       status: next.status,
       checkpoint: next.checkpoint || null,
-      mustReprove: Boolean(staleFirst),
+      // Deprecated since story 04.02, to remove once no --json consumer reads it:
+      // it used to mean "next is itself the stale phase". `next` is now always
+      // the real following phase, so read `stale` instead.
+      mustReprove: false,
       predictionsRequired: next.predictionsRequired || 0,
       artifacts: Array.isArray(next.artifacts) ? next.artifacts : [],
     },
@@ -90,57 +97,66 @@ function nextCommand({ dir, json }) {
   const phases = Array.isArray(config.phases) ? config.phases : [];
 
   // Done phases whose proof does not actually hold — never proven, or once
-  // proven and now stale — are drift the learner should know about before
-  // moving on. `check` fails on both; `next` should not hide either.
+  // proven and now stale — are drift the learner should know about. A stale
+  // proof no longer replaces the real next action (story 04.02): `next` names
+  // where the learner actually goes, then lists what must be re-proven.
   const brokenDone = findBrokenDone(dir, phases);
+  const staleDone = brokenDone.filter((entry) => entry.verdict.state === "stale");
+  const next = phases.find((phase) => phase && phase.status !== "done");
 
-  for (const { phase, verdict } of brokenDone) {
-    if (verdict.state === "stale") {
-      log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but its proof is stale — re-prove it: \`ai-learn verify ${phase.id}\`.`);
-    } else {
-      log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but has no passing evidence (unproven).`);
+  const logBroken = (entries) => {
+    for (const { phase, verdict } of entries) {
+      if (verdict.state === "stale") {
+        log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but its proof is stale — re-prove it: \`ai-learn verify ${phase.id}\`.`);
+      } else {
+        log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but has no passing evidence (unproven).`);
+      }
+    }
+  };
+
+  // No stale proof: keep the pre-04.02 output order byte-for-byte (warnings
+  // first, then the next action) — this story only moves stale re-proofs.
+  if (staleDone.length === 0) {
+    logBroken(brokenDone);
+
+    if (brokenDone.length > 0) {
+      log("");
     }
   }
 
-  if (brokenDone.length > 0) {
-    log("");
-  }
-
-  // A stale proof outranks starting the next unstarted phase: re-proving
-  // what regressed comes first, before moving forward (plan.md, "Ordre dans
-  // next"). Ledger order among several stale phases, not sorted — the first
-  // one a learner would hit reading progress.json top to bottom.
-  const staleFirst = brokenDone.find((entry) => entry.verdict.state === "stale");
-  const next = staleFirst ? staleFirst.phase : phases.find((phase) => phase && phase.status !== "done");
-
-  if (!next) {
-    log(`All ${phases.length}/${phases.length} phases done.`);
-    log("Run `ai-learn check` to confirm the whole track is proven, then ship it.");
-    return;
-  }
-
-  if (staleFirst) {
-    log(`Next: Phase ${next.id} — ${next.name} — re-prove it (marked done, but its proof is stale)`);
-  } else {
+  if (next) {
     log(`Next: Phase ${next.id} — ${next.name}`);
     log(`  Status: ${next.status}`);
+    log(`  Checkpoint: ${next.checkpoint || "(no checkpoint defined)"}`);
+
+    if (next.predictionsRequired) {
+      log(`  Predictions required: ${next.predictionsRequired}`);
+      log("  Protocole : AGENTS.md § « prédire avant de révéler » — une prédiction par écrit, dans le chat,");
+      log("  AVANT chaque révélation ; puis consignée dans docs/plans/predictions.md (format en tête du fichier).");
+    }
+
+    if (Array.isArray(next.artifacts) && next.artifacts.length > 0) {
+      log(`  Artifact: ${next.artifacts.join(", ")}`);
+    }
+
+    log("");
+    log("When it passes, prove it:");
+    log(`  ai-learn verify ${next.id}`);
+  } else if (staleDone.length === 0) {
+    log(`All ${phases.length}/${phases.length} phases done.`);
+    log("Run `ai-learn check` to confirm the whole track is proven, then ship it.");
+  } else {
+    // Every phase is marked done, but at least one proof does not hold — never
+    // claim the track is finished. The actionable list follows below.
+    log(`All ${phases.length}/${phases.length} phases are marked done, but ${brokenDone.length} proof(s) do not hold.`);
   }
 
-  log(`  Checkpoint: ${next.checkpoint || "(no checkpoint defined)"}`);
-
-  if (next.predictionsRequired) {
-    log(`  Predictions required: ${next.predictionsRequired}`);
-    log("  Protocole : AGENTS.md § « prédire avant de révéler » — une prédiction par écrit, dans le chat,");
-    log("  AVANT chaque révélation ; puis consignée dans docs/plans/predictions.md (format en tête du fichier).");
+  // A stale proof is real, but it does not outrank the next action: it is an
+  // actionable warning after it, never the headline.
+  if (staleDone.length > 0) {
+    log("");
+    logBroken(brokenDone);
   }
-
-  if (Array.isArray(next.artifacts) && next.artifacts.length > 0) {
-    log(`  Artifact: ${next.artifacts.join(", ")}`);
-  }
-
-  log("");
-  log(staleFirst ? "Re-prove it:" : "When it passes, prove it:");
-  log(`  ai-learn verify ${next.id}`);
 }
 
 module.exports = { nextCommand, buildNextReport };
