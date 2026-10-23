@@ -1196,3 +1196,26 @@ test("a failed revisit keeps the phase done but traces the failure in the eviden
   assert.strictEqual(evidence.lastProvenAt, null);
   process.exitCode = 0;
 });
+
+test("verify --revisit with --no-mark still leaves the phase done and the ledger untouched", () => {
+  const dir = provenPhaseProject();
+
+  capture(() => verifyCommand({ dir, phaseId: 0, revisit: true, noMark: true }));
+
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.revisit, true);
+  assert.strictEqual(evidence.marking, "skipped");
+});
+
+test("a green revisit on a stale phase refreshes the proof against the current code (documented tradeoff)", () => {
+  const dir = provenPhaseProject();
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.ok, true);
+  assert.strictEqual(evidence.sourceHash.digest, computeSourceHash(dir, {}).digest);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+});

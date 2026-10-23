@@ -22,6 +22,7 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
 
 - Décision : l'échec d'une revisite ne rétrograde pas la phase — il rend l'oubli visible, il ne réécrit pas l'histoire ; la décision de re-travailler appartient à l'apprenant. `lastProvenAt` reste celui de la dernière preuve verte (l'évidence rouge porte `lastProvenAt: null`).
 - Décision : réutiliser le mécanisme existant « ne pas écrire le ledger » — `marking: skipped` pour une revisite, et aucun nouvel appelant de `setPhaseStatus` (les deux seuls sites restent la promotion et la rétrogradation du chemin normal).
+- Décision : une revisite verte sur une phase périmée (stale) rafraîchit aussi `sourceHash` : le checkpoint a réellement tourné sur le code actuel, la preuve est donc réelle. Compromis assumé, couvert par un test ; `check` ne signale alors plus la péremption.
 
 ## Test Plan
 
