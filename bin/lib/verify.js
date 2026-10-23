@@ -206,7 +206,7 @@ function staleCommand({ dir, home }) {
   process.exitCode = regressions.length > 0 ? 1 : 0;
 }
 
-function verifyCommand({ dir, phaseId, noMark = false, home }) {
+function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -217,6 +217,17 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
 
   if (!phase) {
     fail(`No phase ${phaseId} in progress.json.`);
+  }
+
+  // A revisit redoes a phase the learner already proved, from memory (story
+  // 07.02). There is nothing to revisit on a phase that never reached `done`:
+  // refuse before running anything or writing evidence, so the ledger stays
+  // untouched.
+  if (revisit && phase.status !== "done") {
+    fail(
+      `Revisit is only for a proven phase: phase ${phase.id} is "${phase.status}". ` +
+        `Prove it first with \`ai-learn verify ${phase.id}\`.`,
+    );
   }
 
   if (!phase.checkpoint) {
@@ -382,6 +393,11 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     // it: a failed run is not a proof, and must never refresh a revisit due
     // date (story 07.02's failed revisit relies on this).
     lastProvenAt: ok ? generatedAt : null,
+    // Whether this run was a spaced-repetition revisit (story 07.02). A
+    // revisit replays the checkpoint without touching the ledger's status:
+    // success refreshes `lastProvenAt`, failure stays visible without
+    // demoting a phase that was already proven.
+    revisit,
     project: config.project,
     technology: config.technology || null,
     phaseId: phase.id,
@@ -396,8 +412,9 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     sourceHash,
     // Whether this run touched the ledger. `check` uses it to tell a
     // deliberate `--no-mark` observation run apart from a real drift (a
-    // passing evidence that never got marked done) — see story 01.02.
-    marking: noMark ? "skipped" : "applied",
+    // passing evidence that never got marked done) — see story 01.02. A
+    // revisit never writes the ledger either (story 07.02).
+    marking: noMark || revisit ? "skipped" : "applied",
     norm: {
       ok: normReport.violations.length === 0,
       violations: normReport.violations,
@@ -439,7 +456,12 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
   const outputPath = writeEvidence(dir, evidence);
 
   if (ok) {
-    if (!noMark) {
+    if (revisit) {
+      // The phase is already `done`; this run only records fresh proof of
+      // retention. No status write, no track sync, no commit nudge — the
+      // learner is not closing a phase, they are remembering one.
+      log(`Revisite prouvée — lastProvenAt rafraîchi, phase ${phase.id} reste done.`);
+    } else if (!noMark) {
       setPhaseStatus(dir, phase.id, "done");
 
       // Best-effort, secondary tracking feature — must never entangle with
@@ -477,6 +499,14 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
         log(line);
       }
     }
+  } else if (revisit) {
+    // A revisit that fails is information, not a regression: the learner has
+    // forgotten part of a phase they once proved. The ledger keeps saying
+    // `done` (the work really happened); the failed evidence makes the gap
+    // visible, and the decision to re-work the phase belongs to the learner.
+    log("");
+    log(`Revisite échouée — phase ${phase.id} reste done (une revisite ne rétrograde pas).`);
+    log(`L'oubli est tracé dans l'évidence. Re-travaillez la phase, puis relancez \`ai-learn verify ${phase.id} --revisit\`.`);
   } else if (!noMark && phase.status === "done") {
     // Symmetric to the promotion above: verify is the only writer of a
     // phase's status in both directions. A done phase whose checkpoint no

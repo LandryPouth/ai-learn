@@ -312,7 +312,7 @@ test("the protocol template keeps its numbered sections present and in order", (
   const content = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
   const ids = [...content.matchAll(/^###\s+([^\s.]+)\./gm)].map((match) => match[1]);
 
-  assert.deepStrictEqual(ids, ["1", "1bis", "2", "3", "3bis", "3ter", "3quater", "3quinquies", "4", "5"]);
+  assert.deepStrictEqual(ids, ["1", "1bis", "2", "3", "3bis", "3ter", "3quater", "3quinquies", "4", "5", "5bis"]);
 });
 
 test("§1bis enumerates its five synthesis steps in order, between §1 and §2", () => {

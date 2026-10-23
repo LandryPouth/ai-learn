@@ -1132,3 +1132,67 @@ test("verify blocks on an invalid tutor.json and names the configuration error",
   assert.strictEqual(latestVerifyEvidence(dir).proof.configInvalid, true);
   process.exitCode = 0;
 });
+
+// -----------------------------------------------------------------------
+// Story 07.02 — `verify --revisit`: replay without notes
+// -----------------------------------------------------------------------
+
+function provenPhaseProject() {
+  const progress = sampleProgress({
+    phases: [
+      { id: 0, name: "Phase zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0, reviewAfterDays: 7 },
+    ],
+  });
+  const dir = tmpProject(progress);
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  return dir;
+}
+
+test("verify --revisit refreshes lastProvenAt, records revisit: true, and keeps the phase done", () => {
+  const dir = provenPhaseProject();
+  const before = latestVerifyEvidence(dir);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
+
+  assert.match(out, /Revisite prouvée/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+  assert.strictEqual(process.exitCode, 0);
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.revisit, true);
+  assert.strictEqual(evidence.ok, true);
+  assert.strictEqual(evidence.lastProvenAt, evidence.generatedAt);
+  assert.ok(Date.parse(evidence.lastProvenAt) >= Date.parse(before.lastProvenAt));
+  assert.strictEqual(evidence.marking, "skipped");
+});
+
+test("verify --revisit on a phase that is not done is a clear usage error and writes nothing", () => {
+  const dir = tmpProject(sampleProgress());
+
+  assert.throws(
+    () => verifyCommand({ dir, phaseId: 0, revisit: true }),
+    /Revisit is only for a proven phase.*pending/s,
+  );
+
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+  assert.strictEqual(fs.existsSync(runsDir(dir)), false);
+});
+
+test("a failed revisit keeps the phase done but traces the failure in the evidence", () => {
+  const dir = provenPhaseProject();
+  const progress = readProgress(dir).config;
+  progress.phases[0].checkpoint = 'node -e "process.exit(3)"';
+  fs.writeFileSync(progressPath(dir), `${JSON.stringify(progress, null, 2)}\n`);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
+
+  assert.match(out, /Revisite échouée/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+  assert.strictEqual(process.exitCode, 1);
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.revisit, true);
+  assert.strictEqual(evidence.ok, false);
+  assert.strictEqual(evidence.lastProvenAt, null);
+  process.exitCode = 0;
+});

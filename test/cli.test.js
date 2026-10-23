@@ -146,6 +146,44 @@ test("verify accepts --dir before the positional phase id (story 01.05)", () => 
   assert.match(result.stdout, /Phase 0 marked done/);
 });
 
+test("verify --revisit replays a proven phase via the CLI (story 07.02)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-revisit-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({
+      version: 1,
+      project: "demo",
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0, reviewAfterDays: 7 }],
+    }),
+  );
+
+  const first = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0"], { encoding: "utf8", env: isolatedEnv() });
+  assert.strictEqual(first.status, 0);
+
+  const replay = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0", "--revisit"], { encoding: "utf8", env: isolatedEnv() });
+
+  assert.strictEqual(replay.status, 0);
+  assert.match(replay.stdout, /Revisite prouvée/);
+});
+
+test("verify --revisit on a pending phase fails cleanly (story 07.02)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-revisit-"));
+  fs.writeFileSync(
+    path.join(dir, "progress.json"),
+    JSON.stringify({
+      version: 1,
+      project: "demo",
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+
+  const result = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0", "--revisit"], { encoding: "utf8", env: isolatedEnv() });
+
+  assert.strictEqual(result.status, 1);
+  assert.match(result.stderr, /Revisit is only for a proven phase/);
+  assert.doesNotMatch(result.stderr, /at Object/);
+});
+
 test("verify --dir before or after the id gives the same result", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-verify-"));
   fs.writeFileSync(

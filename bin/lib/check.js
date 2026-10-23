@@ -18,6 +18,7 @@ const {
   latestEvidenceForPhase,
   latestAnyEvidenceForPhase,
   phaseVerdict,
+  revisitState,
 } = require("./progress");
 const { docSourceList, digestPath, digestCitations, digestCitationProblem } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
@@ -59,7 +60,7 @@ const HOLE_MARKER_RE = /\[\s*\.\.\.\s*\]|…|\bTODO\b|à (?:compl[ée]ter|finir)
 // the budget is a nudge, never a proof.
 const READING_WORDS_PER_MINUTE = 200;
 
-function checkProject(dir, { home } = {}) {
+function checkProject(dir, { home, now = new Date() } = {}) {
   const issues = { errors: [], warnings: [] };
   const { config, exists } = readProgress(dir);
 
@@ -523,6 +524,22 @@ function checkProject(dir, { home } = {}) {
             file: "progress.json",
             message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}.${mutationClause} Run \`ai-learn verify --stale\` to re-prove it.`,
           });
+        } else {
+          // Retention (story 07.02): the proof still covers the code, but the
+          // learner has not redone the phase from memory within its
+          // `reviewAfterDays`. A warning, never an error — forgetting is a
+          // signal, not a lie, and the phase stays `done`.
+          const revisit = revisitState({ phase, evidence: ev, now });
+
+          if (revisit && revisit.due) {
+            issues.warnings.push({
+              file: "progress.json",
+              message:
+                `phase ${phase.id} ("${phase.name}") has not been revisited since ${revisit.lastProvenAt.slice(0, 10)} ` +
+                `(more than ${revisit.reviewAfterDays} day(s)). Redo it from memory, without notes or the prediction journal: ` +
+                `\`ai-learn verify ${phase.id} --revisit\`.`,
+            });
+          }
         }
       }
 

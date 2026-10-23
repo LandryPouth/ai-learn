@@ -8,7 +8,7 @@ const path = require("path");
 
 const { checkProject, checkCommand, buildCheckReport, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
 const { verifyCommand } = require("../bin/lib/verify");
-const { readProgress } = require("../bin/lib/progress");
+const { readProgress, latestEvidenceForPhase } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
 const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome } = require("./helpers");
 const { scaffold } = require("../bin/lib/init");
@@ -1518,4 +1518,46 @@ test("check errors on an unknown tutor assistance or proof value", () => {
 
   assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /unknown assistance "moyen"/.test(issue.message)));
   assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /unknown proof "magie"/.test(issue.message)));
+});
+
+// -----------------------------------------------------------------------
+// Story 07.02 — a proven phase past its revisit delay is a warning, not a lie
+// -----------------------------------------------------------------------
+
+const REVISIT_DAY_MS = 24 * 60 * 60 * 1000;
+
+function provenRevisitProject() {
+  const progress = sampleProgress({
+    phases: [
+      { id: 0, name: "Zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0, reviewAfterDays: 7 },
+    ],
+  });
+  const dir = tmpProject(progress);
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  return dir;
+}
+
+test("check warns (never errors) when a proven phase is past its revisit delay, naming it", () => {
+  const dir = provenRevisitProject();
+  const evidence = latestEvidenceForPhase(dir, 0);
+  const now = new Date(Date.parse(evidence.lastProvenAt) + 8 * REVISIT_DAY_MS);
+
+  const entry = checkProject(dir, { now });
+
+  assert.strictEqual(entry.issues.errors.length, 0);
+  assert.ok(
+    entry.issues.warnings.some(
+      (warning) => /phase 0 \("Zero"\) has not been revisited/.test(warning.message) && /--revisit/.test(warning.message),
+    ),
+  );
+});
+
+test("check stays silent before the revisit delay (non-regression)", () => {
+  const dir = provenRevisitProject();
+  const evidence = latestEvidenceForPhase(dir, 0);
+  const now = new Date(Date.parse(evidence.lastProvenAt) + 1 * REVISIT_DAY_MS);
+
+  const entry = checkProject(dir, { now });
+
+  assert.ok(!entry.issues.warnings.some((warning) => /revisited/.test(warning.message)));
 });

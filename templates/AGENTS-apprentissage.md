@@ -114,6 +114,9 @@ Régulièrement (au moins une fois par phase) : l'IA fait **prédire à l'utilis
 ### 5. Clôture de phase — la preuve est automatique, jamais tapée
 En fin de phase, l'IA lance **elle-même** `ai-learn verify <id>` en clôture (jamais l'utilisateur — il ne tape aucune commande). `verify` exécute le checkpoint pour de vrai et ne marque `done` que si ça passe. L'IA ne doit **jamais** écrire `"done"` à la main dans `progress.json` : seul `verify` en a le monopole. Ensuite l'IA lance `ai-learn check` pour confirmer que rien ne dérive. Si le checkpoint échoue, la phase reste non prouvée et on corrige — sans contourner. Le checkpoint teste le code **tapé par l'apprenant** : si l'apprenant n'a pas tapé (ou mal tapé), le checkpoint échoue et `verify` refuse — c'est le garde-fou du blocage.
 
+### 5bis. Revisite espacée — refaire de mémoire, sans relire
+Une phase `done` n'est pas acquise pour toujours : quand `ai-learn next` ou `ai-learn check` signale une revisite échue (délai `reviewAfterDays` dépassé), l'apprenant rejoue la phase **sans relire ses notes, ni le code produit, ni `docs/plans/predictions.md`**. Il refait la brique de mémoire ; l'IA lance ensuite `ai-learn verify <id> --revisit` et observe le checkpoint pour de vrai. La revisite ne réécrit pas l'histoire : verte, elle rafraîchit `lastProvenAt` ; rouge, elle trace l'oubli dans l'évidence et la phase **reste `done`** — retravailler ou non appartient à l'apprenant. C'est un signal, jamais un blocage ni une sanction.
+
 ## Banque d'exemples neutres (anti-vague)
 
 Afficher un de ces exemples (en rotation, jamais le sujet réel) juste avant chaque prédiction, pour calibrer le niveau de précision attendu sans jamais fuiter la solution. Aucun de ces sujets ne touche à la techno apprise : un exemple neutre montre **comment** être précis, pas **quoi** répondre.
@@ -172,6 +175,7 @@ anomalie à combler.
 | `ai-learn docs update <nom>` | Rafraîchit une source locale depuis son origine |
 | `ai-learn docs remove <nom>` | Retire une source (copie locale + entrée du ledger) |
 | `ai-learn verify <id>` | Prouve une phase : exécute le checkpoint, marque `done` seulement si ça passe (automatique en clôture de phase) |
+| `ai-learn verify <id> --revisit` | Rejoue une phase déjà `done` de mémoire : rafraîchit `lastProvenAt` si verte, trace l'oubli dans l'évidence si rouge, ne change jamais le statut |
 | `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé, toute violation de la norme clean-code dans le code que l'IA a le droit d'écrire (`implementationFiles`, par défaut `src/**`), et en mode `dirigeant` toute phase `done` sans revue sourcée valide (`docs/reviews/<brique>.md`) |
 | `ai-learn norm` | Vérifie la norme clean-code (longueur fichier/fonction, imbrication, params) — lecture seule, retour rapide sans attendre `verify` |
 | `ai-learn mode <apprenti\|dirigeant>` | Bascule le mode. `dirigeant` se mérite : tiers 1-3 du ledger global atteints, sinon refus exit 1 nommant le tier manquant ; ledger absent/corrompu = refus. `apprenti` toujours permis |
