@@ -542,3 +542,12 @@ test("the commit reminder never executes a git write command", () => {
   assert.strictEqual(spawnGit(["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8" }).stdout.trim(), beforeLog);
   assert.strictEqual(spawnGit(["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).stdout, beforeStatus);
 });
+
+test("statusCommand shows the active tutor profile on one line", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "strict", proof: "transfert" }));
+
+  const out = capture(() => statusCommand({ dir, home: tmpHome() }));
+
+  assert.match(out, /Tuteur : assistance=strict · preuve=transfert/);
+});

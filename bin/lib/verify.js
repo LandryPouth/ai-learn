@@ -15,6 +15,7 @@ const { syncDomainLedger } = require("./tracks/domain");
 const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
+const { readTutorConfig, masteryLevel } = require("./tutor");
 const { mutationReport, formatMutationGap, emptyMutationReport, recoverOrphanLockAndLog } = require("./mutate");
 const { runCommand } = require("./exec");
 
@@ -117,6 +118,14 @@ function failureDetail(outcome) {
 
   if (evidence.predictions && evidence.predictions.missing > 0) {
     return `prédictions manquantes : ${evidence.predictions.missing}`;
+  }
+
+  if (evidence.proof && evidence.proof.configInvalid) {
+    return "profil de tuteur invalide (.ai-learn/tutor.json)";
+  }
+
+  if (evidence.proof && evidence.proof.tests && evidence.proof.mastery === null) {
+    return "preuve de maîtrise manquante";
   }
 
   if (evidence.mutation && evidence.mutation.ok === false) {
@@ -299,6 +308,31 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     }
   }
 
+  // The tutor profile (story 05.05): `proof: "transfert"` unlocks a phase only
+  // with a real `transfert` prediction. `tests`/`explication` keep the current
+  // behaviour — no new block. A present-but-invalid file is a configuration
+  // error, not a silent fallback to defaults.
+  const tutor = readTutorConfig(dir);
+  const tutorProof = tutor.config.proof;
+  const transfertCount = predReport.countByType.transfert || 0;
+  const tutorInvalid = tutor.exists && !tutor.valid;
+  const transfertMissing = tutorProof === "transfert" && transfertCount === 0;
+
+  if (tutorInvalid) {
+    log("\nProfil de tuteur :");
+    for (const issue of tutor.issues) {
+      log(`  ✗ .ai-learn/tutor.json — ${issue}`);
+    }
+  }
+
+  if (transfertMissing) {
+    log("\nPreuve de transfert :");
+    log(
+      `  ✗ aucune prédiction de type transfert pour la phase ${phase.id} (0/1) —` +
+        ` enregistrer avec \`ai-learn predict --phase ${phase.id} --type transfert --prediction "..."\``,
+    );
+  }
+
   // Mutation testing (story 02.03) — only for a phase that explicitly opts
   // in (`phase.mutation === true`, checked inside mutationReport itself,
   // strictly, so a non-boolean value never turns it on by accident). Only
@@ -335,7 +369,9 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
     normReport.violations.length === 0 &&
     missingArtifacts.length === 0 &&
     predReport.missing === 0 &&
-    mutReport.ok;
+    mutReport.ok &&
+    !tutorInvalid &&
+    !transfertMissing;
 
   const evidence = {
     generatedAt: new Date().toISOString(),
@@ -371,6 +407,15 @@ function verifyCommand({ dir, phaseId, noMark = false, home }) {
       missingByType: predReport.missingByType,
       corrupted: predReport.corrupted,
       anomalies: predReport.anomalies,
+    },
+    // Two distinct proofs, never merged (story 05.05): `tests` is the executed
+    // checkpoint, `mastery` is the configured level actually reached. A green
+    // suite with a missing transfert prediction keeps `tests: true` and
+    // `mastery: null` — exactly the gap this story makes visible.
+    proof: {
+      tests: result.ok,
+      mastery: ok ? masteryLevel(tutorProof, { checkpointOk: result.ok, transfertCount }) : null,
+      configInvalid: tutorInvalid,
     },
     mutation: {
       ok: mutReport.ok,

@@ -31,6 +31,7 @@ const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
 const { guardConfigIssues, loadGuardConfig } = require("./guard");
+const { readTutorConfig } = require("./tutor");
 const { MODE_DIRIGEANT, formatLedgerRefusal, requiredTiersStatus } = require("./mode");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
@@ -76,6 +77,14 @@ function checkProject(dir, { home } = {}) {
 
   for (const issue of validateProgress(config)) {
     (issue.level === "error" ? issues.errors : issues.warnings).push(issue);
+  }
+
+  // The tutor profile (story 05.05): an unknown assistance/proof value is an
+  // explicit error, never a silent fallback to the defaults verify would use.
+  const tutor = readTutorConfig(dir);
+
+  for (const message of tutor.issues) {
+    issues.errors.push({ file: ".ai-learn/tutor.json", message });
   }
 
   // Doc sources the ledger declares should exist. A local source that vanished

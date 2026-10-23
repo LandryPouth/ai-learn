@@ -1358,3 +1358,13 @@ test("check names the missing reality type even when predictions.json is corrupt
   assert.ok(warning);
   assert.match(warning.message, /reality 0\/1/);
 });
+
+test("check errors on an unknown tutor assistance or proof value", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "moyen", proof: "magie" }));
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /unknown assistance "moyen"/.test(issue.message)));
+  assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /unknown proof "magie"/.test(issue.message)));
+});

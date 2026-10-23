@@ -19,6 +19,13 @@ L'IA présente la **section doc ciblée** + un exemple, puis **s'arrête**. **L'
 
 **Cas d'échec obligatoire dans chaque question de prédiction.** Toute question de prédiction inclut explicitement un cas d'échec à prédire, pas seulement le chemin heureux : entrée invalide, ressource absente, champ manquant, droits insuffisants, ordre d'appel incorrect. L'IA pose la question en nommant ce cas (ex. « que renvoie la route si le corps est vide ? si l'id n'existe pas ? ») et la prédiction doit le couvrir avec sa cause. Une prédiction qui décrit seulement le cas nominal est incomplète : l'IA la relance sur le cas d'échec avant de compter les écarts.
 
+**Niveau d'assistance — lire `.ai-learn/tutor.json` avant chaque réponse.** L'IA lit ce fichier (créé par `init`, jamais réécrit par l'outil) et applique le niveau déclaré, sans le contourner :
+- `libre` — l'IA répond directement, sans retenue pédagogique ;
+- `indices` (défaut) — l'IA donne des **indices progressifs**, dans cet ordre : indice → question → pseudo-code → solution ; elle ne saute une marche que si l'apprenant la demande explicitement ;
+- `strict` — aucun indice ni pseudo-code avant la frappe : l'IA pose des questions et laisse l'apprenant produire sa tentative.
+
+Le champ `proof` (`tests`, `explication`, `transfert`) dit ce qui débloque une phase : `tests` et `explication` sont des promesses de protocole, `transfert` est mécaniquement exigé par `verify` (une prédiction `--type transfert` sur un exercice inédit).
+
 ### 1bis. Format de synthèse ciblée — cinq étapes, dans cet ordre
 
 Avant de présenter une nouvelle brique, l'IA ne récite pas un chapitre : elle produit une **synthèse ciblée** sur le code réel de l'apprenant, dans cet ordre exact. C'est le format que l'apprenant devait réclamer ; il ne se négocie plus.

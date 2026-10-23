@@ -14,6 +14,7 @@ const { ensureGuardHook } = require("./guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
 const { ensureNormConfig } = require("./norm");
 const { ensureMutateConfig } = require("./mutate");
+const { ensureTutorConfig } = require("./tutor");
 const { ensurePredictionsFile, predictionsPath } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
@@ -162,6 +163,14 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
 
   if (mutateConfig.created) {
     created.push(normalizePortable(path.relative(abs, path.join(abs, ".ai-learn", "mutate.json"))));
+  }
+
+  // The tutor profile (story 05.05) — assistance level and required proof,
+  // written once with explicit defaults and never rewritten afterwards.
+  const tutorConfig = ensureTutorConfig(abs);
+
+  if (tutorConfig.created) {
+    created.push(normalizePortable(path.relative(abs, path.join(abs, ".ai-learn", "tutor.json"))));
   }
 
   // The prediction journal's source of truth (story 01.03) — created empty so

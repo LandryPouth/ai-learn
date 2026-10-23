@@ -18,7 +18,7 @@ const VERSION = 1;
 // Story 05.01 — a prediction carries a type so `verify` can require them
 // separately (`predictionsRequired: { code: 2, reality: 1 }`). Entries written
 // before this story have no `type` and count as `code` — no migration needed.
-const PREDICTION_TYPES = ["code", "casse", "reality"];
+const PREDICTION_TYPES = ["code", "casse", "reality", "transfert"];
 const DEFAULT_PREDICTION_TYPE = "code";
 
 // `predictionsRequired` accepts an integer (legacy: any type combined) or an

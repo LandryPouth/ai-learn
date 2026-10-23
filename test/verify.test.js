@@ -1043,3 +1043,86 @@ test("verify's evidence records the per-type gap of a ventilated requirement", (
   assert.deepStrictEqual(evidence.predictions.missingByType, { reality: { expected: 1, actual: 0, missing: 1 } });
   process.exitCode = 0;
 });
+
+// -----------------------------------------------------------------------
+// Story 05.05 — the tutor profile's proof gate: `proof: "transfert"` blocks
+// without a real transfert prediction, `tests` keeps the current behaviour,
+// and the evidence keeps `proof.tests` and `proof.mastery` distinct.
+// -----------------------------------------------------------------------
+
+function tutorProject(proof) {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", `${JSON.stringify({ version: 1, assistance: "indices", proof }, null, 2)}\n`);
+  return dir;
+}
+
+function latestVerifyEvidence(dir) {
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  return JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[runs.length - 1]), "utf8"));
+}
+
+test("verify blocks when proof is transfert and the phase has no transfert prediction", () => {
+  const dir = tutorProject("transfert");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Preuve de transfert/);
+  assert.match(out, /aucune prédiction de type transfert pour la phase 0/);
+  assert.doesNotMatch(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.ok, false);
+  assert.strictEqual(evidence.proof.tests, true);
+  assert.strictEqual(evidence.proof.mastery, null);
+});
+
+test("verify marks done and records mastery transfert once the prediction exists", () => {
+  const dir = tutorProject("transfert");
+  const { config } = readProgress(dir);
+  recordPrediction(dir, config, { phaseId: 0, type: "transfert", prediction: "exercice inédit" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.proof.tests, true);
+  assert.strictEqual(evidence.proof.mastery, "transfert");
+});
+
+test("proof tests keeps the current behaviour and records tests mastery", () => {
+  const dir = tutorProject("tests");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  assert.doesNotMatch(out, /Preuve de transfert/);
+  assert.deepStrictEqual(latestVerifyEvidence(dir).proof, { tests: true, mastery: "tests", configInvalid: false });
+});
+
+test("a project without tutor.json keeps the current behaviour and records the default mastery", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  assert.deepStrictEqual(latestVerifyEvidence(dir).proof, { tests: true, mastery: "explication", configInvalid: false });
+});
+
+test("verify blocks on an invalid tutor.json and names the configuration error", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", `${JSON.stringify({ version: 1, assistance: "bogus", proof: "tests" })}\n`);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Profil de tuteur/);
+  assert.match(out, /unknown assistance "bogus"/);
+  assert.doesNotMatch(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+  assert.strictEqual(latestVerifyEvidence(dir).proof.configInvalid, true);
+  process.exitCode = 0;
+});

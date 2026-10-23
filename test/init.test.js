@@ -416,3 +416,45 @@ test("the protocol forbids solution-shaped extracts before typing and makes docs
   assert.match(section3, /optionnel, à la demande explicite de l'apprenant/);
   assert.match(section3, /init` ne crée plus ce dossier d'office/);
 });
+
+// -----------------------------------------------------------------------
+// Story 05.05 — the tutor profile: init writes explicit defaults once and
+// never rewrites a learner's customization; the protocol documents the three
+// assistance levels and reads tutor.json before every response.
+// -----------------------------------------------------------------------
+
+test("init writes .ai-learn/tutor.json with explicit defaults and never rewrites it", () => {
+  const dir = tmpDir();
+  const { created } = scaffold({
+    dir,
+    project: "demo",
+    technology: "Fastify",
+    docSource: { type: "local", value: "/nope" },
+    phases: [],
+  });
+
+  const tutorPath = path.join(dir, ".ai-learn", "tutor.json");
+  assert.ok(fs.existsSync(tutorPath));
+  assert.ok(created.includes(".ai-learn/tutor.json"));
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(tutorPath, "utf8")), {
+    version: 1,
+    assistance: "indices",
+    proof: "explication",
+  });
+
+  const custom = { version: 1, assistance: "strict", proof: "transfert" };
+  fs.writeFileSync(tutorPath, `${JSON.stringify(custom, null, 2)}\n`);
+  scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [] });
+
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(tutorPath, "utf8")), custom);
+});
+
+test("the protocol documents the three assistance levels and reads tutor.json before each response", () => {
+  const section1 = protocolSection(fs.readFileSync(PROTOCOL_TEMPLATE, "utf8"), "1");
+
+  assert.match(section1, /`\.ai-learn\/tutor\.json`/);
+  assert.match(section1, /`libre`/);
+  assert.match(section1, /`indices`/);
+  assert.match(section1, /indice → question → pseudo-code → solution/);
+  assert.match(section1, /`strict`/);
+});

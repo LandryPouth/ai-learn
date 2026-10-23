@@ -10,6 +10,7 @@ const { readGitTracks, TIER_IDS } = require("./tracks/git");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
 const { loadGuardConfig } = require("./guard");
+const { readTutorConfig } = require("./tutor");
 const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
@@ -121,6 +122,16 @@ function printStatus(config, { dir }) {
       log(`      ${mutationLine}`);
     }
   }
+}
+
+// The active tutor profile (story 05.05), one line. Absent or invalid, the
+// defaults are what verify will actually use, so the line says so.
+function printTutorProfile({ dir }) {
+  const tutor = readTutorConfig(dir);
+  const { assistance, proof } = tutor.config;
+  const source = tutor.exists && tutor.valid ? "" : " (défaut)";
+
+  log(`\nTuteur : assistance=${assistance} · preuve=${proof}${source}`);
 }
 
 // Additive, read-only summary of the global git/gh mastery ledger (see
@@ -285,6 +296,7 @@ function statusCommand({ dir, home, json }) {
   }
 
   printStatus(config, { dir });
+  printTutorProfile({ dir });
   printReviewSummary({ dir, config });
 
   const issues = validateProgress(config);
