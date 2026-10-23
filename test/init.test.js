@@ -340,3 +340,47 @@ test("init copies §1bis verbatim into the generated AGENTS.md", () => {
   assert.ok(protocolSection(template, "1bis"));
   assert.strictEqual(protocolSection(agents, "1bis"), protocolSection(template, "1bis"));
 });
+
+// -----------------------------------------------------------------------
+// Story 05.03 — the protocol makes the three rules verifiable obligations:
+// re-read src/** and cite file:line before scoring (§2), reveal from the code
+// the learner actually typed (§3), and name a failure case in every prediction
+// question (§1). init must carry them into every scaffolded project.
+// -----------------------------------------------------------------------
+
+function protocolRules(content) {
+  return {
+    failureCase: protocolSection(content, "1"),
+    rereadBeforeScoring: protocolSection(content, "2"),
+    revealFromTypedCode: protocolSection(content, "3"),
+  };
+}
+
+test("the protocol requires a failure case, a re-read of src/** with file:line, and a reveal from typed code", () => {
+  const rules = protocolRules(fs.readFileSync(PROTOCOL_TEMPLATE, "utf8"));
+
+  assert.match(rules.failureCase, /cas d'échec/i);
+  assert.match(rules.failureCase, /entrée invalide|ressource absente/i);
+
+  assert.match(rules.rereadBeforeScoring, /Relire `src\/\*\*` avant de noter/);
+  assert.match(rules.rereadBeforeScoring, /`fichier:ligne`/);
+
+  assert.match(rules.revealFromTypedCode, /révélation part du code déjà tapé/i);
+  assert.match(rules.revealFromTypedCode, /`fichier:ligne`/);
+});
+
+test("init carries the three protocol obligations into the generated AGENTS.md", () => {
+  const dir = tmpDir();
+  scaffold({
+    dir,
+    project: "demo",
+    technology: "Fastify",
+    docSource: { type: "local", value: "/nope" },
+    phases: [],
+  });
+
+  const template = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8").replace(/\{\{technology\}\}/g, "Fastify");
+  const agents = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+
+  assert.deepStrictEqual(protocolRules(agents), protocolRules(template));
+});

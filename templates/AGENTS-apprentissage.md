@@ -15,6 +15,8 @@ L'IA présente la **section doc ciblée** + un exemple, puis **s'arrête**. **L'
 
 **Anti-vague : un exemple neutre avant chaque prédiction.** Avant que l'utilisateur ne prédise, l'IA affiche un exemple de réponse précise **totalement hors-sujet** (banque ci-dessous : cuisine, vélo, jardinage — jamais le sujet réel ni une réponse du projet). L'exemple démontre le niveau d'explicitation attendu : nommer l'objet exact, le paramètre exact et sa valeur, l'ordre des étapes, et le cas d'échec avec sa cause. Une prédiction vague (il manque l'un de ces éléments) ne peut pas être scorée : l'IA demande de préciser l'élément manquant (**une seule relance**), puis compte les écarts.
 
+**Cas d'échec obligatoire dans chaque question de prédiction.** Toute question de prédiction inclut explicitement un cas d'échec à prédire, pas seulement le chemin heureux : entrée invalide, ressource absente, champ manquant, droits insuffisants, ordre d'appel incorrect. L'IA pose la question en nommant ce cas (ex. « que renvoie la route si le corps est vide ? si l'id n'existe pas ? ») et la prédiction doit le couvrir avec sa cause. Une prédiction qui décrit seulement le cas nominal est incomplète : l'IA la relance sur le cas d'échec avant de compter les écarts.
+
 ### 1bis. Format de synthèse ciblée — cinq étapes, dans cet ordre
 
 Avant de présenter une nouvelle brique, l'IA ne récite pas un chapitre : elle produit une **synthèse ciblée** sur le code réel de l'apprenant, dans cet ordre exact. C'est le format que l'apprenant devait réclamer ; il ne se négocie plus.
@@ -28,6 +30,7 @@ Avant de présenter une nouvelle brique, l'IA ne récite pas un chapitre : elle 
 Un résumé qui saute une de ces étapes — ou qui montre l'exemple voisin sur le sujet exact — n'est pas une synthèse ciblée : l'IA le reprend.
 
 ### 2. Note /10 + feedback en 3 points — compléter avant de révéler
+- **Relire `src/**` avant de noter.** Avant de comparer, l'IA relit l'état réel et actuel de `src/**` (les fichiers que l'apprenant a effectivement tapés), jamais depuis sa mémoire de la session ni depuis la doc. Le feedback cite le code réel au format `fichier:ligne` pour chaque point qu'il affirme (point fort comme faiblesse) : une note sans citation `fichier:ligne` n'est pas une note, elle est refusée et reprise.
 - L'IA compare la prédiction **élément par élément** à la solution, **annonce le nombre d'écarts** (ex. « 3/6 justes ») **et une note /10** (ex. « 7/10 »). C'est ce compte qui fait foi, pas une impression.
 - Le feedback suit **toujours 3 points, dans l'ordre** :
   1. **Points forts** — ce qui est maîtrisé (éléments exacts de la prédiction) ;
@@ -46,6 +49,7 @@ Le code de révélation est déposé par l'IA dans **`docs/solutions/<brique>.md
 >
 > **Le jugement se prouve.** En `dirigeant`, chaque phase `done` doit porter une revue sourcée dans **`docs/reviews/<brique>.md`** (le nom du fichier est le nom de la phase, minuscules et tirets — ex. phase « Routes » → `docs/reviews/routes.md`). La revue cite un **`fichier:ligne` réel** du diff (le fichier est dans le scope d'implémentation `implementationFiles`, il existe et la ligne aussi, chemin relatif à la racine) et énonce une **décision** explicite (`accepter`, `rejeter`, `demander un changement`). Deux phases ne peuvent pas porter le même nom : elles partageraient un fichier de revue, et une seule revue prouverait les deux. `ai-learn check` refuse une phase sans revue, sans citation résolue ou sans décision ; `ai-learn status` compte les revues manquantes ou invalides.
 
+- **La révélation part du code déjà tapé.** Avant de révéler, l'IA relit le code que l'apprenant a réellement tapé dans `src/**` et part de lui : elle compare et corrige sur ces lignes concrètes (`fichier:ligne`). Une révélation qui repart d'une structure générique, d'un exemple de cours ou d'un `docs/solutions/` recopié n'est pas une révélation : c'est une nouvelle leçon. Si le code tapé diffère de la référence, c'est l'écart réel qui est expliqué en premier.
 - **L'apprenant tape le vrai code** dans son éditeur, de mémoire ou en copiant la référence (l'effort demandé est la frappe, pas la dérivation).
 - **La référence est non-collable** : `docs/solutions/<brique>.md` est écrit **avec des trous** à compléter (`[...]`, lignes incomplètes, commentaires à finir). Un Cmd+A aveugle produit un code qui échoue au checkpoint — l'apprenant doit retaper et compléter pour que ça passe. Second garde-fou après le guard : le guard prouve « pas l'IA », les trous forcent « l'apprenant a refait ».
 - **Le debug est mené par l'apprenant** : test rouge, checkpoint qui échoue, stack trace → l'apprenant lit, diagnostique, corrige. L'IA guide (pose des questions), ne touche pas aux fichiers.

@@ -186,7 +186,8 @@ Présente ensuite à l'utilisateur :
 
 - le résumé du parcours (phases, doc source)
 - la commande `/learn-next` pour voir quoi faire
-- la consigne : chaque phase commence par une **prédiction écrite** avant tout code.
+- la consigne : chaque phase commence par une **prédiction écrite** avant tout code, qui couvre aussi un **cas d'échec** (voir `AGENTS.md` §1) ; la note
+  et la révélation relisent `src/**` et citent `fichier:ligne` (§2, §3).
 
 ## Règles
 
