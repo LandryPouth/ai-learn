@@ -157,3 +157,5 @@
 {"at":"2026-10-23T15:28:03.098Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-23T15:28:24.377Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-23T15:30:59.245Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:34:18.729Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-23T15:39:10.454Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
