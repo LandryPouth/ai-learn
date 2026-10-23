@@ -963,6 +963,24 @@ function learnerDenialReason({ mode, rel, learnerFiles, implementationFiles, via
 const AI_LEARN_MODE_RE = /(?:^|[\s;&|(`"'/])ai-learn(?:\.js)?["']?\s+(?:--?\S+\s+(?:\S+\s+)?)*mode\b/;
 const AI_LEARN_HOME_OVERRIDE_RE = /\bHOME=\S*[^]*?(?:^|[\s;&|(`"'/])ai-learn(?:\.js)?\b/;
 
+// Quoted text is data (`grep 'ai-learn mode' README.md`, `echo "HOME=1"`), so it
+// is blanked before matching — except in segments that can execute their
+// argument (`bash -c "ai-learn mode …"`, `eval`, `node -e`, `xargs`), where the
+// quoted text *is* the command and stays visible.
+const EXECUTES_ARGUMENT_RE = /(?:^|\s)(?:-[A-Za-z]*[ce]|eval|exec|xargs|source|\.)(?:\s|$)/;
+
+function blankQuoted(segment) {
+  return segment.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
+}
+
+function invokesModeSwitch(command) {
+  const visible = splitSegments(command)
+    .map((segment) => (EXECUTES_ARGUMENT_RE.test(segment) ? segment : blankQuoted(segment)))
+    .join(" ; ");
+
+  return AI_LEARN_MODE_RE.test(visible) || AI_LEARN_HOME_OVERRIDE_RE.test(visible);
+}
+
 function modeSwitchReason() {
   return (
     "`ai-learn mode` (ou un `HOME=` surchargé devant `ai-learn`) change le mode qui autorise l'IA à écrire " +
@@ -1032,7 +1050,7 @@ function decide(hook, root) {
       };
     }
 
-    if (AI_LEARN_MODE_RE.test(command) || AI_LEARN_HOME_OVERRIDE_RE.test(command)) {
+    if (invokesModeSwitch(command)) {
       return { decision: "deny", command, reason: modeSwitchReason() };
     }
 

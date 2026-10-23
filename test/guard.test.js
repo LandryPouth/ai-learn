@@ -1092,3 +1092,24 @@ test("les évidences .ai-learn/runs ne sont pas réécrivables par l'IA", () => 
     "deny",
   );
 });
+
+test("une commande qui cite `ai-learn mode` ou HOME= entre guillemets reste permise, sauf si elle l'exécute", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const command of [
+    "grep -n 'ai-learn mode' README.md",
+    'echo "HOME=1" && ai-learn status',
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
+  }
+
+  for (const command of [
+    'bash -c "ai-learn mode dirigeant"',
+    "sh -c 'HOME=/tmp/fakehome ai-learn check'",
+    'eval "ai-learn mode dirigeant"',
+    'echo "$(ai-learn mode dirigeant)"',
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+});
