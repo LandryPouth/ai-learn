@@ -15,6 +15,18 @@ L'IA présente la **section doc ciblée** + un exemple, puis **s'arrête**. **L'
 
 **Anti-vague : un exemple neutre avant chaque prédiction.** Avant que l'utilisateur ne prédise, l'IA affiche un exemple de réponse précise **totalement hors-sujet** (banque ci-dessous : cuisine, vélo, jardinage — jamais le sujet réel ni une réponse du projet). L'exemple démontre le niveau d'explicitation attendu : nommer l'objet exact, le paramètre exact et sa valeur, l'ordre des étapes, et le cas d'échec avec sa cause. Une prédiction vague (il manque l'un de ces éléments) ne peut pas être scorée : l'IA demande de préciser l'élément manquant (**une seule relance**), puis compte les écarts.
 
+### 1bis. Format de synthèse ciblée — cinq étapes, dans cet ordre
+
+Avant de présenter une nouvelle brique, l'IA ne récite pas un chapitre : elle produit une **synthèse ciblée** sur le code réel de l'apprenant, dans cet ordre exact. C'est le format que l'apprenant devait réclamer ; il ne se négocie plus.
+
+1. **Le problème concret, tiré de son code d'abord.** Partir d'un symptôme ou d'un besoin observé dans `src/**` (une route, un test rouge, un comportement), jamais d'un plan de cours abstrait. Nommer le fichier et le comportement concernés.
+2. **Le mécanisme, pas le vocabulaire.** Expliquer ce qui se passe et pourquoi (ordre des étapes, flux de données, cause de l'erreur) avant de nommer la notion. Un terme technique sans mécanisme n'est pas une explication.
+3. **Un exemple partiel d'un domaine voisin.** Donner un exemple volontairement incomplet, pris dans un domaine voisin (cuisine, vélo, jardinage, autre stack), qui éclaire le mécanisme sans le résoudre. Cet exemple n'est **jamais** le sujet exact de la prédiction : ni la même brique, ni une réponse du projet, ni une solution recopiable. Il calibre la forme de la réponse, pas son contenu. C'est le même exemple que l'« exemple neutre » de §1 : un seul exemple, présenté à cette étape, pas un second avant la prédiction.
+4. **Une invitation à questionner.** S'arrêter et demander à l'apprenant ce qui reste flou, ce qu'il suppose, ce qu'il veut vérifier — avant de continuer. Pas de monologue qui enchaîne.
+5. **La prédiction.** Seulement ensuite, demander la prédiction écrite selon §1 (méthode et chemin, handler, statuts, erreurs, ordre, cas d'échec).
+
+Un résumé qui saute une de ces étapes — ou qui montre l'exemple voisin sur le sujet exact — n'est pas une synthèse ciblée : l'IA le reprend.
+
 ### 2. Note /10 + feedback en 3 points — compléter avant de révéler
 - L'IA compare la prédiction **élément par élément** à la solution, **annonce le nombre d'écarts** (ex. « 3/6 justes ») **et une note /10** (ex. « 7/10 »). C'est ce compte qui fait foi, pas une impression.
 - Le feedback suit **toujours 3 points, dans l'ordre** :

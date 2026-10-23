@@ -288,3 +288,55 @@ test("init refuses to write through a CLAUDE.md symlink", () => {
 
   assert.strictEqual(fs.readFileSync(outside, "utf8"), "hors projet\n");
 });
+
+// -----------------------------------------------------------------------
+// Story 05.02 — the protocol template's numbered sections, and the targeted
+// synthesis format (§1bis) that init must carry into every scaffolded project.
+// Structural assertions only: section ids and their order, never the prose.
+// -----------------------------------------------------------------------
+
+const PROTOCOL_TEMPLATE = path.join(__dirname, "..", "templates", "AGENTS-apprentissage.md");
+
+function protocolSection(content, id) {
+  const start = content.indexOf(`### ${id}.`);
+  if (start === -1) {
+    return null;
+  }
+
+  const rest = content.slice(start + 1);
+  const next = rest.search(/^### /m);
+  return next === -1 ? content.slice(start) : content.slice(start, start + 1 + next);
+}
+
+test("the protocol template keeps its numbered sections present and in order", () => {
+  const content = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
+  const ids = [...content.matchAll(/^###\s+([^\s.]+)\./gm)].map((match) => match[1]);
+
+  assert.deepStrictEqual(ids, ["1", "1bis", "2", "3", "3bis", "3ter", "3quater", "3quinquies", "4", "5"]);
+});
+
+test("§1bis enumerates its five synthesis steps in order, between §1 and §2", () => {
+  const content = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
+  const section = protocolSection(content, "1bis");
+
+  assert.ok(section, "§1bis must exist");
+  const steps = [...section.matchAll(/^\d+\.\s+\*\*/gm)].map((match) => Number.parseInt(match[0], 10));
+  assert.deepStrictEqual(steps, [1, 2, 3, 4, 5]);
+});
+
+test("init copies §1bis verbatim into the generated AGENTS.md", () => {
+  const dir = tmpDir();
+  scaffold({
+    dir,
+    project: "demo",
+    technology: "Fastify",
+    docSource: { type: "local", value: "/nope" },
+    phases: [],
+  });
+
+  const template = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8").replace(/\{\{technology\}\}/g, "Fastify");
+  const agents = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+
+  assert.ok(protocolSection(template, "1bis"));
+  assert.strictEqual(protocolSection(agents, "1bis"), protocolSection(template, "1bis"));
+});
