@@ -106,3 +106,21 @@ test("reviewSlug strips accents and punctuation, and falls back to phase-<id>", 
   assert.strictEqual(reviewSlug({ id: 7, name: "   " }), "phase-7");
   assert.strictEqual(reviewSlug({ id: 7, name: "Routes" }), "routes");
 });
+
+test("findRealFileLine refuses a symlink that points outside the project root", () => {
+  const dir = tmpDir();
+  const outside = tmpDir();
+  writeFile(outside, "secret.js", "one\ntwo\n");
+  fs.mkdirSync(path.join(dir, "src"));
+  fs.symlinkSync(path.join(outside, "secret.js"), path.join(dir, "src/link.js"));
+
+  assert.strictEqual(findRealFileLine("src/link.js:2", dir), null);
+});
+
+test("findRealFileLine accepts a symlink that stays inside the project root", () => {
+  const dir = tmpDir();
+  writeFile(dir, "src/real.js", "one\ntwo\n");
+  fs.symlinkSync(path.join(dir, "src/real.js"), path.join(dir, "src/link.js"));
+
+  assert.strictEqual(findRealFileLine("src/link.js:2", dir), "src/link.js:2");
+});

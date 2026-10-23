@@ -16,6 +16,8 @@ const { matchesLearnerPath } = require("./guard");
 // ASCII-only in JS, so it would reject every accented past participle after
 // its final letter (`accepté`, `rejeté`, `changement demandé`). Unicode-aware
 // lookarounds treat accented letters as word characters instead.
+// Limit (by contract, presence not judgment): it is tested on the whole review,
+// so a matching word anywhere in the prose counts as the decision.
 const DECISION_RE =
   /(?<![\p{L}\p{N}_])(?:accepter|accepte|accepté|acceptée|acceptés|acceptées|rejeter|rejette|rejeté|rejetée|rejetés|rejetées|refuser|refuse|refusé|refusée|demande(?:r)?\s+(?:un\s+|de\s+)?changement|changements?\s+demand[ée]s?|request(?:ed)?\s+changes?|reject(?:ed)?|approv(?:e|ed))(?![\p{L}\p{N}_])/iu;
 

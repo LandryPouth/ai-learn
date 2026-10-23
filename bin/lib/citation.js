@@ -92,13 +92,19 @@ function findRealFileLine(content, dir, isAllowed) {
       (!isAllowed || isAllowed(normalizePortable(inside)))
     ) {
       try {
+        // A symlink inside the project can point outside it: the lexical
+        // check above does not follow links, so re-check on the real paths.
+        if (!isInsideRoot(path.relative(fs.realpathSync(dir), fs.realpathSync(resolved)))) {
+          throw new Error("symlink escapes the project root");
+        }
+
         const text = fs.readFileSync(resolved, "utf8");
 
         if (line <= countLines(text)) {
           return `${cited}:${line}`;
         }
       } catch {
-        // missing or unreadable file — try the next citation
+        // missing, unreadable or escaping file — try the next citation
       }
     }
 
