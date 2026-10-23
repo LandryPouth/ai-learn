@@ -12,6 +12,7 @@ const {
   updateSource,
   listSources,
   docSourceList,
+  sourceKind,
   MAX_SOURCES,
   SOURCE_PRESETS,
   docsCommand,
@@ -109,8 +110,63 @@ test("add enforces the max number of sources", () => {
 
   assert.throws(
     () => addSource({ dir, name: "too-many", source: src, online: false, subpath: "docs" }),
-    /cannot add "too-many": already 3\/3 sources/,
+    (error) => /cannot add "too-many": already 3\/3 sources/.test(error.message) && /--secondary/.test(error.message),
   );
+});
+
+test("add --secondary embeds a source outside the primary quota and lists it separately", () => {
+  const src = sourceDir();
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  for (let i = 0; i < MAX_SOURCES; i += 1) {
+    addSource({ dir, name: `src-${i}`, source: src, online: false, subpath: "docs" });
+  }
+
+  addSource({ dir, name: "docker", source: src, online: false, subpath: "docs", secondary: true });
+
+  const progress = readJson(path.join(dir, "progress.json"), null);
+  const docker = docSourceList(progress.docSource).find((source) => source.name === "docker");
+  assert.strictEqual(sourceKind(docker), "secondary");
+  assert.strictEqual(docker.path, "docs/sources/docker");
+
+  const out = capture(() => listSources({ dir }));
+  assert.match(out, /3\/3 principales/);
+  assert.match(out, /Sources secondaires \(hors quota\)/);
+  assert.match(out, /docker/);
+});
+
+test("docsCommand add --secondary records the source as secondary", () => {
+  const src = sourceDir();
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  capture(() => docsCommand({ dir, args: ["add", "docker", src, "--path", "docs", "--secondary"] }));
+
+  const progress = readJson(path.join(dir, "progress.json"), null);
+  const docker = docSourceList(progress.docSource).find((source) => source.name === "docker");
+  assert.strictEqual(sourceKind(docker), "secondary");
+});
+
+test("docSourceList defaults kind to primary and keeps secondary sources citable", () => {
+  const list = docSourceList({
+    type: "local",
+    sources: [
+      { name: "main", path: "docs/sources/main" },
+      { name: "extra", path: "docs/sources/extra", kind: "secondary" },
+    ],
+  });
+
+  assert.strictEqual(sourceKind(list[0]), "primary");
+  assert.strictEqual(sourceKind(list[1]), "secondary");
+  assert.strictEqual(list[1].path, "docs/sources/extra");
+});
+
+test("docs add --secondary without a name or source fails with usage and writes nothing", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  assert.throws(() => docsCommand({ dir, args: ["add", "--secondary"] }), /usage: ai-learn docs add/);
+
+  const progress = readJson(path.join(dir, "progress.json"), null);
+  assert.strictEqual(progress.docSource, null);
 });
 
 test("add refuses a duplicate name", () => {

@@ -97,6 +97,17 @@ function findSource(config, name) {
   return docSourceList(config && config.docSource).find((source) => source.name === name) || null;
 }
 
+// Story 06.01 — a source is `primary` (counts against MAX_SOURCES, feeds the
+// trap bank) or `secondary` (outside the quota, citable, never mined for
+// traps). Old manifests have no `kind`: they are primary, no migration.
+function sourceKind(source) {
+  return source && source.kind === "secondary" ? "secondary" : "primary";
+}
+
+function primarySources(sources) {
+  return sources.filter((source) => sourceKind(source) === "primary");
+}
+
 function assertName(name) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
     fail(`invalid source name "${name}": use lowercase letters, digits and hyphens (ex. project-docs)`);
@@ -305,7 +316,7 @@ function gitClone(url, target, pathFilter = null) {
 function writeDocSource(dir, config, entry) {
   const current = docSourceList(config.docSource);
   const sources = current.filter((source) => source.name !== entry.name);
-  sources.push(entry);
+  sources.push({ ...entry, kind: sourceKind(entry) });
 
   const allRemote = sources.every((source) => source.mode === "remote");
   config.docSource = { type: allRemote ? "remote" : "local", sources };
@@ -325,7 +336,7 @@ function regenerateTrapsBestEffort(dir) {
   }
 }
 
-function addSource({ dir, name, source, online, subpath, regen }) {
+function addSource({ dir, name, source, online, subpath, regen, secondary }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -340,11 +351,17 @@ function addSource({ dir, name, source, online, subpath, regen }) {
   }
 
   const sources = docSourceList(config.docSource);
+  const primaries = primarySources(sources);
+  const kind = secondary ? "secondary" : "primary";
 
-  if (sources.length >= MAX_SOURCES) {
+  // Only primary sources count against the quota. A secondary source is the
+  // documented way past the cap (story 06.01), so the error names it.
+  if (kind === "primary" && primaries.length >= MAX_SOURCES) {
     fail(
-      `cannot add "${name}": already ${sources.length}/${MAX_SOURCES} sources. Remove one first:\n` +
-        sources.map((source) => `  ai-learn docs remove ${source.name}`).join("\n"),
+      `cannot add "${name}": already ${primaries.length}/${MAX_SOURCES} sources (principales). ` +
+        `Add it outside the quota, or remove one first:\n` +
+        `  ai-learn docs add --secondary ${name} <path|url>\n` +
+        primaries.map((source) => `  ai-learn docs remove ${source.name}`).join("\n"),
     );
   }
 
@@ -376,6 +393,7 @@ function addSource({ dir, name, source, online, subpath, regen }) {
 
     writeDocSource(dir, config, {
       name,
+      kind,
       mode: "local",
       path: rel,
       url: source,
@@ -396,7 +414,7 @@ function addSource({ dir, name, source, online, subpath, regen }) {
       fail(`--online requires an http(s) URL, got: ${source}`);
     }
 
-    writeDocSource(dir, config, { name, mode: "remote", url: source });
+    writeDocSource(dir, config, { name, kind, mode: "remote", url: source });
     log(`Added online source "${name}" → ${source} (URL only, no local files)`);
     regenerateTrapsBestEffort(dir);
     return;
@@ -415,6 +433,7 @@ function addSource({ dir, name, source, online, subpath, regen }) {
 
     writeDocSource(dir, config, {
       name,
+      kind,
       mode: "local",
       path: rel,
       file,
@@ -440,10 +459,10 @@ function addSource({ dir, name, source, online, subpath, regen }) {
   if (isGitUrl(source)) {
     const url = expandGitUrl(source);
     gitClone(url, target, subpath);
-    entry = { name, mode: "local", path: rel, url, subpath: subpath || null };
+    entry = { name, kind, mode: "local", path: rel, url, subpath: subpath || null };
   } else {
     copyFromSubdir(source, subpath, target);
-    entry = { name, mode: "local", path: rel, src: source, subpath: subpath || null };
+    entry = { name, kind, mode: "local", path: rel, src: source, subpath: subpath || null };
   }
 
   writeDocSource(dir, config, entry);
@@ -544,20 +563,29 @@ function listSources({ dir }) {
     return;
   }
 
-  log(`Doc sources (${sources.length}/${MAX_SOURCES}):`);
+  const primaries = primarySources(sources);
+  const secondaries = sources.filter((source) => sourceKind(source) === "secondary");
 
-  for (const source of sources) {
+  const describe = (source) => {
     const state =
       source.mode === "remote"
         ? "online"
         : fs.existsSync(path.join(dir, source.path))
           ? "present"
           : "MISSING (run `ai-learn docs update " + source.name + "`)";
-    log(`  ${source.name}  [${source.mode}]  ${source.path || source.url}  (${state})`);
+    return `  ${source.name}  [${source.mode}]  ${source.path || source.url}  (${state})`;
+  };
+
+  log(`Doc sources (${primaries.length}/${MAX_SOURCES} principales):`);
+  primaries.forEach((source) => log(describe(source)));
+
+  if (secondaries.length > 0) {
+    log(`\nSources secondaires (hors quota) :`);
+    secondaries.forEach((source) => log(describe(source)));
   }
 
-  if (sources.length >= MAX_SOURCES) {
-    log(`\nSource limit reached (${MAX_SOURCES}). Remove one before adding another.`);
+  if (primaries.length >= MAX_SOURCES) {
+    log(`\nSource limit reached (${MAX_SOURCES} principales). Remove one, or add a secondary source with \`--secondary\`.`);
   }
 }
 
@@ -570,6 +598,7 @@ function docsCommand({ dir, args }) {
   const { flags, positionals: rest } = parseArgs(args.slice(1), { valueFlags: ["--dir", "--path"] });
   const online = flags["--online"] === true;
   const regen = flags["--regen"] === true;
+  const secondary = flags["--secondary"] === true;
   const subpath = typeof flags["--path"] === "string" ? flags["--path"] : null;
 
   if (sub === "add") {
@@ -577,18 +606,18 @@ function docsCommand({ dir, args }) {
 
     if (!source && SOURCE_PRESETS[nameArg]) {
       // Bare preset: `docs add build-your-own-x` — the name IS the preset key.
-      addSource({ dir, name: nameArg, source: nameArg, online, subpath, regen });
+      addSource({ dir, name: nameArg, source: nameArg, online, subpath, regen, secondary });
       return;
     }
 
     if (!source) {
       fail(
-        "usage: ai-learn docs add <name> <path|url|preset> [--path <subdir>] [--online] [--regen]\n" +
+        "usage: ai-learn docs add <name> <path|url|preset> [--path <subdir>] [--online] [--regen] [--secondary]\n" +
           `       presets: ${Object.keys(SOURCE_PRESETS).join(", ")}`,
       );
     }
 
-    addSource({ dir, name: nameArg || deriveName(source), source, online, subpath, regen });
+    addSource({ dir, name: nameArg || deriveName(source), source, online, subpath, regen, secondary });
     return;
   }
 
@@ -624,4 +653,5 @@ module.exports = {
   updateSource,
   listSources,
   docSourceList,
+  sourceKind,
 };

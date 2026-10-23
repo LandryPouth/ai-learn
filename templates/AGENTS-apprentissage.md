@@ -168,7 +168,7 @@ anomalie à combler.
 | `ai-learn scan` | Analyse un projet existant, montre où tu en es, propose une suite d'approfondissement — jamais de reprise à zéro |
 | `ai-learn propose` | Propose des projets à construire quand tu ne sais pas quoi faire — tout est fait automatiquement, chaque étape sourcée |
 | `ai-learn docs list` | Sources de doc du projet (locales dans `docs/sources/`, ou URLs en mode online) |
-| `ai-learn docs add <nom> <chemin\|url> [--online]` | Embarque une source de doc dans le projet (max 3) — `--online` = URL seule, aucun fichier local |
+| `ai-learn docs add <nom> <chemin\|url> [--online] [--secondary]` | Embarque une source de doc dans le projet (max 3 principales) — `--online` = URL seule, aucun fichier local ; `--secondary` = source légère hors quota, citable mais exclue de la banque de pièges |
 | `ai-learn docs update <nom>` | Rafraîchit une source locale depuis son origine |
 | `ai-learn docs remove <nom>` | Retire une source (copie locale + entrée du ledger) |
 | `ai-learn verify <id>` | Prouve une phase : exécute le checkpoint, marque `done` seulement si ça passe (automatique en clôture de phase) |

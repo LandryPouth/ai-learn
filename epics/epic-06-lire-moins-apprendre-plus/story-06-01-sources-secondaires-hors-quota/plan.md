@@ -23,18 +23,18 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
 
 ## Test Plan
 
-- [ ] Unit : plafond, listing, exclusion des pièges.
-- [ ] Régression : manifeste ancien sans `kind`.
+- [x] Unit : plafond, listing, exclusion des pièges.
+- [x] Régression : manifeste ancien sans `kind`.
 
 ## Acceptance Traceability
 
 | Acceptance criterion | Test proving it |
 | --- | --- |
-| Given trois sources principales, when `docs add --secondary docker <ur… | `Unit : plafond, listing, exclusion des pièges.` (à nommer `file::test` au `/flow-run`) |
-| Given le plafond atteint, when `docs add <nom>` sans `--secondary` tou… | `Régression : manifeste ancien sans `kind`.` (à nommer `file::test` au `/flow-run`) |
-| Given une source secondaire, when `ai-learn traps` tourne, then elle n… | `Régression : manifeste ancien sans `kind`.` (à nommer `file::test` au `/flow-run`) |
-| Given une source secondaire, when `docs digest` (story 02) ou une cita… | `Régression : manifeste ancien sans `kind`.` (à nommer `file::test` au `/flow-run`) |
-| Given `docs add --secondary` sans nom ou source, when il tourne, then … | `Régression : manifeste ancien sans `kind`.` (à nommer `file::test` au `/flow-run`) |
+| Given trois sources principales, when `docs add --secondary docker <ur… | `test/docs.test.js::add --secondary embeds a source outside the primary quota and lists it separately` |
+| Given le plafond atteint, when `docs add <nom>` sans `--secondary` tou… | `test/docs.test.js::add enforces the max number of sources` |
+| Given une source secondaire, when `ai-learn traps` tourne, then elle n… | `test/traps.test.js::regenerateTraps ignores secondary sources` |
+| Given une source secondaire, when `docs digest` (story 02) ou une cita… | `test/docs.test.js::docSourceList defaults kind to primary and keeps secondary sources citable` |
+| Given `docs add --secondary` sans nom ou source, when il tourne, then … | `test/docs.test.js::docs add --secondary without a name or source fails with usage and writes nothing` |
 
 ## Commands
 

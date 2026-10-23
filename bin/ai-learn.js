@@ -305,7 +305,7 @@ Usage:
              [--gaps <text>] [--score <text>] [--strengths <text>] [--weaknesses <text>]
              [--flash <text>] [--corrected <text>] [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]
-  ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
+  ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--secondary] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
   ai-learn norm [--dir <dir>]
@@ -352,7 +352,9 @@ Commands:
            provenance; --online records URLs only, --regen recreates a
            non-clonable source locally from a verified origin (anti-hallucination);
            a local file (ex. a PDF book) is embedded whole and the AI distills
-           only what the plan needs into an essentiel.md citing pages
+           only what the plan needs into an essentiel.md citing pages;
+           --secondary adds a light 4th source outside the quota of 3 (citable,
+           never mined for traps)
   traps    Extract the friction bank (warning callouts) from the embedded docs —
            each trap cited file:line, probed by the protocol, never invented
   norm     Check clean-code metrics (file/function length, nesting depth, param
