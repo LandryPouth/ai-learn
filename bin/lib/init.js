@@ -121,6 +121,8 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
 
   // The learner-file block: the AI must never write the learner's solution code.
   // Wired mechanically (PreToolUse hook) so it cannot be skipped like prose can.
+  // Chat-first revelation (story 05.04): the guard wiring does not create
+  // docs/solutions/ — it appears at the first written reveal.
   const guard = ensureGuardHook(abs);
 
   for (const file of guard.created) {

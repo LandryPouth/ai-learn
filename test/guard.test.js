@@ -914,6 +914,7 @@ test("ensureGuardHook wires settings.json + guard.json + docs/solutions/, idempo
   const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
   // Pre-existing settings with another hook — must be preserved.
   writeFile(dir, ".claude/settings.json", JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "other-guard" }] }] } }));
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
 
   const first = ensureGuardHook(dir);
   assert.strictEqual(first.wired, false);
@@ -977,6 +978,7 @@ test("ensureGuardHook writes mode: apprenti into a fresh guard.json and preserve
 test("ensureGuardHook in dirigeant inverts the Codex profile and the generated README", () => {
   const dir = blankProject();
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
 
   ensureGuardHook(dir);
 
@@ -1006,6 +1008,7 @@ test("the Codex sandbox denies the guard's own config files in both modes", () =
 
 test("ensureGuardHook re-renders the README when the mode flips, without touching a custom one", () => {
   const dir = blankProject();
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
   ensureGuardHook(dir);
   const apprenti = fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8");
   assert.match(apprenti, /l'apprenant tape tout le code/);

@@ -81,8 +81,9 @@ test("update regenerates the traps bank in each project", () => {
   assert.match(data.traps[0].text, /Do not return undefined/);
 });
 
-test("update wires the learner-file guard (hook, policy, solutions dir)", () => {
+test("update wires the learner-file guard (hook, policy, solutions README refresh)", () => {
   const dir = tmpProject(project());
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
 
   capture(() => updateCommand({ root: dir }));
 
@@ -323,4 +324,24 @@ test("update writes no native memory stub for a platform that reads AGENTS.md na
 
   assert.ok(!fs.existsSync(path.join(dir, "CLAUDE.md")));
   assert.ok(!fs.existsSync(path.join(dir, "GEMINI.md")));
+});
+
+test("update never deletes an existing docs/solutions reveal", () => {
+  const dir = tmpProject(project());
+  writeFile(dir, "docs/solutions/routes.md", "# Routes\n\nconst handler = ...;\n");
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.strictEqual(
+    fs.readFileSync(path.join(dir, "docs", "solutions", "routes.md"), "utf8"),
+    "# Routes\n\nconst handler = ...;\n",
+  );
+});
+
+test("update does not create docs/solutions/ on a project that has none", () => {
+  const dir = tmpProject(project());
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.ok(!fs.existsSync(path.join(dir, "docs", "solutions")));
 });

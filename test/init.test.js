@@ -384,3 +384,35 @@ test("init carries the three protocol obligations into the generated AGENTS.md",
 
   assert.deepStrictEqual(protocolRules(agents), protocolRules(template));
 });
+
+// -----------------------------------------------------------------------
+// Story 05.04 — chat-first revelation: init wires the guard but no longer
+// creates docs/solutions/; the protocol forbids solution-shaped extracts
+// before the learner has typed or explained anything.
+// -----------------------------------------------------------------------
+
+test("init does not create docs/solutions/", () => {
+  const dir = tmpDir();
+  const { created } = scaffold({
+    dir,
+    project: "demo",
+    technology: "Fastify",
+    docSource: { type: "local", value: "/nope" },
+    phases: [],
+  });
+
+  assert.ok(!fs.existsSync(path.join(dir, "docs", "solutions")));
+  assert.ok(!created.some((file) => file.startsWith("docs/solutions/")));
+});
+
+test("the protocol forbids solution-shaped extracts before typing and makes docs/solutions optional", () => {
+  const template = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
+  const section1 = protocolSection(template, "1");
+  const section3 = protocolSection(template, "3");
+
+  assert.match(section1, /Aucun extrait de la forme de la solution/);
+  assert.match(section1, /exemple « officiel » recopié de la doc/);
+  assert.match(section3, /par défaut dans le chat/);
+  assert.match(section3, /optionnel, à la demande explicite de l'apprenant/);
+  assert.match(section3, /init` ne crée plus ce dossier d'office/);
+});

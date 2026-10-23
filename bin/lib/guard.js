@@ -1071,7 +1071,7 @@ function learnerDenialReason({ mode, rel, learnerFiles, implementationFiles, via
     ? `cette commande écrit dans ${rel}, un fichier solution de l'apprenant (${scope}). ` +
         "`ai-learn guard` refuse l'écriture de l'IA ici : l'apprenant tape ce code (cf. AGENTS.md §3)."
     : `${rel} est un fichier solution de l'apprenant (${scope}). ` +
-        "L'IA n'écrit pas ici : déposer le code de révélation dans `docs/solutions/`, " +
+        "L'IA n'écrit pas ici : révéler le code dans le chat (ou dans `docs/solutions/` si l'apprenant le demande), " +
         "l'apprenant tape le vrai code (cf. AGENTS.md §3).";
 }
 
@@ -1343,8 +1343,8 @@ liste est **dérivée du mode**, le champ \`learnerFiles\` de
 \`.ai-learn/guard.json\` est ignoré en dirigeant). Si ton code vit hors de
 \`src/**\`, déclare son périmètre dans \`implementationFiles\`.
 
-Ce dossier reste la référence de révélation : l'IA y dépose le code qu'elle a
-écrit, expliqué brique par brique, pour que l'apprenant puisse **juger** le diff
+Ce dossier est optionnel (la révélation se fait par défaut dans le chat) : quand
+il est utilisé, l'IA y dépose le code qu'elle a écrit, expliqué brique par brique, pour que l'apprenant puisse **juger** le diff
 plutôt que le taper.
 
 - **L'IA écrit** : \`src/**\` (l'implémentation), ce dossier, \`docs/\`, la config
@@ -1368,7 +1368,8 @@ Dans ce parcours, **l'apprenant tape tout le code de son projet** (\`src/**\`). 
 en est mécaniquement empêchée : le hook PreToolUse \`ai-learn guard\` refuse toute
 écriture de l'IA dans ces fichiers (liste configurable dans \`.ai-learn/guard.json\`).
 
-À la place, le code de révélation de chaque brique est déposé ici, dans
+À la place, le code de révélation de chaque brique est montré **dans le chat**
+par défaut. Sur demande explicite de l'apprenant, il est déposé ici, dans
 \`docs/solutions/<brique>.md\` — la référence que l'apprenant lit puis **retape**
 dans son éditeur.
 
@@ -1437,15 +1438,20 @@ function ensureGuardHook(dir) {
   // guard.json is learner-customizable (learnerFiles) — never overwritten here.
   // The solutions README is pure generated content (its title is the marker),
   // and its body follows the mode: switching to dirigeant must flip the prose.
-  const readmeText = fs.existsSync(solutionsReadme) ? fs.readFileSync(solutionsReadme, "utf8") : null;
-  const readme = renderSolutionsReadme(config.mode);
-  const isGeneratedReadme = readmeText === null || readmeText.trimStart().startsWith(SOLUTIONS_README_TITLE);
+  // Revelation is chat-first (story 05.04): the README is only refreshed when
+  // docs/solutions/ already exists — init/update/mode never create the folder,
+  // it appears at the first written reveal.
+  if (fs.existsSync(path.dirname(solutionsReadme))) {
+    const readmeText = fs.existsSync(solutionsReadme) ? fs.readFileSync(solutionsReadme, "utf8") : null;
+    const readme = renderSolutionsReadme(config.mode);
+    const isGeneratedReadme = readmeText === null || readmeText.trimStart().startsWith(SOLUTIONS_README_TITLE);
 
-  if (isGeneratedReadme && readmeText !== readme) {
-    fs.mkdirSync(path.dirname(solutionsReadme), { recursive: true });
-    fs.writeFileSync(solutionsReadme, readme);
-    const rel = normalizePortable(path.relative(dir, solutionsReadme));
-    (readmeText === null ? created : refreshed).push(rel);
+    if (isGeneratedReadme && readmeText !== readme) {
+      fs.mkdirSync(path.dirname(solutionsReadme), { recursive: true });
+      fs.writeFileSync(solutionsReadme, readme);
+      const rel = normalizePortable(path.relative(dir, solutionsReadme));
+      (readmeText === null ? created : refreshed).push(rel);
+    }
   }
 
   const toolBin = path.join(__dirname, "..", "ai-learn.js");
