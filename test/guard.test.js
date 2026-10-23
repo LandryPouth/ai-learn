@@ -434,6 +434,171 @@ test("le guard refuse à l'IA de réécrire sa propre configuration dans les deu
   );
 });
 
+test("les ledgers globaux ~/.ai-learn ne sont pas réécrivables par l'IA (preuves du mode dirigeant)", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const ledger = path.join(os.homedir(), ".ai-learn", "tracks", "tests.json");
+
+  for (const tool of ["Write", "Edit", "MultiEdit"]) {
+    assert.strictEqual(
+      decide(hookFor(dir, tool, { file_path: ledger }), dir).decision,
+      "deny",
+      `${tool} ${ledger}`,
+    );
+  }
+
+  // The whole global state directory is protected, not just the one file.
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.join(os.homedir(), ".ai-learn") }), dir).decision,
+    "deny",
+  );
+  // A relative escape from the project resolves to the same absolute path.
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.relative(dir, ledger) }), dir).decision,
+    "deny",
+  );
+  // The common shell route is denied too (a hedge, like the rest of Bash).
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: `echo '{}' > ${ledger}` }), dir).decision,
+    "deny",
+  );
+  // A sibling directory that merely shares the prefix is not over-matched.
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.join(path.dirname(os.homedir()), "not-ai-learn", "x.json") }), dir).decision,
+    "allow",
+  );
+});
+
+test("~ et $HOME-free ~/.ai-learn ne contournent pas le refus Bash", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo x > ~/.ai-learn/tracks/tests.json" }), dir).decision,
+    "deny",
+  );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "cd ~ && echo x > .ai-learn/tracks/tests.json" }), dir).decision,
+    "deny",
+  );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo x > $HOME/.ai-learn/tracks/tests.json" }), dir).decision,
+    "deny",
+  );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo x > ${HOME}/.ai-learn/tracks/tests.json" }), dir).decision,
+    "deny",
+  );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: `echo x > ~${os.userInfo().username}/.ai-learn/tracks/tests.json` }), dir).decision,
+    "deny",
+    "`~<login>` names the same home directory as `~`",
+  );
+  // Another login's home is not this ledger: leave it unresolved instead of
+  // over-denying a path that is not `$HOME`.
+  assert.strictEqual(
+    decide(
+      hookFor(dir, "Bash", { command: "echo x > ~ai-learn-nonexistent-user/.ai-learn/tracks/tests.json" }),
+      dir,
+    ).decision,
+    "allow",
+  );
+});
+
+test("un HOME symlinké ne sort pas le ledger réel de la protection", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-home-"));
+  const realHome = path.join(base, "real-home");
+  const linkHome = path.join(base, "link-home");
+  fs.mkdirSync(path.join(realHome, ".ai-learn", "tracks"), { recursive: true });
+
+  try {
+    fs.symlinkSync(realHome, linkHome, "dir");
+  } catch {
+    fs.rmSync(base, { recursive: true, force: true });
+    return; // symlinks unavailable on this platform/user
+  }
+
+  const previousHome = process.env.HOME;
+  process.env.HOME = linkHome;
+  try {
+    assert.strictEqual(
+      decide(
+        hookFor(dir, "Write", { file_path: path.join(realHome, ".ai-learn", "tracks", "tests.json") }),
+        dir,
+      ).decision,
+      "deny",
+      "the real path of a symlinked HOME is still the ledger",
+    );
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("un symlink ne contourne pas la protection (chemins résolus via realpath)", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "test"), { recursive: true });
+
+  const protectedLink = path.join(dir, "policy");
+
+  try {
+    fs.symlinkSync(path.join(dir, ".ai-learn"), protectedLink, "dir");
+  } catch {
+    return; // symlinks unavailable on this platform/user
+  }
+
+  // A symlinked route to the guard's own policy is denied like the real path.
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.join(protectedLink, "guard.json") }), dir).decision,
+    "deny",
+  );
+
+  const specLink = path.join(dir, "spec");
+  fs.symlinkSync(path.join(dir, "test"), specLink, "dir");
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.join(specLink, "foo.ts") }), dir).decision,
+    "deny",
+    "a symlinked route into the learner's specification is denied",
+  );
+});
+
+test("un symlink interne vers l'extérieur ne contourne pas le blocage apprenant", () => {
+  const dir = blankProject();
+  writeMode(dir, "apprenti");
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-outside-"));
+
+  try {
+    fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+    fs.rmdirSync(path.join(dir, "src"));
+    fs.symlinkSync(outside, path.join(dir, "src"), "dir");
+  } catch {
+    fs.rmSync(outside, { recursive: true, force: true });
+    return; // symlinks unavailable on this platform/user
+  }
+
+  try {
+    // The lexical path is the learner's `src/**` even though its real target is
+    // outside the project — judging only the realpath would let this write pass.
+    assert.strictEqual(
+      decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "foo.ts") }), dir).decision,
+      "deny",
+    );
+    assert.strictEqual(
+      decide(hookFor(dir, "Bash", { command: "echo x > src/foo.ts" }), dir).decision,
+      "deny",
+    );
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("`disableAllHooks` cannot be planted: settings.local.json outranks settings.json but stays denied", () => {
   for (const mode of [undefined, "apprenti", "dirigeant"]) {
     const dir = blankProject();
@@ -1034,4 +1199,62 @@ test("dirigeant : ln -s vers test/ et touch dans test/ sont refusés, ln -s inte
 
   assert.strictEqual(bash("ln -s b.js src/a.js"), "allow");
   assert.strictEqual(bash("touch src/a.js"), "allow");
+});
+
+test("l'IA ne lance pas `ai-learn mode` ni ne surcharge HOME pour forger un ledger", () => {
+  const dir = blankProject();
+  writeMode(dir, "apprenti");
+
+  for (const command of [
+    "ai-learn mode dirigeant",
+    "HOME=/tmp/fakehome ai-learn mode dirigeant",
+    "cd x && npx ai-learn mode dirigeant --dir .",
+    "node bin/ai-learn.js mode dirigeant",
+    "HOME=/tmp/fakehome ai-learn verify phase-1",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  // Other ai-learn commands stay usable by the AI (verify, check, status).
+  for (const command of ["ai-learn verify phase-1", "ai-learn check", "ai-learn status"]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
+  }
+});
+
+test("les évidences .ai-learn/runs ne sont pas réécrivables par l'IA", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const tool of ["Write", "Edit", "MultiEdit"]) {
+    assert.strictEqual(
+      decide(hookFor(dir, tool, { file_path: path.join(dir, ".ai-learn", "runs", "phase-1.json") }), dir).decision,
+      "deny",
+      tool,
+    );
+  }
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo '{}' > .ai-learn/runs/phase-1.json" }), dir).decision,
+    "deny",
+  );
+});
+
+test("une commande qui cite `ai-learn mode` ou HOME= entre guillemets reste permise, sauf si elle l'exécute", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const command of [
+    "grep -n 'ai-learn mode' README.md",
+    'echo "HOME=1" && ai-learn status',
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
+  }
+
+  for (const command of [
+    'bash -c "ai-learn mode dirigeant"',
+    "sh -c 'HOME=/tmp/fakehome ai-learn check'",
+    'eval "ai-learn mode dirigeant"',
+    'echo "$(ai-learn mode dirigeant)"',
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
 });

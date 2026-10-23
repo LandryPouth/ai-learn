@@ -161,3 +161,5 @@
 {"at":"2026-10-23T15:39:10.454Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-23T15:44:29.228Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-23T15:44:50.404Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:46:23.897Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:46:55.558Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}

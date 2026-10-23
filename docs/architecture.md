@@ -71,8 +71,25 @@ commands/                les 7 commandes /… (markdown, format Claude Code)
   contenu normalisé (CRLF/LF inclus) — décision verrouillée, voir
   `epics/epic-01-verdict-fiable/story-01-01-trois-etats-du-verdict/plan.md`.
 - `check.js` importe `norm.js`, `docs.js`, `git-hooks.js`, `dogfood.js`,
-  `guard.js` (validation de `guard.json`), `platforms/codex-guard.js` — c'est le
-  module le plus couplé.
+  `guard.js` (validation de `guard.json`), `mode.js` (écart mode ↔ ledger de
+  tests), `platforms/codex-guard.js` — c'est le module le plus couplé.
+- `mode.js` lit `tracks/tests.js` (lecture seule) et écrit `guard.json`, puis
+  appelle `guard.js#ensureGuardHook` pour que le profil Codex et le README
+  généré suivent le mode. C'est une décision **fail-closed** assumée, exception
+  explicite à la règle 7 : elle autorise un mode, donc un ledger
+  absent/corrompu/version inconnue refuse au lieu de laisser passer. Les syncs
+  de ledger, elles, restent best-effort (règle 5) parce qu'elles n'ajoutent que
+  des preuves. `guard.js#isHomeAiLearnPath` refuse à l'IA d'écrire dans
+  `~/.ai-learn/**` (Write/Edit, et les écritures Bash reconnues) : le ledger de
+  tests est une entrée d'autorisation, pas un fichier de travail de l'agent.
+  Depuis cette story, `guardRelatives` juge **deux** chemins — le lexical et le
+  `realpath` (racine et cible) — et refuse si l'un des deux touche le set
+  protégé/apprenant : un symlink interne ne contourne plus `isProtectedPath` ni
+  `matchesGuardPath`, et un symlink qui pointe **hors** de la racine reste bloqué
+  par son chemin lexical (son relatif résolu, lui, vaut `null`). Le `realpath`
+  du home est comparé à celui de la cible, donc un `$HOME` symlinké ne
+  contourne pas la comparaison. Les évidences `.ai-learn/runs/*.json` restent
+  non protégées — même régime de confiance que le ledger (suivi, non corrigé).
 - `verify.js` importe `norm.js`, `tracks/git.js`, `tracks/domain.js`.
 
 ## Ce que le guard ne voit pas

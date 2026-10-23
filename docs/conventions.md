@@ -27,6 +27,9 @@ accepté.
 
 Config projet (`.ai-learn/*.json`) : créée une fois avec des valeurs concrètes,
 **jamais réécrite** ensuite. Fallback champ par champ à la lecture.
+Seule exception : `ai-learn mode` réécrit `mode`, `modeChangedAt` et `modeTiers`
+de `.ai-learn/guard.json` — une bascule explicite de l'apprenant, qui préserve
+tous les autres champs. Ce n'est jamais un automatisme de synchronisation.
 
 ## Tests
 

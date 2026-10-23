@@ -46,6 +46,13 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `low` — `worktree place`/`autoland` refusent la même arbre à point de fusion, avec un remède qui ne s'applique pas à `autoland`
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `/flow-run` (`ai-flow worktree place --epic … --story …`, puis `ai-flow worktree autoland --epic … --story …`)
+- **Problème** : l'epic 03 a un Backbone `s1 → {s2, s3} → s4` (point de fusion `┴`). `place` refuse en disant de placer la story à la main (`worktree add`) — utile, et appliqué. Mais `autoland` refuse avec **le même message** et le même remède (`worktree add`), alors qu'à ce stade la bonne action est soit « chaîne pas encore finie » (s3/s4 restent ouverts), soit un `land` manuel — pas une création de worktree. Le runner doit lire le message en sachant qu'il ne veut pas dire la même chose pour les deux commandes.
+- **Workaround** : après `verify` vert, `unlock` la story et ne pas `land` tant que la chaîne n'est pas finie ; atterrir à la main (`ai-flow worktree land --story …`) une fois s3/s4 livrées.
+- **Résolution** : ouverte (paquet `coding-flow`). Piste : `autoland` devrait distinguer « arbre non supporté » de « chaîne non terminée » et nommer le `land` manuel quand c'est la suite, au lieu de recopier le remède de `place`.
+
 ### Remontées du projet `fastify-traducteur-api` (outil 0.4.0, triées le 2026-10-16)
 Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées déjà `résolu` côté outil n'y figurent pas. Détail complet : ce fichier-là.
 
