@@ -64,3 +64,16 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
 ## Rollback
 
 Revert du commit de la story ; aucune migration de données hors champs additifs.
+
+## Résultat de la revue (fix)
+
+- **Racine de projet** : `guardCommand` remonte depuis `hook.cwd` jusqu'au premier `.ai-learn/guard.json` (`findProjectRoot`). Avant, un cwd en sous-dossier (`cd src`) retombait sur `apprenti` et laissait passer `test/**` et `guard.json`.
+- **Liens symboliques** : `toRelative` résout les symlinks sur l'ancêtre existant le plus profond (`realResolve`) ; `src/t -> test` ne blanchit plus une écriture.
+- **Bash** : `perl -pi`/`sed -ni` (flags groupés), `patch`, `dd of=`, `tar -C`, `unzip -d` et `rsync` sont reconnus comme écrivains.
+
+## Residual Risks
+
+- Le Bash du guard reste un garde-fou heuristique, pas une barrière : cibles construites par `$(…)`/variables, scripts (`node script.js`, heredoc python), éditeurs interactifs (`ed`, `vim`) ne sont pas détectés. Le mur mécanique fiable est Write/Edit.
+- `package.json` (`scripts.test`) et les configs de test (`jest.config.*`) restent modifiables par l'IA en dirigeant : elle pourrait neutraliser la commande qui lance la spécification. Non protégés pour ne pas bloquer les usages légitimes ; à revoir via un `protectedFiles` configurable.
+- `spec/` (convention RSpec) n'est pas reconnu par `detectTests` : parité conservée avec `mutate`/`norm`, mais la spécification Ruby n'est pas protégée.
+- `docs/spec.md` est refusé en dirigeant (motif nu `spec.*`) : sur-blocage assumé, sans risque de sécurité.

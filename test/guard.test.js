@@ -16,6 +16,7 @@ const {
   shellWriteTargets,
   detectGitOrGh,
   toRelative,
+  findProjectRoot,
   ensureGuardHook,
 } = require("../bin/lib/guard");
 const { checkProject } = require("../bin/lib/check");
@@ -889,4 +890,70 @@ test("checkProject warns on IA-typed corrections (the visible escape hatch)", ()
 
   const entry = checkProject(dir);
   assert.ok(entry.issues.warnings.some((w) => /Corrigé par : IA/i.test(w.message)));
+});
+
+test("guardCommand en dirigeant avec un cwd en sous-dossier applique quand même le mode du projet", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  const input = path.join(dir, "_hook-input.json");
+
+  for (const target of ["test/a.test.ts", ".ai-learn/guard.json"]) {
+    fs.writeFileSync(
+      input,
+      JSON.stringify({ cwd: path.join(dir, "src"), tool_name: "Write", tool_input: { file_path: path.join(dir, target) } }),
+    );
+    let status = 0;
+    try {
+      execFileSync(process.execPath, [BIN, "guard", "--input", input], { encoding: "utf8", stdio: "pipe" });
+    } catch (error) {
+      status = error.status;
+    }
+    assert.strictEqual(status, 2, target);
+  }
+});
+
+test("findProjectRoot remonte jusqu'au guard.json, sinon garde le point de départ", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src", "deep"), { recursive: true });
+
+  assert.strictEqual(findProjectRoot(path.join(dir, "src", "deep")), dir);
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), "no-guard-"));
+  assert.strictEqual(findProjectRoot(bare), bare);
+});
+
+test("dirigeant : un lien symbolique src/t -> test ne blanchit pas une écriture", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "test"), { recursive: true });
+  fs.symlinkSync(path.join(dir, "test"), path.join(dir, "src", "t"));
+  fs.symlinkSync(path.join(dir, ".ai-learn"), path.join(dir, "docs", "cfg"));
+
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "t", "a.js") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "docs", "cfg", "guard.json") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "ok.js") }), dir).decision, "allow");
+});
+
+test("dirigeant : perl -pi, patch, dd of=, tar -C, unzip -d et rsync vers test/ sont refusés", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "perl -pi -e 's/a/b/' test/a.js",
+    "sed -ni 's/a/b/p' test/a.js",
+    "patch test/a.js < p.diff",
+    "dd if=/dev/zero of=test/a",
+    "tar xf a.tar -C test",
+    "unzip a.zip -d test",
+    "rsync -a build/ test/",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+  for (const command of ["perl -e 'print 1'", "dd if=a of=src/b", "tar xf a.tar -C src", "patch src/a.js < p.diff"]) {
+    assert.strictEqual(bash(command), "allow", command);
+  }
 });

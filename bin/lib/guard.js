@@ -396,12 +396,35 @@ function isProtectedPath(relative, platform = process.platform) {
   });
 }
 
+// Resolve symlinks on the deepest existing ancestor, so a link planted inside
+// `src/` that points at `test/` (`ln -s ../test src/t`) cannot launder a write
+// to `src/t/a.js`. The not-yet-existing tail is appended unchanged.
+function realResolve(abs) {
+  const tail = [];
+  let current = abs;
+
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(current), ...tail);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return abs;
+      }
+      tail.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 function toRelative(root, filePath) {
   if (!filePath) {
     return null;
   }
-  const abs = path.isAbsolute(filePath) ? filePath : path.resolve(root, filePath);
-  const rel = normalizePortable(path.relative(root, abs));
+  const lexical = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
+  const abs = realResolve(lexical);
+  const realRoot = realResolve(path.resolve(root));
+  const rel = normalizePortable(path.relative(realRoot, abs));
   // On Windows, path.relative() across two different drives (e.g. project root
   // on D:, target on C:) can't express the difference as "../.." and instead
   // returns the target path unchanged — which doesn't start with "../" and
@@ -625,6 +648,48 @@ function shellWriteTargets(command, depth = 0) {
         continue;
       }
 
+      // `patch <file>` rewrites its operands (the diff on stdin is the `<`
+      // redirection, skipped); `dd of=<file>` writes its target.
+      if (token === "patch" || token === "dd") {
+        for (let j = i + 1; j < tokens.length; j++) {
+          const t = tokens[j];
+          if (t === "|" || t.startsWith("<")) {
+            break;
+          }
+          if (token === "dd" && t.startsWith("of=")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(3))));
+          } else if (token === "patch" && !t.startsWith("-")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+          }
+        }
+        continue;
+      }
+
+      // Extractors/syncers drop files under a directory operand: `tar -C dir`,
+      // `unzip -d dir`, `rsync src dest` (destination = last operand). The
+      // directory itself is the target, so `test` matches the `test` pattern.
+      if (token === "tar" || token === "unzip" || token === "rsync") {
+        const operands = [];
+        for (let j = i + 1; j < tokens.length; j++) {
+          const t = tokens[j];
+          if (t === "|") {
+            break;
+          }
+          if ((token === "tar" && (t === "-C" || t === "--directory")) || (token === "unzip" && t === "-d")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j + 1] || "")));
+            j += 1;
+          } else if (t.startsWith("--directory=")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice("--directory=".length))));
+          } else if (!t.startsWith("-")) {
+            operands.push(t);
+          }
+        }
+        if (token === "rsync" && operands.length > 1) {
+          targets.push(resolveShellTarget(cwd, stripQuotes(operands[operands.length - 1])));
+        }
+        continue;
+      }
+
       // In-place editors: `sed -i` / `perl -i` rewrite their file operands in
       // place. Every non-flag operand after the in-place flag is a file that gets
       // rewritten. Over-collecting the expression (e.g. `s/a/b/`) is harmless —
@@ -637,7 +702,7 @@ function shellWriteTargets(command, depth = 0) {
           if (t === "|") {
             break;
           }
-          if (t.startsWith("-i")) {
+          if (/^-[a-zA-Z]*i/.test(t) || t === "--in-place" || t.startsWith("--in-place=")) {
             inPlace = true;
             continue;
           }
@@ -938,6 +1003,31 @@ function recordDenial({ root, hook, result }) {
 // The hook entry point. Root comes from the hook's `cwd` when present — the
 // project where Claude Code runs — otherwise the process cwd. Any error inside
 // the guard itself is a fail-open allow: a broken guard must not break a session.
+// The hook's `cwd` is the session's directory, not necessarily the project
+// root: after a `cd src` it is `<project>/src`, where no `.ai-learn/guard.json`
+// exists and the guard would resolve to the `apprenti` defaults with every
+// path outside `src/` dropped by `toRelative` (a bypass of the `dirigeant`
+// wall and of the policy self-protection). Walk up to the nearest directory
+// holding the guard config; fall back to `start` when there is none.
+function findProjectRoot(start) {
+  let dir = path.resolve(start);
+
+  for (;;) {
+    try {
+      if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json"))) {
+        return dir;
+      }
+    } catch {
+      return start;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return start;
+    }
+    dir = parent;
+  }
+}
+
 function guardCommand({ inputFile = null } = {}) {
   let hook = null;
   let root = process.cwd();
@@ -946,7 +1036,7 @@ function guardCommand({ inputFile = null } = {}) {
   hook = parseHookInput(raw);
 
   if (hook && typeof hook.cwd === "string" && hook.cwd) {
-    root = hook.cwd;
+    root = findProjectRoot(hook.cwd);
   }
 
   let result;
@@ -1184,5 +1274,6 @@ module.exports = {
   detectGitOrGh,
   splitSegments,
   toRelative,
+  findProjectRoot,
   DEFAULT_BLOCKED_COMMANDS,
 };
