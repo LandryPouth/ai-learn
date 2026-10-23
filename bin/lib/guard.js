@@ -108,6 +108,10 @@ const PROTECTED_FILES = [
   ".claude/settings.local.json",
   ".codex/config.toml",
 ];
+// Directories whose whole subtree is protected. `.ai-learn/runs/*.json` are the
+// verify evidences that feed the test ledger gating `dirigeant`: forging one is
+// one indirection away from forging the ledger itself.
+const PROTECTED_DIRS = [".ai-learn/runs"];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
 
 // Commands that merely wrap another command — unwrapped so `sudo git log` or
@@ -389,12 +393,20 @@ function isProtectedPath(relative, platform = process.platform) {
   const fold = caseInsensitiveFs(platform);
   const candidate = fold ? relative.toLowerCase() : relative;
 
-  return PROTECTED_FILES.some((file) => {
-    const protectedFile = fold ? file.toLowerCase() : file;
-    // A protected path is also its own directory: `rm -rf .ai-learn` removes
-    // `guard.json` just as surely as writing it directly.
-    return protectedFile === candidate || protectedFile.startsWith(`${candidate}/`);
+  const inProtectedDir = PROTECTED_DIRS.some((dir) => {
+    const protectedDir = fold ? dir.toLowerCase() : dir;
+    return candidate === protectedDir || candidate.startsWith(`${protectedDir}/`);
   });
+
+  return (
+    inProtectedDir ||
+    PROTECTED_FILES.some((file) => {
+      const protectedFile = fold ? file.toLowerCase() : file;
+      // A protected path is also its own directory: `rm -rf .ai-learn` removes
+      // `guard.json` just as surely as writing it directly.
+      return protectedFile === candidate || protectedFile.startsWith(`${candidate}/`);
+    })
+  );
 }
 
 // `~`/`~/…` as the shell would read them. Without this, `echo x > ~/.ai-learn/…`
@@ -945,6 +957,19 @@ function learnerDenialReason({ mode, rel, learnerFiles, implementationFiles, via
         "l'apprenant tape le vrai code (cf. AGENTS.md §3).";
 }
 
+// `ai-learn mode` is the learner's act: the gate reads `os.homedir()`, which
+// follows `$HOME`, so an agent could forge a ledger under a fake home and then
+// switch itself. Any `HOME=` override on an ai-learn command is refused too.
+const AI_LEARN_MODE_RE = /(?:^|[\s;&|(`"'/])ai-learn(?:\.js)?["']?\s+(?:--?\S+\s+(?:\S+\s+)?)*mode\b/;
+const AI_LEARN_HOME_OVERRIDE_RE = /\bHOME=\S*[^]*?(?:^|[\s;&|(`"'/])ai-learn(?:\.js)?\b/;
+
+function modeSwitchReason() {
+  return (
+    "`ai-learn mode` (ou un `HOME=` surchargé devant `ai-learn`) change le mode qui autorise l'IA à écrire " +
+    "l'implémentation. La bascule est un acte de l'apprenant : demande-lui de lancer la commande lui-même."
+  );
+}
+
 function homeStateReason(target, viaShell) {
   return viaShell
     ? `cette commande écrit dans ${target}, un ledger global d'ai-learn (hors du projet). ` +
@@ -1005,6 +1030,10 @@ function decide(hook, root) {
           "`ai-learn guard` bloque toute commande git/gh, lecture incluse : demande à l'apprenant " +
           "de lancer la commande lui-même et de te rapporter ce qu'il voit (cf. AGENTS.md §4 « Reality checks »).",
       };
+    }
+
+    if (AI_LEARN_MODE_RE.test(command) || AI_LEARN_HOME_OVERRIDE_RE.test(command)) {
+      return { decision: "deny", command, reason: modeSwitchReason() };
     }
 
     for (const target of shellWriteTargets(command)) {

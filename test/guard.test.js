@@ -1055,3 +1055,40 @@ test("checkProject warns on IA-typed corrections (the visible escape hatch)", ()
   const entry = checkProject(dir);
   assert.ok(entry.issues.warnings.some((w) => /Corrigé par : IA/i.test(w.message)));
 });
+
+test("l'IA ne lance pas `ai-learn mode` ni ne surcharge HOME pour forger un ledger", () => {
+  const dir = blankProject();
+  writeMode(dir, "apprenti");
+
+  for (const command of [
+    "ai-learn mode dirigeant",
+    "HOME=/tmp/fakehome ai-learn mode dirigeant",
+    "cd x && npx ai-learn mode dirigeant --dir .",
+    "node bin/ai-learn.js mode dirigeant",
+    "HOME=/tmp/fakehome ai-learn verify phase-1",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  // Other ai-learn commands stay usable by the AI (verify, check, status).
+  for (const command of ["ai-learn verify phase-1", "ai-learn check", "ai-learn status"]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
+  }
+});
+
+test("les évidences .ai-learn/runs ne sont pas réécrivables par l'IA", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const tool of ["Write", "Edit", "MultiEdit"]) {
+    assert.strictEqual(
+      decide(hookFor(dir, tool, { file_path: path.join(dir, ".ai-learn", "runs", "phase-1.json") }), dir).decision,
+      "deny",
+      tool,
+    );
+  }
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo '{}' > .ai-learn/runs/phase-1.json" }), dir).decision,
+    "deny",
+  );
+});
