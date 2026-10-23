@@ -1,0 +1,163 @@
+{"at":"2026-10-18T21:45:41.902Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-18T21:52:52.116Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-18T21:53:30.558Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-18T21:53:41.747Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T07:56:45.038Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:09:13.320Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:12:32.810Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:23:55.150Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:23:55.903Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:24:02.613Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:24:26.794Z","tool":null,"path":null,"reason":"no parseable hook input"}
+{"at":"2026-10-19T08:24:57.481Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:26:27.501Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T08:30:12.807Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:31:06.118Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T08:31:17.300Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T08:34:16.435Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:36:18.193Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T08:38:06.314Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:38:07.259Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:38:38.920Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T08:47:31.054Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:48:04.857Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:48:43.236Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:48:45.239Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:48:56.609Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:49:18.228Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T08:49:19.075Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:49:20.466Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:50:40.201Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:51:21.326Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:52:19.680Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:56:47.171Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:57:52.824Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T08:58:09.023Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T08:59:18.642Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T08:59:19.567Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T09:00:52.154Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T09:03:53.264Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T09:15:26.177Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T09:18:55.439Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T09:19:06.433Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T09:55:54.644Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T09:56:22.970Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-19T09:56:51.981Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T09:57:21.844Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-19T09:57:44.553Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-19T09:58:57.293Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-19T10:00:04.309Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:01:00.197Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:01:30.694Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T10:02:33.633Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T10:03:21.947Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:03:29.168Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:05:20.519Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:07:03.771Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:07:20.129Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T10:09:22.669Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-19T10:10:22.608Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:10:56.307Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:14:04.001Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:15:25.173Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:33:29.687Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T10:37:32.572Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T10:38:40.144Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T11:51:44.878Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T11:52:13.057Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T11:52:54.272Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T11:52:54.695Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T11:58:48.564Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:04:26.313Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:04:46.108Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:06:17.142Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:06:39.590Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:06:47.900Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:07:03.634Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:07:16.600Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:08:15.562Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:08:23.704Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:08:33.368Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:08:47.901Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:09:04.149Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:09:33.135Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:10:22.758Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:12:17.372Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:12:31.185Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:12:41.808Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:12:58.932Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:13:09.468Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:13:18.026Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:14:01.679Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:15:44.947Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:18:45.950Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:18:58.158Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:19:12.974Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:21:56.783Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T12:22:11.020Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T12:22:12.928Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:22:47.457Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:23:21.291Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:45:38.403Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:58:21.086Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T12:58:32.191Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T12:58:45.071Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T12:59:03.178Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:06:30.560Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:10:17.722Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:14:16.684Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:15:49.508Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:16:06.436Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:17:12.938Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:19:55.003Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:20:04.853Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T13:21:16.080Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T16:28:14.237Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T16:31:37.332Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T16:31:46.088Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T16:34:39.205Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T16:35:53.668Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T16:36:55.067Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T17:41:17.064Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T17:45:02.402Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T18:14:27.567Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T18:15:43.785Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T18:25:03.833Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T18:25:33.264Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T18:25:49.342Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T18:27:02.251Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T18:28:38.440Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T18:32:30.019Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T18:41:51.744Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T19:14:49.893Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T19:18:11.834Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T19:18:58.818Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T19:20:57.191Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T20:40:35.865Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T20:41:55.027Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T20:43:32.624Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-19T20:53:27.645Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T21:06:42.132Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T21:12:27.169Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-19T21:12:57.172Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-22T13:03:13.531Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-22T13:03:30.821Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-22T13:05:04.034Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-22T13:05:36.228Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-22T13:33:11.477Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T14:06:19.710Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-23T14:07:20.362Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-23T14:09:24.420Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T14:09:50.437Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T14:14:02.507Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-23T15:21:59.712Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:26:11.944Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-23T15:27:33.363Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:27:52.395Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:28:03.098Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:28:24.377Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:30:59.245Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:34:18.729Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-23T15:39:10.454Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:44:29.228Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-23T15:44:50.404Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}

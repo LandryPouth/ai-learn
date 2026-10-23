@@ -16,6 +16,7 @@ const {
   shellWriteTargets,
   detectGitOrGh,
   toRelative,
+  findProjectRoot,
   ensureGuardHook,
 } = require("../bin/lib/guard");
 const { checkProject } = require("../bin/lib/check");
@@ -889,4 +890,148 @@ test("checkProject warns on IA-typed corrections (the visible escape hatch)", ()
 
   const entry = checkProject(dir);
   assert.ok(entry.issues.warnings.some((w) => /Corrigé par : IA/i.test(w.message)));
+});
+
+test("guardCommand en dirigeant avec un cwd en sous-dossier applique quand même le mode du projet", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  const input = path.join(dir, "_hook-input.json");
+
+  for (const target of ["test/a.test.ts", ".ai-learn/guard.json"]) {
+    fs.writeFileSync(
+      input,
+      JSON.stringify({ cwd: path.join(dir, "src"), tool_name: "Write", tool_input: { file_path: path.join(dir, target) } }),
+    );
+    let status = 0;
+    try {
+      execFileSync(process.execPath, [BIN, "guard", "--input", input], { encoding: "utf8", stdio: "pipe" });
+    } catch (error) {
+      status = error.status;
+    }
+    assert.strictEqual(status, 2, target);
+  }
+});
+
+test("findProjectRoot remonte jusqu'au guard.json, sinon garde le point de départ", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src", "deep"), { recursive: true });
+
+  assert.strictEqual(findProjectRoot(path.join(dir, "src", "deep")), dir);
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), "no-guard-"));
+  assert.strictEqual(findProjectRoot(bare), bare);
+});
+
+test("dirigeant : un lien symbolique src/t -> test ne blanchit pas une écriture", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "test"), { recursive: true });
+  fs.symlinkSync(path.join(dir, "test"), path.join(dir, "src", "t"));
+  fs.symlinkSync(path.join(dir, ".ai-learn"), path.join(dir, "docs", "cfg"));
+
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "t", "a.js") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "docs", "cfg", "guard.json") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "ok.js") }), dir).decision, "allow");
+});
+
+test("dirigeant : perl -pi, patch, dd of=, tar -C, unzip -d et rsync vers test/ sont refusés", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "perl -pi -e 's/a/b/' test/a.js",
+    "sed -ni 's/a/b/p' test/a.js",
+    "patch test/a.js < p.diff",
+    "dd if=/dev/zero of=test/a",
+    "tar xf a.tar -C test",
+    "unzip a.zip -d test",
+    "rsync -a build/ test/",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+  for (const command of ["perl -e 'print 1'", "dd if=a of=src/b", "tar xf a.tar -C src", "patch src/a.js < p.diff"]) {
+    assert.strictEqual(bash(command), "allow", command);
+  }
+});
+
+test("dirigeant : un guard.json imbriqué planté dans src/ ne devient pas la racine ni ne s'écrit", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src", ".ai-learn"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "test"), { recursive: true });
+  const decoy = path.join(dir, "src", ".ai-learn", "guard.json");
+
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: decoy }), dir).decision, "deny");
+
+  // Même si le leurre existe déjà (planté hors du guard), la racine reste la plus haute.
+  fs.writeFileSync(decoy, JSON.stringify({ version: 1, mode: "apprenti", learnerFiles: ["nothing/**"] }));
+  assert.strictEqual(findProjectRoot(path.join(dir, "src")), dir);
+
+  const input = path.join(dir, "_hook-input.json");
+  for (const target of ["test/a.test.ts", ".ai-learn/guard.json"]) {
+    fs.writeFileSync(
+      input,
+      JSON.stringify({ cwd: path.join(dir, "src"), tool_name: "Write", tool_input: { file_path: path.join(dir, target) } }),
+    );
+    let status = 0;
+    try {
+      execFileSync(process.execPath, [BIN, "guard", "--input", input], { encoding: "utf8", stdio: "pipe" });
+    } catch (error) {
+      status = error.status;
+    }
+    assert.strictEqual(status, 2, target);
+  }
+});
+
+test("dirigeant : formes collées de tar/unzip/patch vers test/ sont refusées", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "tar xf a.tar -Ctest",
+    "tar -xCf test a.tar",
+    "tar xCf test a.tar",
+    "tar x -f a.tar --directory test",
+    "tar x -f a.tar --directory=test",
+    "unzip a.zip -dtest",
+    "patch -i p.diff test/a.js",
+    "patch -p1 test/a.js",
+    "patch -o test/out.js src/a.js",
+    "patch --output=test/out.js src/a.js",
+    "patch -d test < x.diff",
+    "patch -dtest < x.diff",
+    "patch --directory=test -p0 < x.diff",
+    "tar xf a.tar --one-top-level=test",
+    "tar xf a.tar --one-top-level test",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+  for (const command of ["patch -i p.diff src/a.js", "patch -p1 src/a.js", "tar xf a.tar -Csrc", "unzip a.zip -dsrc", "patch -d src < x.diff", "tar xf a.tar --one-top-level=src"]) {
+    assert.strictEqual(bash(command), "allow", command);
+  }
+});
+
+test("dirigeant : ln -s vers test/ et touch dans test/ sont refusés, ln -s interne à src/ reste permis", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "ln -s ../test src/t && echo x > src/t/a.js",
+    "ln -s ../test src/t; echo x > src/t/a.js",
+    "ln -sf ../test/a.js src/a.js",
+    "touch test/a.js",
+    "cd test; touch a.js",
+    "cd test && touch a.js",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+
+  assert.strictEqual(bash("ln -s b.js src/a.js"), "allow");
+  assert.strictEqual(bash("touch src/a.js"), "allow");
 });

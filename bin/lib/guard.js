@@ -388,6 +388,12 @@ function isProtectedPath(relative, platform = process.platform) {
   const fold = caseInsensitiveFs(platform);
   const candidate = fold ? relative.toLowerCase() : relative;
 
+  // A nested `.ai-learn/guard.json` (`src/.ai-learn/guard.json`) is a decoy
+  // policy: protected at any depth, like the directory that holds it.
+  if (/(^|\/)\.ai-learn(\/guard\.json)?$/.test(candidate)) {
+    return true;
+  }
+
   return PROTECTED_FILES.some((file) => {
     const protectedFile = fold ? file.toLowerCase() : file;
     // A protected path is also its own directory: `rm -rf .ai-learn` removes
@@ -396,12 +402,35 @@ function isProtectedPath(relative, platform = process.platform) {
   });
 }
 
+// Resolve symlinks on the deepest existing ancestor, so a link planted inside
+// `src/` that points at `test/` (`ln -s ../test src/t`) cannot launder a write
+// to `src/t/a.js`. The not-yet-existing tail is appended unchanged.
+function realResolve(abs) {
+  const tail = [];
+  let current = abs;
+
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(current), ...tail);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return abs;
+      }
+      tail.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 function toRelative(root, filePath) {
   if (!filePath) {
     return null;
   }
-  const abs = path.isAbsolute(filePath) ? filePath : path.resolve(root, filePath);
-  const rel = normalizePortable(path.relative(root, abs));
+  const lexical = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
+  const abs = realResolve(lexical);
+  const realRoot = realResolve(path.resolve(root));
+  const rel = normalizePortable(path.relative(realRoot, abs));
   // On Windows, path.relative() across two different drives (e.g. project root
   // on D:, target on C:) can't express the difference as "../.." and instead
   // returns the target path unchanged — which doesn't start with "../" and
@@ -606,12 +635,27 @@ function shellWriteTargets(command, depth = 0) {
             targets.push(resolveShellTarget(cwd, operand));
           }
         }
+
+        // `ln -s ../test src/t` plants a link whose later writes land in the
+        // link target; a same-command `&& echo x > src/t/a.js` is checked
+        // before the link exists. A relative link target resolves against the
+        // link's own directory, so a link into a learner path is itself denied.
+        if (token === "ln" && !targetDir && operands.length >= 2) {
+          const destination = normalizePortable(operands[operands.length - 1]);
+          for (const source of operands.slice(0, -1)) {
+            const linked = path.posix.isAbsolute(source)
+              ? source
+              : path.posix.join(path.posix.dirname(destination), normalizePortable(source));
+            targets.push(resolveShellTarget(cwd, linked));
+          }
+        }
         continue;
       }
 
-      // `rm` and `truncate` destroy/rewrite their operands; `rm -rf .ai-learn`
-      // must be caught even though the target is the directory, not guard.json.
-      if (token === "rm" || token === "truncate") {
+      // `rm`, `truncate` and `touch` destroy/rewrite/create their operands;
+      // `rm -rf .ai-learn` must be caught even though the target is the
+      // directory, not guard.json.
+      if (token === "rm" || token === "truncate" || token === "touch") {
         for (let j = i + 1; j < tokens.length; j++) {
           const t = tokens[j];
           if (t === "|" || t === "&&" || t === "||" || t === ";") {
@@ -621,6 +665,78 @@ function shellWriteTargets(command, depth = 0) {
             continue;
           }
           targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+        }
+        continue;
+      }
+
+      // `patch <file>` rewrites its operands (the diff on stdin is the `<`
+      // redirection, skipped); `dd of=<file>` writes its target.
+      if (token === "patch" || token === "dd") {
+        for (let j = i + 1; j < tokens.length; j++) {
+          const t = tokens[j];
+          if (t === "|" || t.startsWith("<")) {
+            break;
+          }
+          if (token === "dd" && t.startsWith("of=")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(3))));
+          } else if (token === "patch") {
+            // `-i`/`-p` never name a written file (the diff, a strip count);
+            // `-o out` does, and `-d dir` is where the diff's files are written.
+            if (t === "-d" || t === "--directory") {
+              targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j + 1] || "")));
+              j += 1;
+            } else if (t.startsWith("--directory=")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice("--directory=".length))));
+            } else if (/^-d.+/.test(t)) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(2))));
+            } else if (t === "-o" || t === "--output") {
+              targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j + 1] || "")));
+              j += 1;
+            } else if (t.startsWith("--output=")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice("--output=".length))));
+            } else if (t === "-i" || t === "--input" || t === "-p" || t === "--strip") {
+              j += 1;
+            } else if (!t.startsWith("-")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+            }
+          }
+        }
+        continue;
+      }
+
+      // Extractors/syncers drop files under a directory operand: `tar -C dir`,
+      // `unzip -d dir`, `rsync src dest` (destination = last operand). The
+      // directory itself is the target, so `test` matches the `test` pattern.
+      if (token === "tar" || token === "unzip" || token === "rsync") {
+        const operands = [];
+        for (let j = i + 1; j < tokens.length; j++) {
+          const t = tokens[j];
+          if (t === "|") {
+            break;
+          }
+          // `-C dir`, `-Cdir`, `--directory dir`, `--directory=dir`, and bundled
+          // short flags (`-xCf dir`, `xCf dir`) where the next word is the
+          // directory. Over-collecting a neighbour is harmless: it only denies
+          // when it matches a learner pattern.
+          const tarBundle = token === "tar" && (/^-[a-zA-Z]*C/.test(t) || (j === i + 1 && /^[a-zA-Z]*C[a-zA-Z]*$/.test(t)));
+          const dirFlag = (token === "tar" && (t === "--directory" || t === "--one-top-level")) || (token === "unzip" && t === "-d");
+          if (tarBundle || dirFlag) {
+            const attached = token === "tar" && /^-C.+/.test(t) ? t.slice(2) : null;
+            const dir = attached !== null ? attached : tokens[j + 1] || "";
+            targets.push(resolveShellTarget(cwd, stripQuotes(dir)));
+            if (attached === null) {
+              j += 1;
+            }
+          } else if (token === "unzip" && /^-d.+/.test(t)) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(2))));
+          } else if (t.startsWith("--directory=") || t.startsWith("--one-top-level=")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(t.indexOf("=") + 1))));
+          } else if (!t.startsWith("-")) {
+            operands.push(t);
+          }
+        }
+        if (token === "rsync" && operands.length > 1) {
+          targets.push(resolveShellTarget(cwd, stripQuotes(operands[operands.length - 1])));
         }
         continue;
       }
@@ -637,7 +753,7 @@ function shellWriteTargets(command, depth = 0) {
           if (t === "|") {
             break;
           }
-          if (t.startsWith("-i")) {
+          if (/^-[a-zA-Z]*i/.test(t) || t === "--in-place" || t.startsWith("--in-place=")) {
             inPlace = true;
             continue;
           }
@@ -935,6 +1051,34 @@ function recordDenial({ root, hook, result }) {
   }
 }
 
+// The hook's `cwd` is the session's directory, not necessarily the project
+// root: after a `cd src` it is `<project>/src`, where no `.ai-learn/guard.json`
+// exists and the guard would resolve to the `apprenti` defaults with every
+// path outside `src/` dropped by `toRelative` (a bypass of the `dirigeant`
+// wall and of the policy self-protection). Walk up to the OUTERMOST directory
+// holding the guard config, never the nearest: in `dirigeant` the AI may write
+// `src/**`, so it could plant `src/.ai-learn/guard.json` (mode `apprenti`) and
+// make that fake file the root. Fall back to `start` when there is none.
+function findProjectRoot(start) {
+  let dir = path.resolve(start);
+  let found = null;
+
+  for (;;) {
+    try {
+      if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json"))) {
+        found = dir;
+      }
+    } catch {
+      return found || start;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return found || start;
+    }
+    dir = parent;
+  }
+}
+
 // The hook entry point. Root comes from the hook's `cwd` when present — the
 // project where Claude Code runs — otherwise the process cwd. Any error inside
 // the guard itself is a fail-open allow: a broken guard must not break a session.
@@ -946,7 +1090,7 @@ function guardCommand({ inputFile = null } = {}) {
   hook = parseHookInput(raw);
 
   if (hook && typeof hook.cwd === "string" && hook.cwd) {
-    root = hook.cwd;
+    root = findProjectRoot(hook.cwd);
   }
 
   let result;
@@ -1184,5 +1328,6 @@ module.exports = {
   detectGitOrGh,
   splitSegments,
   toRelative,
+  findProjectRoot,
   DEFAULT_BLOCKED_COMMANDS,
 };
