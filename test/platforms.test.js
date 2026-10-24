@@ -7,6 +7,9 @@ const os = require("os");
 const path = require("path");
 
 const { parseCommandFile, listCommands } = require("../bin/lib/platforms/commands");
+const { parseSkillFrontmatter } = require("../bin/lib/platforms/skills");
+const { renderCommand: renderClaude } = require("../bin/lib/platforms/claude");
+const { renderCommand: renderCodex } = require("../bin/lib/platforms/codex");
 const { renderCommand: renderGemini } = require("../bin/lib/platforms/gemini");
 const { renderCommand: renderOpencode } = require("../bin/lib/platforms/opencode");
 const { renderCommand: renderAntigravity } = require("../bin/lib/platforms/antigravity");
@@ -26,29 +29,38 @@ function tmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-test("gemini renderCommand produces valid TOML (prompt + description)", () => {
+test("claude renderCommand produces skills/<name>/SKILL.md with strict frontmatter", () => {
   const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-next.md"));
-  const { filename, content } = renderGemini(parsed);
+  const { filename, content } = renderClaude(parsed);
 
-  assert.strictEqual(filename, "learn-next.toml");
-  assert.match(content, /^description = "/);
-  assert.match(content, /prompt = """/);
-  assert.match(content, /ai-learn next/);
-  assert.match(content, /"""\s*$/);
+  assert.strictEqual(filename, "learn-next/SKILL.md");
+  const skill = parseSkillFrontmatter(content, { file: filename });
+  assert.strictEqual(skill.name, "learn-next");
+  assert.strictEqual(skill.description, "Prochaine phase à faire");
+  assert.match(skill.body, /ai-learn next/);
 });
 
-test("gemini renderCommand escapes quotes in the description", () => {
-  const { content } = renderGemini({ name: "x", description: 'a "quoted" word', body: "body\n" });
-  assert.match(content, /description = "a \\"quoted\\" word"/);
-});
-
-test("opencode renderCommand produces frontmatter + body", () => {
+test("opencode renderCommand produces skills/<name>/SKILL.md", () => {
   const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-status.md"));
   const { filename, content } = renderOpencode(parsed);
 
-  assert.strictEqual(filename, "learn-status.md");
-  assert.match(content, /^---\ndescription: "/);
-  assert.match(content, /ai-learn status/);
+  assert.strictEqual(filename, "learn-status/SKILL.md");
+  const skill = parseSkillFrontmatter(content, { file: filename });
+  assert.strictEqual(skill.name, "learn-status");
+  assert.match(skill.body, /ai-learn status/);
+});
+
+test("codex and gemini renderCommand namespace their skills with ai-learn-", () => {
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-next.md"));
+
+  for (const [render, expected] of [
+    [renderCodex, "ai-learn-learn-next/SKILL.md"],
+    [renderGemini, "ai-learn-learn-next/SKILL.md"],
+  ]) {
+    const { filename, content } = render(parsed);
+    assert.strictEqual(filename, expected);
+    assert.strictEqual(parseSkillFrontmatter(content, { file: filename }).name, "ai-learn-learn-next");
+  }
 });
 
 test("antigravity renderCommand produces a flat skills/<name>/SKILL.md layout", () => {
@@ -56,7 +68,7 @@ test("antigravity renderCommand produces a flat skills/<name>/SKILL.md layout", 
   const { filename, content } = renderAntigravity(parsed);
 
   assert.strictEqual(filename, "ai-learn-learn-next/SKILL.md");
-  assert.match(content, /^---\nname: ai-learn-learn-next\ndescription: "/);
+  assert.strictEqual(parseSkillFrontmatter(content, { file: filename }).name, "ai-learn-learn-next");
   assert.match(content, /ai-learn next/);
 });
 
@@ -68,14 +80,18 @@ test("antigravity renderCommand quotes a description containing a bare colon (re
   const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-docs.md"));
   assert.match(parsed.description, /:/); // sanity: the fixture still has the colon
 
-  const { content } = renderAntigravity(parsed);
+  const { filename, content } = renderAntigravity(parsed);
   const descriptionLine = content.split("\n").find((line) => line.startsWith("description:"));
   assert.match(descriptionLine, /^description: ".*"$/);
+  assert.strictEqual(parseSkillFrontmatter(content, { file: filename }).description, parsed.description);
 });
 
-test("antigravity renderCommand escapes embedded double quotes", () => {
-  const { content } = renderAntigravity({ name: "x", description: 'a "quoted" word', body: "body\n" });
-  assert.match(content, /description: "a \\"quoted\\" word"/);
+test("renderSkill escapes embedded double quotes in the description", () => {
+  for (const render of [renderClaude, renderCodex, renderGemini, renderOpencode, renderAntigravity]) {
+    const { filename, content } = render({ name: "x", description: 'a "quoted" word', body: "body\n" });
+    assert.match(content, /description: "a \\"quoted\\" word"/);
+    assert.strictEqual(parseSkillFrontmatter(content, { file: filename }).description, 'a "quoted" word');
+  }
 });
 
 test("install antigravity writes one flat skill directory per command and alias, all YAML-parseable", () => {
@@ -89,33 +105,43 @@ test("install antigravity writes one flat skill directory per command and alias,
   assert.ok(fs.existsSync(path.join(skillsDir, "ai-learn-next", "SKILL.md")));
 
   for (const entry of entries) {
-    const content = fs.readFileSync(path.join(skillsDir, entry.name, "SKILL.md"), "utf8");
-    const frontmatter = content.split("---")[1];
-    assert.match(frontmatter, /name: ai-learn-/);
-    assert.match(frontmatter, /description: "/);
+    const file = path.join(skillsDir, entry.name, "SKILL.md");
+    const skill = parseSkillFrontmatter(fs.readFileSync(file, "utf8"), { file });
+    assert.match(skill.name, /^ai-learn-/);
   }
 });
 
-test("install gemini writes one namespaced .toml per command", () => {
+test("install gemini writes one namespaced SKILL.md per command", () => {
   const home = tmpDir("ai-learn-gemini-");
   capture(() => installCommand({ platform: "gemini", home }));
 
-  const dir = path.join(home, ".gemini", "commands", "ai-learn");
-  const files = fs.readdirSync(dir);
-  assert.strictEqual(files.length, 13);
-  assert.ok(files.includes("learn-next.toml"));
-  assert.ok(files.includes("next.toml"), "the legacy /next alias still ships");
+  const dir = path.join(home, ".gemini", "skills");
+  const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
+  assert.strictEqual(entries.length, 13);
+  assert.ok(fs.existsSync(path.join(dir, "ai-learn-learn-next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(dir, "ai-learn-next", "SKILL.md")), "the legacy /next alias still ships");
 });
 
-test("install opencode writes one namespaced .md per command", () => {
+test("install opencode writes one SKILL.md per command", () => {
   const home = tmpDir("ai-learn-opencode-");
   capture(() => installCommand({ platform: "opencode", home }));
 
-  const dir = path.join(home, ".config", "opencode", "command", "ai-learn");
-  const files = fs.readdirSync(dir);
-  assert.strictEqual(files.length, 13);
-  assert.ok(files.includes("learn-next.md"));
-  assert.ok(files.includes("next.md"), "the legacy /next alias still ships");
+  const dir = path.join(home, ".config", "opencode", "skills");
+  const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
+  assert.strictEqual(entries.length, 13);
+  assert.ok(fs.existsSync(path.join(dir, "learn-next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(dir, "next", "SKILL.md")), "the legacy /next alias still ships");
+});
+
+test("install codex writes one namespaced SKILL.md per command", () => {
+  const home = tmpDir("ai-learn-codex-");
+  capture(() => installCommand({ platform: "codex", home }));
+
+  const dir = path.join(home, ".codex", "skills");
+  const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
+  assert.strictEqual(entries.length, 13);
+  assert.ok(fs.existsSync(path.join(dir, "ai-learn-learn-next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(dir, "ai-learn-next", "SKILL.md")), "the legacy /next alias still ships");
 });
 
 test("codex-guard renderConfig emits only literal paths (no aborting dir + dir/** pair)", () => {

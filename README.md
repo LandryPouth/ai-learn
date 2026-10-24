@@ -35,7 +35,7 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 ```bash
 git clone https://github.com/LandryPouth/ai-learn.git
 cd ai-learn
-bash scripts/install-claude.sh   # rend `ai-learn` dispo partout + commandes Claude Code
+bash scripts/install-claude.sh   # rend `ai-learn` dispo partout + skills Claude Code
 ```
 
 **L'apprenant ne tape jamais de commande dans un terminal.** Il passe par Claude Code : les commandes `/…` lui suffisent. L'install se fait une fois, par l'outil. Recharge Claude Code après.
@@ -55,7 +55,7 @@ bash scripts/install-claude.sh   # rend `ai-learn` dispo partout + commandes Cla
 Les anciens noms (`/status`, `/next`, `/scan`, `/propose`, `/check`, `/docs`)
 restent des **alias** : ils fonctionnent toujours et renvoient à la même
 commande, avec une note de dépréciation. Aucun projet déjà installé ne casse —
-`ai-learn update` réécrit les anciens noms en alias.
+`ai-learn update` les réinstalle comme skills dépréciés.
 
 Il n'y a pas de `/verify` : la preuve est **automatique**. En clôture de chaque phase, l'agent lance `ai-learn verify <id>` lui-même — il n'écrit jamais `done` à la main. Et `ai-learn check` refuse tout checkpoint écrit mais jamais prouvé : `verify` ne peut être skippé, même par omission.
 
@@ -69,22 +69,39 @@ Pour les commandes `/…` dédiées :
 
 ```bash
 ai-learn install            # liste les plateformes supportées + statut du garde-fou
-ai-learn install claude     # ai-learn sur PATH + commandes /… (~/.claude/commands/)
-ai-learn install codex      # commandes en prompts Codex (~/.codex/prompts/)
-ai-learn install gemini     # commandes en /ai-learn:<nom> (~/.gemini/commands/ai-learn/)
-ai-learn install opencode    # commandes en /ai-learn/<nom> (~/.config/opencode/command/ai-learn/)
-ai-learn install antigravity # skills en ai-learn-<nom>/SKILL.md (~/.gemini/antigravity/skills/)
+ai-learn install claude     # ai-learn sur PATH + skills (~/.claude/skills/)
+ai-learn install codex      # skills (~/.codex/skills/)
+ai-learn install gemini     # skills (~/.gemini/skills/)
+ai-learn install opencode   # skills (~/.config/opencode/skills/)
+ai-learn install antigravity # skills (~/.gemini/antigravity/skills/)
+ai-learn install <plateforme> --dry-run  # montre les écritures/retraits sans rien toucher
 ```
+
+Chaque commande est installée comme un skill `<nom>/SKILL.md` (frontmatter
+`name` + `description`, description toujours quotée). Les anciens fichiers de
+commande qu'`ai-learn` avait écrits (Claude `commands/`, Codex `prompts/`,
+Gemini `commands/ai-learn/`, OpenCode `command/ai-learn/`) sont retirés
+**seulement si leur contenu est encore byte-identique** à ce qu'il avait généré.
+Un fichier modifié est conservé et nommé dans la sortie ; rien n'est supprimé
+en silence.
+
+| Plateforme | Emplacement du skill | Preuve de l'emplacement de lecture |
+|---|---|---|
+| Claude Code | `~/.claude/skills/<nom>/SKILL.md` | Chargeur de skills Claude Code ; OpenCode auto-charge aussi ce chemin |
+| OpenCode | `~/.config/opencode/skills/<nom>/SKILL.md` | `opencode debug skill` après install, test automatisé `test/integration-opencode.test.js` (auto-skip sans binaire) |
+| Gemini CLI | `~/.gemini/skills/ai-learn-<nom>/SKILL.md` | Doc embarquée du paquet installé (`bundle/docs/cli/skills.md`, « User Skills: `~/.gemini/skills/` ») ; répertoire réellement peuplé sur cette machine |
+| Codex CLI | `~/.codex/skills/ai-learn-<nom>/SKILL.md` | Binaire installé codex-cli 0.138.0 (`$CODEX_HOME/skills`, commande TUI `/skills`) ; répertoire réellement peuplé sur cette machine |
+| Antigravity | `~/.gemini/antigravity/skills/ai-learn-<nom>/SKILL.md` | Format `SKILL.md` déjà utilisé par l'adaptateur ; chemin non revérifié sur cette machine (Antigravity absent), découverte live non vérifiée — laissé à son format actuel |
 
 | Plateforme | Commandes `/…` | Garde-fou `src/**` | Garde-fou git/gh |
 |---|---|---|---|
-| Claude Code | ✓ | **mécanique** — hook `PreToolUse`, l'écriture n'a jamais lieu | **mécanique** — même hook `PreToolUse` : toute commande `git`/`gh` de l'IA est refusée, lecture incluse |
-| Codex CLI | ✓ (format vérifié contre la doc embarquée du paquet) | **mécanique** — profil de permissions bac à sable OS (`.codex/config.toml`, câblé par `init`/`update`) ; vérifié avec `codex sandbox` (bloque écriture shell **et** Python dans `src/**`, sans toucher au reste du workspace), **pas encore vérifié en session interactive réelle** (pas d'abonnement Codex) ; nécessite que le projet soit « trusted » côté Codex (approbation ponctuelle, comportement normal de leur modèle de sécurité) | **non traité** — le sandbox Codex bloque par *chemin de fichier*, pas par intention/binaire exécuté ; un blocage exec `git`/`gh` au niveau sandbox casserait aussi les checkpoints internes d'`ai-learn` qui appellent `git`/`gh` légitimement (ex. les checkpoints des tiers 3-5 du module git/gh). Limite ouverte, documentée ici plutôt que silencieuse |
-| Gemini CLI | ✓ (syntaxe TOML validée avec un parseur strict ; **découverte réelle par `gemini` non vérifiée**, pas de moyen non-interactif trouvé pour le confirmer sans appel modèle) | non câblé — un hook `BeforeTool` existe (confirmé dans la doc embarquée du paquet installé), mais le nom exact du champ `tool_input` pour un chemin de fichier n'a pas pu être confirmé sans casser un vrai hook silencieusement inopérant ; `AGENTS.md` + trous non-collables seuls protègent `src/**` | non câblé — même limite que le garde-fou `src/**` ; `AGENTS.md` §3bis seul |
-| OpenCode | ✓ (**découverte confirmée en conditions réelles** : `opencode debug config` après `ai-learn install opencode` résout les commandes `/learn-*` et leurs alias, test automatisé dans `test/integration-opencode.test.js`, auto-skip si `opencode` absent) | **mécanique** — plugin `.opencode/plugins/ai-learn-guard.js` (`tool.execute.before`) généré par `init`/`update` : `write`/`edit`/`bash`/`apply_patch` sont traduits vers `decide` (le même que Claude), en processus sous Bun ; un module indisponible laisse passer mais écrit « NOT checked » sur stderr et dans `.ai-learn/guard-unchecked.jsonl`. **Refus observé en session réelle** OpenCode 1.19.3 : un appel `write` sur `src/a.js` rend l'erreur `ai-learn guard` et le fichier n'est pas créé | **mécanique par construction** — le plugin passe `bash` à `decide` : toute commande `git`/`gh` (lecture incluse) et `ai-learn mode` sont refusées comme sous Claude Code |
-| Antigravity | ✓ (**structure confirmée sur disque** — `~/.gemini/antigravity/skills/<nom>/SKILL.md`, identique aux skills Gemini CLI, retrouvée réellement installée sur une machine de dev ; le YAML est validé avec un parseur strict, un vrai bug de description non-quotée — un `:` mi-phrase cassait le frontmatter — a été trouvé et corrigé ainsi ; découverte effective par Antigravity non vérifiée faute de session live) | non câblé — un système `hooks.json` plus riche existe côté doc publique mais n'a pas pu être confirmé sur l'install réelle disponible ; `AGENTS.md` + trous non-collables seuls | non câblé — même limite ; `AGENTS.md` §3bis seul |
+| Claude Code | ✓ skills, alias dépréciés inclus | **mécanique** — hook `PreToolUse`, l'écriture n'a jamais lieu | **mécanique** — même hook `PreToolUse` : toute commande `git`/`gh` de l'IA est refusée, lecture incluse |
+| Codex CLI | ✓ skills `ai-learn-*` | **mécanique** — profil de permissions bac à sable OS (`.codex/config.toml`, câblé par `init`/`update`) ; vérifié avec `codex sandbox` (bloque écriture shell **et** Python dans `src/**`, sans toucher au reste du workspace), **pas encore vérifié en session interactive réelle** (pas d'abonnement Codex) ; nécessite que le projet soit « trusted » côté Codex (approbation ponctuelle, comportement normal de leur modèle de sécurité) | **non traité** — le sandbox Codex bloque par *chemin de fichier*, pas par intention/binaire exécuté ; un blocage exec `git`/`gh` au niveau sandbox casserait aussi les checkpoints internes d'`ai-learn` qui appellent `git`/`gh` légitimement (ex. les checkpoints des tiers 3-5 du module git/gh). Limite ouverte, documentée ici plutôt que silencieuse |
+| Gemini CLI | ✓ skills `ai-learn-*` | non câblé — un hook `BeforeTool` existe (confirmé dans la doc embarquée du paquet installé), mais le nom exact du champ `tool_input` pour un chemin de fichier n'a pas pu être confirmé sans casser un vrai hook silencieusement inopérant ; `AGENTS.md` + trous non-collables seuls protègent `src/**` | non câblé — même limite que le garde-fou `src/**` ; `AGENTS.md` §3bis seul |
+| OpenCode | ✓ skills (**découverte confirmée en conditions réelles** : `opencode debug skill` liste chaque `learn-*` et ses alias, test automatisé dans `test/integration-opencode.test.js`, auto-skip si `opencode` absent) | **mécanique** — plugin `.opencode/plugins/ai-learn-guard.js` (`tool.execute.before`) généré par `init`/`update` : `write`/`edit`/`bash`/`apply_patch` sont traduits vers `decide` (le même que Claude), en processus sous Bun ; un module indisponible laisse passer mais écrit « NOT checked » sur stderr et dans `.ai-learn/guard-unchecked.jsonl`. **Refus observé en session réelle** OpenCode 1.19.3 : un appel `write` sur `src/a.js` rend l'erreur `ai-learn guard` et le fichier n'est pas créé | **mécanique par construction** — le plugin passe `bash` à `decide` : toute commande `git`/`gh` (lecture incluse) et `ai-learn mode` sont refusées comme sous Claude Code |
+| Antigravity | ✓ skills `ai-learn-*` (format `SKILL.md` déjà utilisé par l'adaptateur ; YAML validé avec un parseur strict ; découverte effective par Antigravity non vérifiée faute de session live, chemin non revérifié sur cette machine) | non câblé — un système `hooks.json` plus riche existe côté doc publique mais n'a pas pu être confirmé sur l'install réelle disponible ; `AGENTS.md` + trous non-collables seuls | non câblé — même limite ; `AGENTS.md` §3bis seul |
 
-Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la création de lien symbolique est refusée par l'OS (`EPERM`) — `ai-learn` bascule alors automatiquement sur une copie de fichier, testé en conditions réelles (PowerShell + Node natif Windows).
+Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la création de lien symbolique est refusée par l'OS (`EPERM`) — `ai-learn` bascule alors automatiquement sur une copie de fichier pour le binaire, testé en conditions réelles (PowerShell + Node natif Windows). Les skills eux-mêmes sont des fichiers ordinaires, donc ils ne dépendent pas des symlinks.
 
 ## La philosophie
 

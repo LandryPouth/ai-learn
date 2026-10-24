@@ -232,12 +232,12 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
   if (platform && PLATFORMS[platform]) {
     try {
       const result = INSTALLERS[platform]({ home: os.homedir() });
-      log(`  platform ${platform}: commandes /… installées (${result.created.length} fichier(s))`);
+      log(`  platform ${platform}: skills installés (${result.created.length} fichier(s))`);
     } catch (error) {
-      log(`  note    installation des commandes ${platform} a échoué : ${error.message}`);
+      log(`  note    installation des skills ${platform} a échoué : ${error.message}`);
     }
   } else if (platform) {
-    log(`  note    plateforme "${platform}" inconnue — commandes /… non installées (voir \`ai-learn install\`)`);
+    log(`  note    plateforme "${platform}" inconnue — skills non installés (voir \`ai-learn install\`)`);
   }
 
   return { dir: abs, created, platform: platform || null };

@@ -2,10 +2,10 @@
 
 // Best-effort integration test against the real `opencode` binary, when one
 // is available on PATH — skipped everywhere else (CI has no reason to have
-// it installed). `opencode debug config` resolves the final config without
+// it installed). `opencode debug skill` lists the discovered skills without
 // any model call, so this is safe to run unattended: it proves our generated
-// commands are actually discovered by OpenCode, not just correctly formatted
-// on paper.
+// SKILL.md files are actually discovered by OpenCode, not just correctly
+// formatted on paper.
 
 const { test } = require("node:test");
 const assert = require("node:assert");
@@ -26,21 +26,46 @@ function opencodeAvailable() {
   }
 }
 
-test("opencode actually discovers the commands ai-learn install generates", { skip: !opencodeAvailable() }, () => {
+test("opencode actually discovers the skills ai-learn install generates", { skip: !opencodeAvailable() }, () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-opencode-integration-"));
   capture(() => installCommand({ platform: "opencode", home }));
 
-  const raw = execFileSync("opencode", ["debug", "config"], {
+  const raw = execFileSync("opencode", ["debug", "skill"], {
     env: { ...process.env, ...homeEnvOverrides(home) },
     encoding: "utf8",
+    maxBuffer: 20 * 1024 * 1024,
   });
-  const config = JSON.parse(raw);
+  const skills = JSON.parse(raw);
+  assert.ok(Array.isArray(skills), "opencode debug skill did not return a JSON array");
+  const byName = new Map(skills.map((skill) => [skill.name, skill]));
 
-  assert.ok(config.command, "opencode resolved no \"command\" key at all");
-  assert.strictEqual(Object.keys(config.command).length, 13);
-  assert.ok(config.command["ai-learn/learn-next"], "the canonical /learn-next command");
-  assert.match(config.command["ai-learn/learn-next"].description, /Prochaine phase/);
-  assert.match(config.command["ai-learn/learn-next"].template, /ai-learn next/);
-  assert.ok(config.command["ai-learn/next"], "the legacy /next alias still resolves");
-  assert.match(config.command["ai-learn/next"].template, /Nom déprécié/);
+  for (const name of [
+    "learn",
+    "learn-next",
+    "learn-status",
+    "learn-scan",
+    "learn-propose",
+    "learn-check",
+    "learn-docs",
+    "next",
+    "status",
+    "check",
+    "docs",
+    "scan",
+    "propose",
+  ]) {
+    assert.ok(byName.has(name), `opencode did not discover the ${name} skill`);
+  }
+
+  const learnNext = byName.get("learn-next");
+  assert.match(learnNext.description, /Prochaine phase/);
+  assert.strictEqual(
+    learnNext.location,
+    path.join(home, ".config", "opencode", "skills", "learn-next", "SKILL.md"),
+  );
+  assert.match(byName.get("next").description, /Prochaine phase/);
+  assert.strictEqual(byName.get("next").location, path.join(home, ".config", "opencode", "skills", "next", "SKILL.md"));
+  assert.match(byName.get("next").content, /Nom déprécié/);
+  assert.strictEqual(byName.get("learn").name, "learn");
+  assert.strictEqual(skills.filter((skill) => skill.name === "learn-next").length, 1, "no duplicate from external skill paths");
 });

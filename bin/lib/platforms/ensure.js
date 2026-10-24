@@ -33,22 +33,41 @@ const os = require("os");
 const { detectPlatform } = require("./detect");
 const { PLATFORMS, INSTALLERS } = require("../install");
 
+// Current install marker: one canonical skill per platform (story 08.03 moved
+// the commands from their native command formats to `<name>/SKILL.md`).
 const MARKER_FILE = {
-  claude: (home) => path.join(home, ".claude", "commands", "learn-next.md"),
-  codex: (home) => path.join(home, ".codex", "prompts", "ai-learn-learn-next.md"),
-  gemini: (home) => path.join(home, ".gemini", "commands", "ai-learn", "learn-next.toml"),
-  opencode: (home) => path.join(home, ".config", "opencode", "command", "ai-learn", "learn-next.md"),
+  claude: (home) => path.join(home, ".claude", "skills", "learn-next", "SKILL.md"),
+  codex: (home) => path.join(home, ".codex", "skills", "ai-learn-learn-next", "SKILL.md"),
+  gemini: (home) => path.join(home, ".gemini", "skills", "ai-learn-learn-next", "SKILL.md"),
+  opencode: (home) => path.join(home, ".config", "opencode", "skills", "learn-next", "SKILL.md"),
   antigravity: (home) => path.join(home, ".gemini", "antigravity", "skills", "ai-learn-learn-next", "SKILL.md"),
 };
 
-// The pre-04.05 names, still written as aliases. A platform whose legacy
-// marker exists but whose current marker does not is installed-but-outdated.
+// The old command paths, in two generations: the 04.05 `/learn-*` names and
+// the pre-04.05 names (still written as aliases). A platform whose legacy
+// marker exists but whose current marker does not is installed-but-outdated;
+// the next install migrates it.
 const LEGACY_MARKER_FILE = {
-  claude: (home) => path.join(home, ".claude", "commands", "next.md"),
-  codex: (home) => path.join(home, ".codex", "prompts", "ai-learn-next.md"),
-  gemini: (home) => path.join(home, ".gemini", "commands", "ai-learn", "next.toml"),
-  opencode: (home) => path.join(home, ".config", "opencode", "command", "ai-learn", "next.md"),
-  antigravity: (home) => path.join(home, ".gemini", "antigravity", "skills", "ai-learn-next", "SKILL.md"),
+  claude: (home) => [
+    path.join(home, ".claude", "commands", "learn-next.md"),
+    path.join(home, ".claude", "commands", "next.md"),
+  ],
+  codex: (home) => [
+    path.join(home, ".codex", "prompts", "ai-learn-learn-next.md"),
+    path.join(home, ".codex", "prompts", "ai-learn-next.md"),
+  ],
+  gemini: (home) => [
+    path.join(home, ".gemini", "commands", "ai-learn", "learn-next.toml"),
+    path.join(home, ".gemini", "commands", "ai-learn", "next.toml"),
+  ],
+  opencode: (home) => [
+    path.join(home, ".config", "opencode", "command", "ai-learn", "learn-next.md"),
+    path.join(home, ".config", "opencode", "command", "ai-learn", "next.md"),
+  ],
+  antigravity: (home) => [
+    path.join(home, ".gemini", "antigravity", "skills", "ai-learn-learn-next", "SKILL.md"),
+    path.join(home, ".gemini", "antigravity", "skills", "ai-learn-next", "SKILL.md"),
+  ],
 };
 
 // A platform that does not read AGENTS.md on its own gets a one-line native
@@ -112,7 +131,9 @@ function ensureNativeMemoryFile(dir, platform) {
 
 function markerExists(markers, platform, home) {
   try {
-    return fs.existsSync(markers[platform](home));
+    const marker = markers[platform](home);
+    const paths = Array.isArray(marker) ? marker : [marker];
+    return paths.some((file) => fs.existsSync(file));
   } catch {
     return false;
   }

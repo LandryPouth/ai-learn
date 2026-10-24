@@ -1,19 +1,27 @@
 "use strict";
 
-// Codex CLI custom prompts: markdown files under ~/.codex/prompts/, frontmatter
-// close to Claude Code's (description, argument-hint). Namespaced with an
-// `ai-learn-` prefix so they cannot collide with the user's own prompts, and
-// invoked as /prompts:ai-learn-<name>.
+// Codex CLI skills: $CODEX_HOME/skills/<name>/SKILL.md (default ~/.codex).
+// Proven against the installed codex-cli 0.138.0: the binary contains the
+// `$CODEX_HOME/skills` discovery path and the TUI's `/skills` command, and this
+// machine already has real skills in ~/.codex/skills/. The `ai-learn-` prefix
+// keeps these out of the learner's own skill namespace.
 //
-// Codex has no pre-write hook equivalent to Claude Code's PreToolUse — the
-// mechanical learner-file guard cannot be ported here (see install.js /
-// README). Only the commands travel; the guard stays a documented gap.
+// The old ~/.codex/prompts/ai-learn-*.md prompts are migrated by install.js
+// (content fingerprint), not written anymore.
 
+const { renderSkill } = require("./skills");
+
+function renderCommand(command) {
+  return renderSkill(command, { namePrefix: "ai-learn-" });
+}
+
+// The pre-08.03 Codex prompt format. Only install.js's migration reads it, to
+// decide whether an old file is still byte-identical to what ai-learn wrote.
 function escapeQuotes(value) {
   return String(value).replace(/"/g, '\\"');
 }
 
-function renderCommand({ name, description, argumentHint, body }) {
+function renderLegacyCommand({ name, description, argumentHint, body }) {
   const lines = ["---", `description: "${escapeQuotes(description)}"`];
 
   if (argumentHint) {
@@ -28,4 +36,4 @@ function renderCommand({ name, description, argumentHint, body }) {
   };
 }
 
-module.exports = { renderCommand };
+module.exports = { renderCommand, renderLegacyCommand };

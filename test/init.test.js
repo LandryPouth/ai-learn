@@ -160,7 +160,7 @@ test("init installs the given platform's slash commands into an isolated home", 
   try {
     const { platform } = scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "codex" });
     assert.strictEqual(platform, "codex");
-    assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
+    assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next", "SKILL.md")));
   } finally {
     process.env.HOME = original.HOME;
     process.env.USERPROFILE = original.USERPROFILE;

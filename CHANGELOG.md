@@ -10,6 +10,21 @@
 Toutes les versions notables d'`ai-learn` sont documentées ici. Le format suit
 grossièrement [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased — story 08.03
+
+- Les commandes `/learn-*` sont installées comme skills `<nom>/SKILL.md` pour
+  Claude Code, OpenCode, Gemini CLI, Codex CLI et Antigravity. L'invocation
+  change : les commandes OpenCode `/ai-learn/<nom>` et Gemini
+  `/ai-learn:<nom>` deviennent des skills nommés ; les alias historiques
+  (`/next`, `/status`, …) restent des skills dépréciés, jamais supprimés en
+  silence.
+- Les anciens fichiers de commande écrits par `ai-learn` sont retirés à
+  l'installation seulement si leur contenu est encore byte-identique ; un
+  fichier modifié est conservé et nommé. Un skill déjà présent à un nom
+  générique (`next`, `check`, …) mais qui n'a pas été écrit par `ai-learn`
+  n'est jamais écrasé : il est conservé et nommé. `install --dry-run` montre
+  les écritures et retraits sans toucher au disque.
+
 ## 0.4.0 — depuis le 2026-08-24
 
 `package.json` est à `0.4.0` depuis le bump `5a69921` ; aucun bump ultérieur

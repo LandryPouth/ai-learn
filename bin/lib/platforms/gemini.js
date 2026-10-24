@@ -1,19 +1,32 @@
 "use strict";
 
-// Gemini CLI custom commands: TOML files under ~/.gemini/commands/ai-learn/,
-// invoked as /ai-learn:<name>. Format confirmed against the docs bundled with
-// the installed package (@google/gemini-cli, docs/cli/custom-commands.md):
-// required `prompt`, optional `description`, no other fields. ai-learn's
-// commands take no arguments, so neither `{{args}}` nor `!{...}` (Gemini's
-// argument-injection / inline-shell syntax) is used — the body just instructs
-// the agent to run a fixed `ai-learn <cmd>`, same as the other adapters.
+// Gemini CLI skills: ~/.gemini/skills/<name>/SKILL.md. Proven against the
+// installed package (@google/gemini-cli 0.39.1, bundle/docs/cli/skills.md):
+// "User Skills: Located in ~/.gemini/skills/ or the ~/.agents/skills/ alias."
+// The `ai-learn-` prefix keeps these out of the learner's own skill namespace.
+// The old TOML commands under ~/.gemini/commands/ai-learn/ are migrated by
+// install.js (content fingerprint), not written anymore.
 
+const { renderSkill } = require("./skills");
+
+function renderCommand(command) {
+  return renderSkill(command, { namePrefix: "ai-learn-" });
+}
+
+// The pre-08.03 Gemini command format. Only install.js's migration reads it,
+// to decide whether an old file is still byte-identical to what ai-learn wrote.
 function escapeToml(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function renderCommand({ name, description, body }) {
-  const lines = [`description = "${escapeToml(description)}"`, 'prompt = """', body.trim(), '"""', ""];
+function renderLegacyCommand({ name, description, body }) {
+  const lines = [
+    `description = "${escapeToml(description)}"`,
+    'prompt = """',
+    body.trim(),
+    '"""',
+    "",
+  ];
 
   return {
     filename: `${name}.toml`,
@@ -21,4 +34,4 @@ function renderCommand({ name, description, body }) {
   };
 }
 
-module.exports = { renderCommand };
+module.exports = { renderCommand, renderLegacyCommand };

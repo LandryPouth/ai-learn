@@ -177,17 +177,17 @@ function ensurePlatformCommands(platform) {
 
   if (!PLATFORMS[platform]) {
     log(
-      `  ⚠ plateforme "${platform}" inconnue — commandes /… non installées (voir \`ai-learn install\`)`,
+      `  ⚠ plateforme "${platform}" inconnue — skills non installés (voir \`ai-learn install\`)`,
     );
     return null;
   }
 
   try {
     const result = INSTALLERS[platform]({ home: os.homedir() });
-    return { platform, created: result.created.length };
+    return { platform, created: result.created.length, removed: result.removed.length, kept: result.kept.length, keptFiles: result.kept };
   } catch (error) {
     log(
-      `  ⚠ installation des commandes ${platform} a échoué : ${error.message}`,
+      `  ⚠ installation des skills ${platform} a échoué : ${error.message}`,
     );
     return null;
   }
@@ -205,8 +205,12 @@ function updateCommand({ root, platform }) {
 
   if (platformResult) {
     log(
-      `Platform ${platformResult.platform}: commandes /… synchronisées (${platformResult.created} fichier(s) créé/rafraîchi).`,
+      `Platform ${platformResult.platform}: skills synchronisés (${platformResult.created} fichier(s) créé/rafraîchi, ${platformResult.removed} ancien(s) retiré(s), ${platformResult.kept} conservé(s)).`,
     );
+
+    for (const file of platformResult.keptFiles) {
+      log(`  = ${file}`);
+    }
   }
 
   log(`Updating ${projects.length} learning project(s) under ${root}:`);

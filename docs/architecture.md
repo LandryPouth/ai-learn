@@ -29,8 +29,9 @@ bin/lib/
   platforms/*.js         adaptateurs des 5 plateformes + détection + self-heal
 templates/               AGENTS-apprentissage.md, plan, predictions, dogfood, commit-msg,
                          opencode-guard-plugin.js (source du plugin généré)
-commands/                les 7 commandes /learn-* (markdown, format Claude Code) ;
-                         les anciens noms en sont des alias générés à l'install
+commands/                les 7 commandes /learn-* (markdown, format Claude Code),
+                         source unique ; install.js les rend en <nom>/SKILL.md
+                         pour les 5 plateformes, alias historiques compris
 ```
 
 ## Invariants structurels
@@ -54,6 +55,10 @@ commands/                les 7 commandes /learn-* (markdown, format Claude Code)
    absente ⇒ allow. Un guard cassé ne doit pas casser une session.
 8. **Rien n'est destructif.** `init` ne réécrit jamais un fichier existant ;
    `update` ne réécrit qu'un fichier *généré*, reconnu par son marqueur de titre.
+9. **La migration des commandes est prouvée par le contenu, pas par le nom.**
+   `install` ne retire un ancien fichier que si ses octets sont encore ceux
+   qu'`ai-learn` avait écrits ; un fichier modifié est conservé et nommé. Un
+   symlink ou un skill utilisateur n'est jamais traversé, écrasé ni supprimé.
 
 ## Couplages à connaître avant de toucher
 
@@ -125,6 +130,8 @@ jamais par lui — c'est voulu et documenté dans `guard.js#detectGitOrGh`.
 - Chemins normalisés via `normalizePortable` (backslash → slash) partout où un
   chemin est écrit dans un fichier de données ou comparé à un glob.
 - `install claude` bascule automatiquement du symlink vers la copie de fichier
-  quand l'OS refuse (`EPERM` Windows sans Developer Mode).
+  pour le binaire quand l'OS refuse (`EPERM` Windows sans Developer Mode). Les
+  skills sont des fichiers ordinaires (`<nom>/SKILL.md`), donc indépendants des
+  symlinks.
 - `verify` lance le checkpoint avec `shell: true` — la commande est celle du
   `progress.json`, telle quelle, depuis la racine du projet.

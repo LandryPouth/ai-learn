@@ -28,6 +28,9 @@ Scout pre-step : `no`
 - Décision : le retrait des anciens fichiers se fait par empreinte (hash du contenu écrit par `ai-learn`), pas par nom. Un fichier modifié par l'utilisateur est gardé.
 - Décision : Codex et Gemini ne sont migrés que si leur emplacement de lecture des skills est prouvé (documentation embarquée du paquet installé, ou commande de debug) ; sinon ils restent sur prompts/TOML, raison au README. Aucune hypothèse sur ces emplacements n'est écrite sans preuve.
 - Décision : le préfixe d'invocation change (`/ai-learn/<nom>` vers le nom du skill) : le changement et les alias sont listés dans le CHANGELOG et dans la sortie d'`install`.
+- Décision : les 5 plateformes sont migrées, pas seulement Claude/OpenCode — les emplacements Codex (`$CODEX_HOME/skills`, binaire 0.138.0) et Gemini (`~/.gemini/skills/`, doc embarquée) sont prouvés. Claude/OpenCode gardent le nom nu (`learn-next`, `next`) ; Codex/Gemini/Antigravity préfixent `ai-learn-`.
+- Décision : la migration compare le contenu octet par octet au rendu legacy courant ; un symlink utilisateur n'est ni traversé ni supprimé. Un fichier pré-04.05 non reconnu est conservé, et le nouvel alias déprécié est installé.
+- Décision : `--dry-run` est un flag d'`install` (calcule les écritures/retraits sans toucher au disque), pas un mode séparé.
 
 ## Test Plan
 

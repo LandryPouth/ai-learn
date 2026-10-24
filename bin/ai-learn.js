@@ -289,7 +289,7 @@ function main() {
       const { positionals, flags: installFlags } = parseArgs(commandArgs, { valueFlags: ["--home"] });
       const platform = positionals[0] || null;
       const home = typeof installFlags["--home"] === "string" ? installFlags["--home"] : null;
-      installCommand({ platform, ...(home ? { home } : {}) });
+      installCommand({ platform, dryRun: Boolean(installFlags["--dry-run"]), ...(home ? { home } : {}) });
       break;
     }
 
@@ -321,10 +321,10 @@ Usage:
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn upgrade
-  ai-learn install [claude|codex|gemini|opencode|antigravity] [--home <dir>]
+  ai-learn install [claude|codex|gemini|opencode|antigravity] [--home <dir>] [--dry-run]
 
 --platform is accepted by EVERY command (not just init/update): before
-dispatch, ai-learn mechanically installs that platform's /… commands if
+dispatch, ai-learn mechanically installs that platform's skills if
 missing — a learner resuming on a different platform than the project was
 init'ed on self-heals on its very next command, no separate step to
 remember. Claude Code also self-heals with no flag at all (CLAUDECODE=1,
@@ -336,7 +336,7 @@ with the text output.
 
 Commands:
   init     Scaffold a learning project (progress.json, docs/plans/, checkpoint/, predictions journal).
-           --platform installs that platform's /… commands immediately (the agent knows its own
+           --platform installs that platform's skills immediately (the agent knows its own
            identity — pass it explicitly; falls back to detecting Claude Code only, the sole
            verified signal — see bin/lib/platforms/detect.js)
   status   Show phases and their state in the current project
@@ -386,9 +386,10 @@ Commands:
   upgrade  Update the ai-learn tool itself to the latest version (npm reinstall from
            GitHub). Refuses to run on a dev checkout (git clone) — use git pull there.
            Does not touch already-scaffolded projects; run update --root for that
-  install  Install the 7 slash commands (and, for claude, the ai-learn
-           binary on PATH) for a platform: claude (mechanical guard) or
-           codex (commands only — no pre-write hook available there).
+  install  Install the 7 commands as <name>/SKILL.md skills (and, for claude,
+           the ai-learn binary on PATH) for a platform. Old command files this
+           tool wrote are removed only when unmodified; edited ones are kept
+           and named. --dry-run reports the actions without touching disk.
            No argument lists supported platforms and their guard status.
 
 Every verdict is executed proof: verify runs the checkpoint itself and only

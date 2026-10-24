@@ -311,9 +311,9 @@ function checkProject(dir, { home, now = new Date() } = {}) {
     // error, and never something the learner has to fix by hand.
     for (const platform of legacyOnlyPlatforms(home)) {
       issues.warnings.push({
-        file: `/… commands (${platform})`,
+        file: `/… skills (${platform})`,
         message:
-          `commandes ${platform} installées sous les anciens noms seulement — les noms /learn-* ` +
+          `skills ${platform} installés sous les anciens noms seulement — les skills /learn-* ` +
           `manquent. Lance \`ai-learn update --platform ${platform}\` pour les ajouter (migration, non bloquant).`,
       });
     }

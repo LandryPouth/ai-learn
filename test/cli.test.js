@@ -102,8 +102,8 @@ test("any command with --platform mechanically installs that platform's commands
   });
 
   assert.strictEqual(result.status, 0);
-  assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-learn-next.md")));
-  assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
+  assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-learn-next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next", "SKILL.md")));
 });
 
 test("a command with CLAUDECODE=1 in its env self-heals Claude Code's commands, unprompted", () => {
@@ -114,7 +114,7 @@ test("a command with CLAUDECODE=1 in its env self-heals Claude Code's commands, 
   });
 
   assert.strictEqual(result.status, 0);
-  assert.ok(fs.existsSync(path.join(home, ".claude", "commands", "learn-next.md")));
+  assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "learn-next", "SKILL.md")));
 });
 
 test("self-heal is a one-time no-op: a second run doesn't rewrite already-installed commands", () => {
@@ -122,7 +122,7 @@ test("self-heal is a one-time no-op: a second run doesn't rewrite already-instal
   const env = { ...process.env, ...homeEnvOverrides(home, { CLAUDECODE: "" }) };
 
   spawnSync(process.execPath, [BIN, "--platform", "gemini", "--help"], { encoding: "utf8", env });
-  const marker = path.join(home, ".gemini", "commands", "ai-learn", "learn-next.toml");
+  const marker = path.join(home, ".gemini", "skills", "ai-learn-learn-next", "SKILL.md");
   const before = fs.statSync(marker).mtimeMs;
 
   spawnSync(process.execPath, [BIN, "--platform", "gemini", "--help"], { encoding: "utf8", env });
@@ -221,8 +221,20 @@ test("install --home <path> claude retains claude as the platform, not the path 
   });
 
   assert.strictEqual(result.status, 0);
-  assert.ok(fs.existsSync(path.join(home, ".claude", "commands", "learn-next.md")));
-  assert.ok(fs.existsSync(path.join(home, ".claude", "commands", "next.md")));
+  assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "learn-next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "next", "SKILL.md")));
+});
+
+test("install --dry-run reports actions through the CLI without writing", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-cli-install-dry-"));
+  const result = spawnSync(process.execPath, [BIN, "install", "opencode", "--home", home, "--dry-run"], {
+    encoding: "utf8",
+    env: isolatedEnv(),
+  });
+
+  assert.strictEqual(result.status, 0);
+  assert.match(result.stdout, /\[dry-run\]/);
+  assert.ok(!fs.existsSync(path.join(home, ".config", "opencode", "skills")));
 });
 
 test("ai-learn check --root . --json prints a single valid JSON object, end to end through the CLI", () => {
