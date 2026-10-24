@@ -562,6 +562,41 @@ test("ensureNormHook merges a PostToolUse hook without clobbering existing setti
   assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
 });
 
+test("ensureNormHook repoints a hook wired to a stale binary path instead of leaving it dead", () => {
+  const dir = tmpDir();
+  writeFile(
+    dir,
+    ".claude/settings.json",
+    JSON.stringify({
+      hooks: { PostToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "node /old/place/bin/ai-learn.js norm --hook" }] }] },
+    }),
+  );
+
+  const result = ensureNormHook(dir);
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+
+  assert.deepStrictEqual(result.refreshed, [".claude/settings.json"]);
+  assert.strictEqual(settings.hooks.PostToolUse.length, 1);
+  assert.ok(!settings.hooks.PostToolUse[0].hooks[0].command.includes("/old/place"));
+  assert.deepStrictEqual(ensureNormHook(dir), { wired: true, created: [] });
+});
+
+test("ai-learn norm --hook finds the project root from process.cwd() when the payload has no cwd", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ implementationFiles: ["src/**"], learnerFiles: [] }));
+  writeFile(dir, "package.json", "{}");
+  writeFile(dir, "src/a.js", `function f() {\n${Array.from({ length: 70 }, (_, i) => `  a${i} = ${i};`).join("\n")}\n}\n`);
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(__dirname, "..", "bin", "ai-learn.js"), "norm", "--hook"],
+    { cwd: path.join(dir, "src"), input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "a.js" } }), encoding: "utf8" },
+  );
+
+  assert.strictEqual(result.status, 0);
+  assert.match(result.stdout, /function-length/);
+});
+
 test("ensureNormHook never rewrites a settings.json it cannot safely merge", () => {
   const cases = ["{oops", JSON.stringify({ hooks: { PostToolUse: { a: 1 } }, x: 1 }), JSON.stringify({ hooks: [] })];
 

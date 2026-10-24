@@ -281,9 +281,11 @@ function updateCommand({ root, platform }) {
     if (normHook) {
       const state = normHook.skipped
         ? "settings.json illisible ou de forme inattendue — non modifié"
-        : normHook.wired
-          ? "hook already wired"
-          : "hook wired";
+        : normHook.refreshed
+          ? "hook repointed to the current binary"
+          : normHook.wired
+            ? "hook already wired"
+            : "hook wired";
       log(`  norm hook (claude): ${state}`);
     }
     log(

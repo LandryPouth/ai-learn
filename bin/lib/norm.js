@@ -655,7 +655,7 @@ function normCommand({ dir }) {
 // fallback (call `ai-learn norm` after each brick).
 // ---------------------------------------------------------------------------
 
-const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
 const NORM_HOOK_MARKER = /ai-learn\.js"? norm --hook/;
 // Manifests probed at the project root to pick the right stack pack without
 // walking the whole tree on every write.
@@ -696,7 +696,7 @@ function hookTargetPath(toolInput) {
   if (!toolInput || typeof toolInput !== "object") {
     return null;
   }
-  return toolInput.notebook_path || toolInput.file_path || null;
+  return toolInput.file_path || null;
 }
 
 // The stack detection `normProject` gets from a full walk, reproduced from the
@@ -763,13 +763,10 @@ function normHookCommand({ inputFile = null } = {}) {
     return;
   }
 
-  let root = process.cwd();
+  const start = typeof hook.cwd === "string" && hook.cwd ? hook.cwd : process.cwd();
+  const root = findProjectRoot(start);
 
-  if (typeof hook.cwd === "string" && hook.cwd) {
-    root = findProjectRoot(hook.cwd);
-  }
-
-  const abs = path.isAbsolute(target) ? path.normalize(target) : path.resolve(root, target);
+  const abs = path.isAbsolute(target) ? path.normalize(target) : path.resolve(start, target);
   const rel = normalizePortable(path.relative(root, abs));
 
   if (!rel || rel === ".." || rel.startsWith("../") || path.isAbsolute(rel)) {
@@ -808,7 +805,7 @@ function normHookCommand({ inputFile = null } = {}) {
 function ensureNormHook(dir) {
   const settingsPath = path.join(dir, ".claude", "settings.json");
   const command = `node "${path.join(__dirname, "..", "ai-learn.js")}" norm --hook`;
-  const matcher = "Write|Edit|MultiEdit|NotebookEdit";
+  const matcher = "Write|Edit|MultiEdit";
 
   let settings = {};
 
@@ -836,15 +833,24 @@ function ensureNormHook(dir) {
     return { wired: false, skipped: true, created: [] };
   }
 
-  const alreadyWired = postToolUse.some(
-    (entry) =>
-      entry &&
-      Array.isArray(entry.hooks) &&
-      entry.hooks.some((h) => h && typeof h.command === "string" && NORM_HOOK_MARKER.test(h.command)),
-  );
+  const ours = postToolUse
+    .flatMap((entry) => (entry && Array.isArray(entry.hooks) ? entry.hooks : []))
+    .filter((h) => h && typeof h.command === "string" && NORM_HOOK_MARKER.test(h.command));
 
-  if (alreadyWired) {
-    return { wired: true, created: [] };
+  if (ours.length > 0) {
+    // Wired, but possibly to a binary path that has since moved (npx cache,
+    // reinstall): repoint it in place rather than leave a hook that no longer runs.
+    const stale = ours.filter((h) => h.command !== command);
+
+    if (stale.length === 0) {
+      return { wired: true, created: [] };
+    }
+    for (const h of stale) {
+      h.command = command;
+    }
+    fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+
+    return { wired: true, refreshed: [normalizePortable(path.relative(dir, settingsPath))], created: [] };
   }
 
   settings.hooks = {

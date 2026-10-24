@@ -33,8 +33,8 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
   `normProject`), avec les `ignore` de `norm.json` et l'exclusion des tests sauf
   `includeTests`. Une écriture hors périmètre ne produit aucune sortie.
 - Décision : `init` ne câble le hook que pour `--platform claude` (seule
-  plateforme avec PostToolUse) ; `update` le câble inconditionnellement dans
-  `.claude/settings.json`, comme `ensureGuardHook` — fusion par marqueur
+  plateforme avec PostToolUse) ; `update` le câble sans `--platform` ou avec
+  `--platform claude` dans `.claude/settings.json`, comme `ensureGuardHook` — fusion par marqueur
   `ai-learn.js norm --hook`, jamais remplacement. Les autres plateformes lisent
   le repli dans AGENTS.md §3quater.
 - Décision : `--hook` lit stdin (format PostToolUse) comme `guard`, avec
@@ -44,7 +44,10 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
   peut pas fusionner sûrement (JSON illisible, `hooks`/`PostToolUse` de forme
   inattendue) : il renvoie `skipped` et `update` le signale. Le chemin du binaire
   est entouré de guillemets. `update --platform <autre que claude>` ne câble pas
-  le hook.
+  le hook. Un hook déjà câblé sur un ancien chemin du binaire est repointé sur
+  le chemin courant ; `NotebookEdit` n'est pas surveillé (`.ipynb` hors périmètre
+  de la norme) et, sans `cwd` dans le payload, la racine est cherchée depuis
+  `process.cwd()` via `findProjectRoot`.
 
 ## Test Plan
 
