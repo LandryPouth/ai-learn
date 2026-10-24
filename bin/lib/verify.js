@@ -17,7 +17,7 @@ const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
 const { readTutorConfig, masteryLevel } = require("./tutor");
 const { mutationReport, formatMutationGap, emptyMutationReport, recoverOrphanLockAndLog } = require("./mutate");
-const { runCommand } = require("./exec");
+const { runCommand, portabilityHint } = require("./exec");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
@@ -33,6 +33,12 @@ function logResult(command, result) {
 
   for (const line of (result.stderrTail || result.stdoutTail || "").split(/\r?\n/).slice(-3).filter(Boolean)) {
     log(`    ${line}`);
+  }
+
+  const hint = portabilityHint(result);
+
+  if (hint) {
+    log(`    ${hint}`);
   }
 }
 

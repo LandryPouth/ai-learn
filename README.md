@@ -103,6 +103,18 @@ en silence.
 
 Symlinks (`install claude`) : sous Windows sans Developer Mode activé, la création de lien symbolique est refusée par l'OS (`EPERM`) — `ai-learn` bascule alors automatiquement sur une copie de fichier pour le binaire, testé en conditions réelles (PowerShell + Node natif Windows). Les skills eux-mêmes sont des fichiers ordinaires, donc ils ne dépendent pas des symlinks.
 
+### Windows natif
+
+Trois niveaux de preuve, à ne pas confondre :
+
+- **Testé en CI** (`windows-latest`, Node 18/20/22, `.github/workflows/ci.yml`) : la matrice exécute toute la suite `npm test`, dont les tests de cette plateforme — commande de hook écrite dans un dossier dont le chemin contient un espace puis **exécutée** (elle refuse bien une écriture dans `src/**`), repli de `docs` quand `trash` est absent, littéral du chemin du plugin OpenCode, et caractérisation des écritures PowerShell/`cmd`. Aucun de ces tests n'est skippé par plateforme ; le run Windows de cette branche n'a pas encore été observé, donc la catégorie reste à confirmer au push.
+- **Observé en session** : `ai-learn` en PowerShell + Node natif Windows (copie du binaire quand le symlink est refusé en `EPERM`, cf. ci-dessus).
+- **Non vérifié** : le hook Claude `node "<chemin>" guard` (chemin quoté, sans syntaxe POSIX) est exécuté par un test sous Linux seulement ; son comportement sous Windows est attendu, pas observé. Un refus réel de la garde dans une **session Claude Code sous Windows**, et le refus du plugin OpenCode sous Windows. Rien de cela n'est revendiqué tant qu'il n'a pas été observé.
+
+**Ce que la garde ne voit pas sous Windows.** La grammaire de `guard.js` est du shell POSIX (`>`, `tee`, `cp`/`mv`, `sed -i`, one-liners `python -c`/`node -e`). Elle ne lit **pas** `Set-Content`, `Out-File`, `copy`, `move` ni `New-Item` : une écriture dans `src/**` par ces commandes est autorisée (un test la fige pour qu'un changement futur soit visible). En revanche, une redirection `cmd` (`type nul > src\index.ts`) est refusée, et `git`/`gh` restent bloqués quel que soit le shell. Seuls `Write`/`Edit` sont des murs fiables sous Windows.
+
+**Commandes de checkpoint.** `verify` exécute un checkpoint avec `shell: true` : sous Windows c'est `cmd.exe`, pas bash. Une commande POSIX (`FOO=1 node …`, `[ -f x ]`, `source …`) échoue ; le message de `verify` renvoie alors vers la forme portable (`npm test`, `node script.js`).
+
 ## La philosophie
 
 - **La preuve est exécutée, pas déclarée.** `verify` lance le checkpoint lui-même. « L'agent a dit que les tests passaient » ne vaut rien.

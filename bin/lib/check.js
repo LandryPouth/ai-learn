@@ -36,7 +36,7 @@ const {
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
-const { guardConfigIssues, loadGuardConfig } = require("./guard");
+const { guardConfigIssues, loadGuardConfig, isOwnGuardCommand } = require("./guard");
 const { readTutorConfig } = require("./tutor");
 const { MODE_DIRIGEANT, formatLedgerRefusal, requiredTiersStatus } = require("./mode");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
@@ -973,7 +973,7 @@ function guardHookWired(dir) {
     (entry) =>
       entry &&
       Array.isArray(entry.hooks) &&
-      entry.hooks.some((h) => h && typeof h.command === "string" && /ai-learn(\.js)? guard/.test(h.command)),
+      entry.hooks.some((h) => h && isOwnGuardCommand(h.command)),
   );
 }
 

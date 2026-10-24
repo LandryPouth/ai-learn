@@ -88,7 +88,9 @@ test("update wires the learner-file guard (hook, policy, solutions README refres
   capture(() => updateCommand({ root: dir }));
 
   const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
-  assert.ok(JSON.stringify(settings).includes("ai-learn.js guard"));
+  assert.ok(
+    settings.hooks.PreToolUse.flatMap((entry) => entry.hooks || []).some((h) => /ai-learn\.js["']?\s+guard/.test(h.command)),
+  );
   assert.ok(fs.existsSync(path.join(dir, ".ai-learn", "guard.json")));
   assert.ok(fs.existsSync(path.join(dir, "docs", "solutions", "README.md")));
 

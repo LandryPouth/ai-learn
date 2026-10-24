@@ -195,6 +195,31 @@ test("remove deletes the local copy and the ledger entry", () => {
   assert.strictEqual(progress.docSource, null);
 });
 
+test("remove sans `trash` (Windows natif) : suppression permanente annoncée, jamais `rm -rf`", () => {
+  const src = sourceDir();
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  addSource({ dir, name: "gone", source: src, online: false, subpath: "docs" });
+
+  // Simulate the native-Windows case: `trash` is not on PATH. Emptying PATH is
+  // what makes the probe fail, exactly like `spawnSync("trash")` on Windows.
+  const emptyPath = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-nopath-"));
+  const originalPath = process.env.PATH;
+  let output;
+
+  try {
+    process.env.PATH = emptyPath;
+    output = capture(() => removeSource({ dir, name: "gone" }));
+  } finally {
+    process.env.PATH = originalPath;
+  }
+
+  assert.ok(!fs.existsSync(path.join(dir, "docs", "sources", "gone")), "the copy is removed");
+  assert.match(output, /Removed local copy/);
+  assert.match(output, /`trash` did not move the copy/);
+  assert.match(output, /permanently/);
+});
+
 test("update re-copies a local source from its recorded origin", () => {
   const src = sourceDir();
   const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });

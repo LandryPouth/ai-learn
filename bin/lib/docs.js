@@ -126,8 +126,11 @@ function deriveName(source) {
   return clean || "source";
 }
 
-// Prefer the `trash` CLI (recoverable from the system trash) when it exists;
-// fall back to rmSync otherwise, so the tool stays portable.
+// Prefer the `trash` CLI (recoverable from the system trash) when it exists.
+// It does not exist on native Windows, so the fallback is a direct, permanent
+// delete — never a shell `rm -rf` built from a path. Returns which one happened
+// so a user-facing removal can say the copy is gone for good instead of
+// deleting in silence (story 08.04).
 function removePath(target) {
   const probe = spawnSync("trash", ["--version"], { encoding: "utf8" });
 
@@ -135,11 +138,12 @@ function removePath(target) {
     const res = spawnSync("trash", [target], { encoding: "utf8" });
 
     if (res.status === 0) {
-      return;
+      return "trash";
     }
   }
 
   fs.rmSync(target, { recursive: true, force: true });
+  return "permanent";
 }
 
 // Copy a directory tree, skipping the usual noise. `.git` keeps the snapshot
@@ -490,8 +494,15 @@ function removeSource({ dir, name }) {
 
     // Only ever delete inside docs/sources/ — never a ledger path that escapes it.
     if (target.startsWith(root + path.sep) && fs.existsSync(target)) {
-      removePath(target);
+      const removal = removePath(target);
       log(`Removed local copy ${source.path}`);
+
+      // `trash` is absent on native Windows (and can fail for permissions or a
+      // full disk); say the removal is permanent rather than let the fallback
+      // look identical to a recycle-bin move.
+      if (removal === "permanent") {
+        log("  note    `trash` did not move the copy to the trash — it was deleted permanently.");
+      }
     }
   }
 

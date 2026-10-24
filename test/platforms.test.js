@@ -5,6 +5,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 const { parseCommandFile, listCommands } = require("../bin/lib/platforms/commands");
 const { parseSkillFrontmatter } = require("../bin/lib/platforms/skills");
@@ -21,6 +22,7 @@ const {
 } = require("../bin/lib/platforms/codex-guard");
 const { installCommand } = require("../bin/lib/install");
 const { ensureCodexGuard } = require("../bin/lib/guard");
+const { pluginSource } = require("../bin/lib/platforms/opencode-guard");
 const { capture } = require("./helpers");
 
 const COMMANDS_DIR = path.join(__dirname, "..", "commands");
@@ -231,4 +233,27 @@ test("ensureCodexGuard refreshes a generated config when learnerFiles changes", 
   const content = fs.readFileSync(path.join(dir, ".codex", "config.toml"), "utf8");
   assert.match(content, /"answers" = "deny"/);
   assert.doesNotMatch(content, /"answers\/\*\*" = "deny"/);
+});
+
+test("plugin OpenCode : un binaire Windows avec espaces reste un littéral valide (chemins 08.01)", () => {
+  // Windows paths carry backslashes and may contain spaces ("C:\Program Files").
+  // The plugin embeds the binary via JSON.stringify, so the separators are
+  // escaped by construction — this test freezes that, and parses the result as
+  // ESM so a quoting mistake would be a syntax error, not a Windows surprise.
+  const binary = "C:\\Program Files\\ai-learn\\bin\\ai-learn.js";
+  const source = pluginSource({ binary });
+  // `\r?` keeps the assertion valid on a CRLF Windows checkout, where splitting
+  // on "\n" leaves a trailing carriage return on the literal.
+  const match = source.match(/^const BINARY = (.*);\r?$/m);
+
+  assert.ok(match, "the generated plugin embeds BINARY");
+  assert.strictEqual(JSON.parse(match[1]), binary);
+
+  // The path must never be interpolated into a shell string: the spawn takes an
+  // argv array, which is what makes spaces/backslashes safe on Windows.
+  assert.match(source, /spawnSync\("node", \[BINARY, "guard"\]/);
+
+  const file = path.join(tmpDir("ai-learn-plugin-"), "plugin.mjs");
+  fs.writeFileSync(file, source);
+  execFileSync(process.execPath, ["--check", file], { encoding: "utf8" });
 });

@@ -6,7 +6,15 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { checkProject, checkCommand, buildCheckReport, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
+const {
+  checkProject,
+  checkCommand,
+  buildCheckReport,
+  countDogfoodEntries,
+  countJournalEntries,
+  guardHookWired,
+} = require("../bin/lib/check");
+const { ensureGuardHook } = require("../bin/lib/guard");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, latestEvidenceForPhase } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
@@ -93,6 +101,35 @@ afterEach(() => {
   // A test that intentionally fails a check leaves exitCode at 1; the file must
   // still exit cleanly or node --test reports the whole file as broken.
   process.exitCode = 0;
+});
+
+test("guardHookWired recognises the quoted command written by ensureGuardHook (and the legacy unquoted form)", () => {
+  // Regression guard for story 08.04: quoting the binary path must not make
+  // `check`/`status` believe the hook is missing (they used a regex that did not
+  // tolerate the quote between `.js` and `guard`).
+  const dir = tmpProject(sampleProgress());
+  ensureGuardHook(dir);
+  assert.strictEqual(guardHookWired(dir), true);
+
+  const legacy = tmpProject(sampleProgress());
+  writeFile(
+    legacy,
+    ".claude/settings.json",
+    JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "node /tmp/ai-learn.js guard" }] }] },
+    }),
+  );
+  assert.strictEqual(guardHookWired(legacy), true);
+
+  const globalInstall = tmpProject(sampleProgress());
+  writeFile(
+    globalInstall,
+    ".claude/settings.json",
+    JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "ai-learn guard" }] }] },
+    }),
+  );
+  assert.strictEqual(guardHookWired(globalInstall), true);
 });
 
 test("a phase marked done without evidence is an error", () => {

@@ -1379,6 +1379,24 @@ function guardCommand({ inputFile = null } = {}) {
 
 // --- wiring (used by `init` and `update`, not the hot path) -----------------
 
+// The hook command is `node <bin> guard`, with the binary path in double quotes:
+// a checkout can live under a path containing a space (Windows "Program Files",
+// a user folder, a project name), and an unquoted path is split into several
+// argv by both sh and cmd.exe. Double quotes are the one quoting both shells
+// accept, which covers the realistic case (spaces). They do not stop `$` or
+// backtick expansion in sh, nor `%VAR%` expansion in cmd.exe: a checkout path
+// containing those characters remains a documented limit, because no single
+// shell string is safe for both shells at once.
+function guardHookCommand(toolBin) {
+  return `node "${toolBin}" guard`;
+}
+
+// Recognizes the hook we own, quoted (current form) or not (older installs), so
+// `update` upgrades a stale command instead of appending a duplicate.
+function isOwnGuardCommand(command) {
+  return typeof command === "string" && /ai-learn(\.js)?["']?\s+guard\b/.test(command);
+}
+
 // The generated README describes the mode's property. It is refreshed on
 // `update` (title marker), so a project that switches mode gets prose matching
 // its guard — leaving the apprenti text in a dirigeant project would document
@@ -1510,7 +1528,7 @@ function ensureGuardHook(dir) {
   }
 
   const toolBin = path.join(__dirname, "..", "ai-learn.js");
-  const command = `node ${toolBin} guard`;
+  const command = guardHookCommand(toolBin);
   const matcher = "Write|Edit|MultiEdit|NotebookEdit|Bash";
 
   let settings = null;
@@ -1532,7 +1550,7 @@ function ensureGuardHook(dir) {
     (entry) =>
       entry &&
       Array.isArray(entry.hooks) &&
-      entry.hooks.some((h) => h && typeof h.command === "string" && h.command.includes("ai-learn.js guard")),
+      entry.hooks.some((h) => h && isOwnGuardCommand(h.command)),
   );
 
   if (!alreadyWired) {
@@ -1541,6 +1559,34 @@ function ensureGuardHook(dir) {
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
     created.push(normalizePortable(path.relative(dir, settingsPath)));
+  } else {
+    // An older install wrote `node <path> guard` unquoted. Re-quote the path it
+    // already points at — never repoint it at this checkout: a project may
+    // deliberately use a global install or another checkout. A learner's other
+    // hooks are untouched.
+    let changed = false;
+
+    for (const entry of preToolUse) {
+      if (!entry || !Array.isArray(entry.hooks)) {
+        continue;
+      }
+      for (const h of entry.hooks) {
+        if (!h || !isOwnGuardCommand(h.command)) {
+          continue;
+        }
+        const match = h.command.match(/^node\s+(.+?)\s+guard\s*$/);
+
+        if (match && !/^["']/.test(match[1])) {
+          h.command = guardHookCommand(match[1]);
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+      refreshed.push(normalizePortable(path.relative(dir, settingsPath)));
+    }
   }
 
   return { created, refreshed, wired: alreadyWired, codex: codexResult };
@@ -1574,6 +1620,8 @@ function ensureCodexGuard(dir, learnerFiles, extraLiteralPaths = []) {
 
 module.exports = {
   guardCommand,
+  guardHookCommand,
+  isOwnGuardCommand,
   MODE_APPRENTI,
   MODE_DIRIGEANT,
   ensureGuardHook,

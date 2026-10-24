@@ -5,7 +5,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { execFileSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
 
 const {
   decide,
@@ -18,6 +18,7 @@ const {
   toRelative,
   findProjectRoot,
   ensureGuardHook,
+  guardHookCommand,
 } = require("../bin/lib/guard");
 const { checkProject } = require("../bin/lib/check");
 const { tmpProject, writeFile } = require("./helpers");
@@ -946,7 +947,7 @@ test("ensureGuardHook wires settings.json + guard.json + docs/solutions/, idempo
   const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
   const entries = settings.hooks.PreToolUse;
   assert.strictEqual(entries.length, 2); // the other hook survived
-  const ours = entries.find((e) => JSON.stringify(e).includes("ai-learn.js guard"));
+  const ours = entries.flatMap((entry) => entry.hooks || []).find((h) => /ai-learn\.js["']?\s+guard/.test(h.command));
   assert.ok(ours);
   assert.ok(fs.existsSync(path.join(dir, ".ai-learn", "guard.json")));
   assert.match(fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8"), /apprenant tape/);
@@ -957,6 +958,92 @@ test("ensureGuardHook wires settings.json + guard.json + docs/solutions/, idempo
   assert.strictEqual(second.wired, true);
   assert.strictEqual(second.created.length, 0);
   assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
+});
+
+test("ensureGuardHook quotes a tool path containing a space — the written command actually refuses", () => {
+  // `__dirname` is the real checkout, so copy the package into a directory whose
+  // name contains a space and wire from that copy: the generated command then
+  // carries the spaced path, exactly the Windows "Program Files" case.
+  const spacedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn space "));
+  const spacedBin = path.join(spacedRoot, "bin");
+  fs.cpSync(path.join(__dirname, "..", "bin"), spacedBin, { recursive: true });
+
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  require(path.join(spacedBin, "lib", "guard.js")).ensureGuardHook(dir);
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  const installed = settings.hooks.PreToolUse.flatMap((entry) => entry.hooks || []).find((h) =>
+    /ai-learn\.js["']?\s+guard/.test(h.command),
+  );
+
+  assert.ok(installed, "the hook was wired");
+  assert.strictEqual(installed.command, guardHookCommand(path.join(spacedBin, "ai-learn.js")));
+  assert.match(installed.command, /^node ".+ai-learn\.js" guard$/);
+
+  const input = path.join(dir, "_hook-input.json");
+  fs.writeFileSync(input, JSON.stringify(hookFor(dir, "Write", { file_path: path.join(dir, "src", "index.ts") })));
+
+  let status = 0;
+  let stdout = "";
+
+  try {
+    stdout = execSync(`${installed.command} --input "${input}"`, { encoding: "utf8", cwd: dir });
+  } catch (error) {
+    status = error.status;
+    stdout = error.stdout || "";
+  }
+
+  assert.strictEqual(status, 2, "the spaced hook command must run and refuse");
+  assert.match(stdout, /"permissionDecision":"deny"/);
+});
+
+test("ensureGuardHook upgrades an older unquoted hook command without duplicating it", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  writeFile(
+    dir,
+    ".claude/settings.json",
+    JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: "Bash", hooks: [{ type: "command", command: "other-guard" }] },
+          { matcher: "Write", hooks: [{ type: "command", command: "node /old place/ai-learn.js guard", timeout: 60 }] },
+        ],
+      },
+    }),
+  );
+
+  const result = ensureGuardHook(dir);
+  assert.strictEqual(result.wired, true);
+  assert.deepStrictEqual(result.refreshed, [".claude/settings.json"]);
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  const hooks = settings.hooks.PreToolUse.flatMap((entry) => entry.hooks || []);
+  const ours = hooks.filter((h) => /ai-learn\.js/.test(h.command));
+
+  assert.strictEqual(ours.length, 1, "the old hook is migrated, not duplicated");
+  assert.match(ours[0].command, /^node ".+ai-learn\.js" guard$/);
+  assert.ok(hooks.some((h) => h.command === "other-guard"), "a learner's other hook survives");
+});
+
+test("garde : les écritures PowerShell/cmd ne sont pas analysées (limite documentée, figée par un test)", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  // Story 08.04 — the guard parses POSIX shell syntax only. These write `src/**`
+  // under Windows and are allowed today; freezing that here makes a future
+  // grammar change visible (README « Windows natif »).
+  for (const command of [
+    "Set-Content src/index.ts 'x'",
+    "Out-File -FilePath src/index.ts -InputObject x",
+    "copy NUL src\\index.ts",
+    "move src\\index.ts src\\other.ts",
+    "Move-Item src/index.ts src/other.ts",
+    "New-Item -ItemType File src/index.ts",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
+  }
+
+  // A cmd redirection is still caught: `>` is parsed and backslashes normalize.
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "type nul > src\\index.ts" }), dir).decision, "deny");
 });
 
 test("ensureGuardHook refreshes a stale generated solutions README (title marker), keeping it generated", () => {
