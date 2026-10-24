@@ -655,7 +655,8 @@ function normCommand({ dir }) {
 // fallback (call `ai-learn norm` after each brick).
 // ---------------------------------------------------------------------------
 
-const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
+const MAX_HOOK_FILE_BYTES = 1024 * 1024;
+const WRITE_TOOLS =new Set(["Write", "Edit", "MultiEdit"]);
 const NORM_HOOK_MARKER = /ai-learn\.js"? norm --hook/;
 // Manifests probed at the project root to pick the right stack pack without
 // walking the whole tree on every write.
@@ -738,6 +739,11 @@ function analyzeWrittenFile(root, rel) {
   let source;
 
   try {
+    // Same cap as `scan` (1 MiB): beyond it `norm` measures nothing, so the
+    // hook must not report what `ai-learn norm` would stay silent on.
+    if (fs.statSync(abs).size > MAX_HOOK_FILE_BYTES) {
+      return [];
+    }
     source = fs.readFileSync(abs, "utf8");
   } catch {
     return [];
