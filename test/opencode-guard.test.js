@@ -33,12 +33,19 @@ function openCodeProject({ mode = "apprenti" } = {}) {
   return dir;
 }
 
+// The plugin is ESM in a `.js` file: OpenCode runs it on Bun, but Node 18 only
+// treats a `.mjs` as ESM. Import a `.mjs` copy so the tests are runtime-agnostic.
+function importPlugin(file) {
+  const esmCopy = `${file}.${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`;
+  fs.copyFileSync(file, esmCopy);
+  return import(pathToFileURL(esmCopy).href);
+}
+
 async function loadHooks(dir, { binary } = {}) {
   const result = ensureOpenCodeGuard(dir, binary ? { binary } : {});
 
   assert.ok(result.path, "the plugin was written");
-  const url = `${pathToFileURL(result.path).href}?t=${Date.now()}-${Math.random()}`;
-  const mod = await import(url);
+  const mod = await importPlugin(result.path);
 
   return mod.default.server({ directory: dir });
 }
@@ -234,7 +241,7 @@ test("bash from a nested session directory is judged at the directory it really 
   fs.mkdirSync(nested, { recursive: true });
 
   const created = ensureOpenCodeGuard(dir);
-  const mod = await import(`${pathToFileURL(created.path).href}?t=${Date.now()}`);
+  const mod = await importPlugin(created.path);
   const hooks = await mod.default.server({ directory: nested });
 
   await assert.rejects(
@@ -249,7 +256,7 @@ test("a spaced session path keeps git blocked (the shell fix is skipped, not the
   fs.mkdirSync(spaced, { recursive: true });
 
   const created = ensureOpenCodeGuard(dir);
-  const mod = await import(`${pathToFileURL(created.path).href}?t=${Date.now()}`);
+  const mod = await importPlugin(created.path);
   const hooks = await mod.default.server({ directory: spaced });
 
   await assert.rejects(
@@ -484,8 +491,7 @@ test("the start directory below the project root is resolved up to the root", as
   fs.mkdirSync(nested, { recursive: true });
 
   const result = ensureOpenCodeGuard(dir);
-  const url = `${pathToFileURL(result.path).href}?t=${Date.now()}`;
-  const mod = await import(url);
+  const mod = await importPlugin(result.path);
   const hooks = await mod.default.server({ directory: nested });
 
   // A relative path is what OpenCode resolves against the session directory, so
@@ -537,7 +543,7 @@ test("the spawn fallback honours an explicit deny and reports a guard that gave 
 test("the 2.x setup path registers the same check", async () => {
   const dir = openCodeProject();
   const created = ensureOpenCodeGuard(dir);
-  const mod = await import(`${pathToFileURL(created.path).href}?t=${Date.now()}`);
+  const mod = await importPlugin(created.path);
   const registered = [];
 
   await mod.default.setup({
@@ -555,7 +561,7 @@ test("the 2.x setup path registers the same check", async () => {
 test("the 2.x default export carries id/server/setup and setup returns early on 1.x", async () => {
   const dir = openCodeProject();
   const created = ensureOpenCodeGuard(dir);
-  const mod = await import(`${pathToFileURL(created.path).href}?t=${Date.now()}`);
+  const mod = await importPlugin(created.path);
 
   assert.strictEqual(mod.default.id, "ai-learn.guard");
   assert.strictEqual(typeof mod.default.server, "function");

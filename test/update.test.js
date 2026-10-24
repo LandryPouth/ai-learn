@@ -318,7 +318,7 @@ test("update backfills a missing CLAUDE.md without touching a customized AGENTS.
   const dir = tmpProject(project());
   const agentsPath = writeFile(dir, "AGENTS.md", "# Custom AGENTS\nMY OWN RULES\n");
 
-  const out = capture(() => updateCommand({ root: dir }));
+  const out = capture(() => updateCommand({ root: dir, platform: "claude" }));
 
   assert.strictEqual(fs.readFileSync(agentsPath, "utf8"), "# Custom AGENTS\nMY OWN RULES\n");
 
@@ -332,8 +332,8 @@ test("update appends only the missing import to a customized CLAUDE.md, idempote
   const dir = tmpProject(project());
   const claudePath = writeFile(dir, "CLAUDE.md", "# Mes règles\n- déjà là\n");
 
-  capture(() => updateCommand({ root: dir }));
-  capture(() => updateCommand({ root: dir }));
+  capture(() => updateCommand({ root: dir, platform: "claude" }));
+  capture(() => updateCommand({ root: dir, platform: "claude" }));
 
   const content = fs.readFileSync(claudePath, "utf8");
   assert.ok(content.startsWith("# Mes règles\n- déjà là\n"));
