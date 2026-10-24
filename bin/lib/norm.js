@@ -651,8 +651,10 @@ function normCommand({ dir }) {
 // write — feedback noise is the failure mode this avoids.
 //
 // The honest limit: a platform without an equivalent hook (codex, gemini,
-// opencode, antigravity) gets nothing wired; AGENTS.md §3quater documents the
-// fallback (call `ai-learn norm` after each brick).
+// antigravity) gets nothing wired; AGENTS.md §3quater documents the fallback
+// (call `ai-learn norm` after each brick). OpenCode gets the same advice through
+// its guard plugin's `tool.execute.after` (story 08.02), which calls
+// `normHookContext` in-process.
 // ---------------------------------------------------------------------------
 
 const MAX_HOOK_FILE_BYTES = 1024 * 1024;
@@ -756,17 +758,18 @@ function analyzeWrittenFile(root, rel) {
   return analyzeFile({ rel, abs, loc }, thresholds, stack.language).violations;
 }
 
-function normHookCommand({ inputFile = null } = {}) {
-  const hook = parseHookInput(readHookInput({ inputFile }));
-
+// The advice string for one written file, or null. Shared by the CLI hook and
+// the OpenCode plugin, which loads this module in-process: a Bun-compiled
+// OpenCode has no `node` to spawn, and a second copy of the wording would drift.
+function normHookContext(hook) {
   if (!hook || !WRITE_TOOLS.has(hook.tool_name)) {
-    return;
+    return null;
   }
 
   const target = hookTargetPath(hook.tool_input);
 
   if (!target || typeof target !== "string") {
-    return;
+    return null;
   }
 
   const start = typeof hook.cwd === "string" && hook.cwd ? hook.cwd : process.cwd();
@@ -776,7 +779,7 @@ function normHookCommand({ inputFile = null } = {}) {
   const rel = normalizePortable(path.relative(root, abs));
 
   if (!rel || rel === ".." || rel.startsWith("../") || path.isAbsolute(rel)) {
-    return;
+    return null;
   }
 
   let violations;
@@ -784,17 +787,26 @@ function normHookCommand({ inputFile = null } = {}) {
   try {
     violations = analyzeWrittenFile(root, rel);
   } catch {
-    return; // a broken hook must never break the write it follows
+    return null; // a broken hook must never break the write it follows
   }
 
   if (violations.length === 0) {
-    return;
+    return null;
   }
 
-  const context =
+  return (
     `ai-learn norm — ${violations.length} violation(s) dans ${rel} (non bloquant) :\n` +
     violations.map((v) => `  ${formatViolation(v)}`).join("\n") +
-    "\nExplique la règle et laisse l'apprenant refactorer lui-même.";
+    "\nExplique la règle et laisse l'apprenant refactorer lui-même."
+  );
+}
+
+function normHookCommand({ inputFile = null } = {}) {
+  const context = normHookContext(parseHookInput(readHookInput({ inputFile })));
+
+  if (!context) {
+    return;
+  }
 
   process.stdout.write(
     `${JSON.stringify({
@@ -873,6 +885,7 @@ module.exports = {
   normProject,
   normCommand,
   normHookCommand,
+  normHookContext,
   ensureNormHook,
   analyzeWrittenFile,
   analyzeFile,

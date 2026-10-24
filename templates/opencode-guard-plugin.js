@@ -194,6 +194,7 @@ function toPayloads(tool, args, start) {
 // directly — no `node` required on OpenCode's PATH, and no process per write.
 // The spawn is the fallback for a package no longer at BINARY.
 let local = null;
+let localNorm = null;
 
 try {
   if (BINARY && existsSync(BINARY)) {
@@ -201,6 +202,17 @@ try {
   }
 } catch {
   local = null;
+}
+
+// Same checker as `ai-learn norm --hook`, loaded in-process: a Bun-compiled
+// OpenCode has no `node` to spawn, and `process.execPath` is OpenCode itself.
+// Separate from the guard load: a missing norm module must not disable the guard.
+try {
+  if (BINARY && existsSync(BINARY)) {
+    localNorm = createRequire(BINARY)("./lib/norm.js");
+  }
+} catch {
+  localNorm = null;
 }
 
 // The root is the OUTERMOST `.ai-learn/guard.json` above the start directory —
@@ -324,6 +336,50 @@ function evaluate(hook) {
   return spawnGuard(hook);
 }
 
+// --- norm after the write (story 08.02) ------------------------------------
+//
+// `tool.execute.after` hands the finished result as a mutable `output`
+// ({title, output, metadata}); appending to `output.output` is what the agent
+// reads on its next turn (proved in docs/plans/portabilite-opencode.md §4).
+// `ai-learn norm --hook` stays the single checker: the plugin only carries its
+// `additionalContext` back. Consultative like the Claude PostToolUse hook —
+// never blocks, silent on a clean write, and any failure is swallowed.
+
+function normTargets(tool, args, start) {
+  const a = args || {};
+
+  if (tool === "write" || tool === "edit") {
+    const target = a.filePath || a.file_path || a.path;
+
+    return target ? [{ tool_name: tool === "edit" ? "Edit" : "Write", file_path: absolutePath(target, start) }] : [];
+  }
+  if (tool === "apply_patch" || tool === "patch") {
+    return patchPayloads(a.patchText || a.patch_text, start).payloads.map((p) => ({
+      tool_name: "Write",
+      file_path: p.tool_input.file_path,
+    }));
+  }
+  return [];
+}
+
+function normFeedback(target, start) {
+  if (!localNorm || typeof localNorm.normHookContext !== "function") {
+    return null;
+  }
+
+  try {
+    const context = localNorm.normHookContext({
+      tool_name: target.tool_name,
+      tool_input: { file_path: target.file_path },
+      cwd: start,
+    });
+
+    return typeof context === "string" && context ? context : null;
+  } catch {
+    return null; // a broken hook must never break the write it follows
+  }
+}
+
 // OpenCode 1.x loads `default.server`; the same function is the `server` of the
 // 2.x shape below. Exported once, never twice: two registrations would double
 // every denial.
@@ -347,6 +403,22 @@ const AiLearnGuard = async ({ directory } = {}) => {
         } else if (result && result.decision === "unchecked") {
           noteUnchecked(hook, result.reason);
         }
+      }
+    },
+
+    // Never throws: norm is advice, and an advice channel that can refuse a
+    // write would be a second, unreviewed guard.
+    "tool.execute.after": async (input, output) => {
+      try {
+        for (const target of normTargets(input.tool, input.args, start)) {
+          const context = normFeedback(target, start);
+
+          if (context) {
+            output.output = `${output.output || ""}\n\n${context}`;
+          }
+        }
+      } catch {
+        // The whole hook is consultative: a surprise must not fail the write.
       }
     },
   };

@@ -33,15 +33,18 @@ function openCodeProject({ mode = "apprenti" } = {}) {
   return dir;
 }
 
-async function loadPlugin(dir, { binary } = {}) {
+async function loadHooks(dir, { binary } = {}) {
   const result = ensureOpenCodeGuard(dir, binary ? { binary } : {});
 
   assert.ok(result.path, "the plugin was written");
   const url = `${pathToFileURL(result.path).href}?t=${Date.now()}-${Math.random()}`;
   const mod = await import(url);
-  const hooks = await mod.default.server({ directory: dir });
 
-  return hooks["tool.execute.before"];
+  return mod.default.server({ directory: dir });
+}
+
+async function loadPlugin(dir, opts) {
+  return (await loadHooks(dir, opts))["tool.execute.before"];
 }
 
 function call(before, tool, args) {
@@ -65,6 +68,50 @@ test("write and edit into src/** are refused with decide's reason (apprenti)", a
     /fichier solution de l'apprenant/,
   );
 });
+
+test("the after hook appends norm feedback and never blocks the write", async () => {
+  const dir = openCodeProject();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/index.js", jsFunctionOfLength("tooLong", 5));
+
+  const hooks = await loadHooks(dir);
+  const output = { title: "write", output: "Wrote file successfully.", metadata: {} };
+
+  await hooks["tool.execute.after"](
+    { tool: "write", args: { filePath: path.join(dir, "src/index.js") } },
+    output,
+  );
+
+  assert.match(output.output, /^Wrote file successfully\./);
+  assert.match(output.output, /function `tooLong` is 7 lines \(max 3\) \[function-length\]/);
+  assert.match(output.output, /laisse l'apprenant refactorer lui-même/);
+  assert.ok(!/decision/i.test(output.output), "norm advice is not a guard decision");
+});
+
+test("the after hook stays silent on a clean write", async () => {
+  const dir = openCodeProject();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/index.js", "function clean() {\n  return 1;\n}\n");
+
+  const hooks = await loadHooks(dir);
+  const output = { title: "write", output: "Wrote file successfully.", metadata: {} };
+
+  await hooks["tool.execute.after"](
+    { tool: "write", args: { filePath: path.join(dir, "src/index.js") } },
+    output,
+  );
+
+  assert.strictEqual(output.output, "Wrote file successfully.");
+});
+
+function jsFunctionOfLength(name, bodyLines) {
+  const lines = [`function ${name}() {`];
+  for (let i = 0; i < bodyLines; i += 1) {
+    lines.push(`  const x${i} = ${i};`);
+  }
+  lines.push("}");
+  return lines.join("\n");
+}
 
 test("a denial is written to the same guard.log `check` counts", async () => {
   const dir = openCodeProject();

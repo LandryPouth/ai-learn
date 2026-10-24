@@ -59,13 +59,32 @@ Source : `coding-flow/bin/lib/opencode.js` (394 lignes), `opencode-config.js`, d
 - `ai-learn install opencode` écrit des commandes dans `~/.config/opencode/command/ai-learn/`. Coding Flow
   est passé aux **skills** (`skills/*/SKILL.md`) et a retiré les `command/*.md`. À arbitrer (section 6).
 
-## 4. Le hook norm (PostToolUse) côté OpenCode : inconnu
+## 4. Le hook norm (PostToolUse) côté OpenCode : faisable, câblé
 
-Le hook de la story 07-03 injecte `hookSpecificOutput.additionalContext` après chaque Write/Edit.
-Coding Flow n'a aucun équivalent `after`. OpenCode expose `tool.execute.after`, mais **je n'ai vérifié
-nulle part** qu'on puisse y injecter du contexte pour le modèle ; la piste est de modifier
-`output.output` ou d'utiliser un autre événement. **À vérifier avant de promettre quoi que ce soit.**
-Si c'est impossible, la parité sur ce point restera « non câblé » et doit être dite telle quelle.
+**Constat (OpenCode 1.19.3, session réelle `ses_e91e9f639ffeL6XlNWXrTlwd7h`).** `tool.execute.after`
+reçoit `(input, output)` avec `input = { tool, sessionID, callID, args }` et
+`output = { title, output, metadata }`. `output` est l'objet résultat déjà construit : le muter
+fonctionne, et la mutation est ce que l'agent lit au tour suivant. Preuve : un plugin d'essai ajoute
+`[PROBE-AFTER tool=write]` à `output.output` ; dans la sortie de
+`opencode run --auto --format json` (modèle `opencode/deepseek-v4.1-flash-free`, répertoire
+`/tmp/ai-learn-norm-spike-zwI3tI`), la partie `tool_use` du `write` porte
+`output: "Wrote file successfully.\n[PROBE-AFTER tool=write]"`, et le texte final du modèle reprend
+cette ligne — il l'a bien vue. L'événement est aussi déclenché pour `bash`, et `input.args` contient le
+chemin écrit (`filePath`), donc pas besoin de relire stdin.
+
+Ce qui n'est pas offert : remplacer le résultat par un objet neuf, ou bloquer l'écriture depuis
+`after` — ce qui convient, `norm` est consultatif. Le plugin de 08-01 enregistre donc
+`tool.execute.after` : pour `write`/`edit`/`apply_patch`, il charge `lib/norm.js` en processus et
+appelle `normHookContext` — la fonction que le CLI `ai-learn norm --hook` enveloppe — une fois par
+fichier, ajoute le contexte à `output.output` s'il y a violation, et ne touche à rien sinon. Le
+chargement en processus évite de spawner `node` (OpenCode compilé sous Bun n'en a pas, et
+`process.execPath` y désigne OpenCode lui-même). Un module absent, une exception ou un fichier
+illisible sont avalés : l'écriture n'est jamais bloquée.
+
+**Preuve du plugin réel** (session `ses_e91e41134ffeZQ99FwZcZ50mOQ`, même commande) : le `write` de
+`src/index.js` rend `"Wrote file successfully.\n\nai-learn norm — 1 violation(s) dans src/index.js
+(non bloquant) :\n  src/index.js:1 — function \`tooLong\` is 7 lines (max 3) [function-length]\n..."`
+et le modèle répond en citant la règle et en laissant l'apprenant refactorer.
 
 ## 5. Portabilité hors OpenCode
 
