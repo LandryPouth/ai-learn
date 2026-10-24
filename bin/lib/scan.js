@@ -227,14 +227,24 @@ function gitState(dir) {
   const branch = read(["branch", "--show-current"]);
 
   if (commits === null && lastCommit === null && branch === null) {
-    return { isRepo: false, commits: null, lastCommit: null, branch: null };
+    return { isRepo: false, commits: null, lastCommit: null, branch: null, uncommitted: 0 };
   }
+
+  // A clean tree is an empty porcelain output, not a failure — `read` returns
+  // "" there and `null` only when git itself refused. A non-git directory is
+  // reported as zero uncommitted files (nothing to remind about), never a
+  // crash: `status`/`next` call this on every project, git or not.
+  // `--no-optional-locks` keeps `status` from refreshing `.git/index`, so the
+  // read stays strictly read-only.
+  const porcelain = read(["--no-optional-locks", "status", "--porcelain"]);
+  const uncommitted = porcelain === null ? 0 : porcelain.split(/\r?\n/).filter(Boolean).length;
 
   return {
     isRepo: true,
     commits: commits !== null ? Number(commits) : null,
     lastCommit: lastCommit || null,
     branch: branch || null,
+    uncommitted,
   };
 }
 

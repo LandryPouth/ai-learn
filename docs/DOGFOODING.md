@@ -46,12 +46,40 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `medium` — `worktree place` isole une story alors qu'aucun travail n'occupe le checkout principal
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `/flow-run` → `ai-flow worktree place --epic … --story …`
+- **Problème** : la story 08.01 était `done`, sa preuve verte et son travail déjà atterri sur `main` ; `git status` ne montrait rien du travail en cours (seul un fichier d'évidence ignoré traînait). `place` a quand même annoncé « chain s1 already occupies this checkout » et ouvert `../ai-learn-worktrees/story-08-02-norm-opencode-spike`, sans demande de l'utilisateur. Le critère réel devrait être « le checkout principal porte du travail non atterri d'une chaîne parallèle » ; une chaîne terminée et landée n'occupe rien. Coût secondaire : la preuve `verify` capturée dans ce worktree jetable disparaît avec lui à l'`autoland`, il faut la recapturer sur `main` pour que `status` ne dise pas « no verify captured ».
+- **Workaround** : travailler dans le worktree créé, puis `autoland` l'a fusionné et supprimé ; recapturer `verify` sur `main`. La prochaine fois : `git worktree remove ../ai-learn-worktrees/<story>` juste après `place` et rester sur `main`.
+- **Résolution** : ouverte (paquet `coding-flow`). Règle attendue : le worktree ne se déclenche que s'il y a, sur le checkout principal, du travail **en cours** et **parallélisable** (une story de la chaîne encore `in-progress`/`blocked` avec des changements non landés). Piste : avant de créer un worktree, lire le statut/preuve des stories de la chaîne qui « occupe » le checkout et l'état `git status` réel ; une chaîne dont toutes les stories sont `done` et landées ne doit rien déclencher.
+
+### `low` — `worktree lock` refuse une story à cause d'un verrou périmé d'une story déjà `done`, et ne dit pas lequel lever
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `/flow-run` → `ai-flow worktree lock --story …`
+- **Problème** : `place` a résolu le checkout courant pour la story 08.01, mais `lock` refuse : « checkout is occupied by story-07-02 », une story dont le `verify` est vert et le statut `done`. Le verrou est resté d'un run précédent ; le message propose d'isoler la *nouvelle* story (`worktree add`) au lieu de dire que le verrou de l'ancienne est périmé et peut être levé (`worktree unlock --story …`).
+- **Workaround** : `worktree unlock --story …/story-07-02-…` (statut `done`, preuve verte relue dans `.coding-flow/runs/`), puis `lock` sur 08.01.
+- **Résolution** : ouverte (paquet `coding-flow`). Piste : `place`/`lock` devraient détecter qu'une story verrouillée est `done` et soit lever le verrou, soit le nommer comme tel dans le message.
+
+### `low` — `worktree place` crée une branche/worktree alors que la consigne explicite est « sur main »
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `/flow-run` → `ai-flow worktree place --epic … --story …`
+- **Problème** : l'utilisateur demande explicitement d'exécuter la story 04.03 sur `main` ; `worktree place` crée quand même `../ai-learn-worktrees/story-04-03-…` sur une branche dédiée, au motif que la chaîne s1 « occupe » le checkout. Aucun flag ne permet de dire « la consigne humaine prime, reste sur main ».
+- **Workaround** : `git worktree remove ../ai-learn-worktrees/story-04-03-…` juste après `place`, puis `worktree lock` depuis `main`.
+- **Résolution** : ouverte (paquet `coding-flow`). Piste : `place` devrait accepter/respecter une destination explicite (`--branch main`) ou ne pas créer de worktree quand le checkout courant est déjà la branche demandée.
+
+### `low` — `worktree place`/`autoland` refusent la même arbre à point de fusion, avec un remède qui ne s'applique pas à `autoland`
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `/flow-run` (`ai-flow worktree place --epic … --story …`, puis `ai-flow worktree autoland --epic … --story …`)
+- **Problème** : l'epic 03 a un Backbone `s1 → {s2, s3} → s4` (point de fusion `┴`). `place` refuse en disant de placer la story à la main (`worktree add`) — utile, et appliqué. Mais `autoland` refuse avec **le même message** et le même remède (`worktree add`), alors qu'à ce stade la bonne action est soit « chaîne pas encore finie » (s3/s4 restent ouverts), soit un `land` manuel — pas une création de worktree. Le runner doit lire le message en sachant qu'il ne veut pas dire la même chose pour les deux commandes.
+- **Workaround** : après `verify` vert, `unlock` la story et ne pas `land` tant que la chaîne n'est pas finie ; atterrir à la main (`ai-flow worktree land --story …`) une fois s3/s4 livrées.
+- **Résolution** : ouverte (paquet `coding-flow`). Piste : `autoland` devrait distinguer « arbre non supporté » de « chaîne non terminée » et nommer le `land` manuel quand c'est la suite, au lieu de recopier le remède de `place`.
+
 ### Remontées du projet `fastify-traducteur-api` (outil 0.4.0, triées le 2026-10-16)
 Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées déjà `résolu` côté outil n'y figurent pas. Détail complet : ce fichier-là.
 
 - `high` — `AGENTS.md` n'est chargé par aucune session généraliste (aucun fichier mémoire natif). **Surface** : init/update. **Résolution** : planifiée, story-04-01.
 - `medium` — `next`/`status` répondent par une phase périmée avant la vraie suite. **Surface** : next, status. **Résolution** : planifiée, story-04-02.
-- `medium` — `stale` recouvre faux positif et régression réelle, sans moyen de les distinguer. **Surface** : verify, check. **Résolution** : planifiée, story-04-03.
+- `medium` — `stale` recouvre faux positif et régression réelle, sans moyen de les distinguer. **Surface** : verify, check. **Résolution** : résolue, story-04-03 (`verify --stale`).
 - `medium` — aucun rappel de commit entre deux réponses ; commande git donnée sans explication. **Surface** : status, verify. **Résolution** : planifiée, story-04-04.
 - `medium` — commandes `/…` sans préfixe commun, non découvrables. **Surface** : install. **Résolution** : planifiée, story-04-05.
 - `high` — règles de session dictées à la main : synthèse ciblée, relecture de `src/**`, cas d'échec, pas de solution avant la frappe, révélation dans le chat. **Surface** : AGENTS.md §1-§3. **Résolution** : planifiée, stories 05-02 à 05-04.
@@ -91,7 +119,9 @@ Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées
   prédictions de code qui interroge, pas un blocage.
 - **Workaround** : le consigner à la main dans le journal de prédictions, en confondant les deux
   types d'entrée — ce qui rend le compte `predictionsRequired` moins lisible.
-- **Résolution** :
+- **Résolution** : story 05.01 — `ai-learn predict --type code|casse|reality` enregistre le type,
+  `predictionsRequired` accepte un objet par type, et `verify`/`check` bloquent ou signalent le
+  type réellement manquant (`reality 0/1`). Plus besoin de confondre les entrées.
 
 ### `medium` — rien ne resurgit un travail prouvé-mais-pas-atterri après un `/clear`
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.10.0)
@@ -348,3 +378,32 @@ Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées
   sans PR déjà ouverte reçoit systématiquement une branche dédiée avant tout
   commit, plutôt que de dépendre d'une relecture de `git log` après coup pour
   détecter qu'elle a fini sur `main`.
+
+### `high` — la preuve `verify` est indexée sur tout le dépôt : à l'usage elle est périmée en permanence, donc ne prouve plus rien
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `ai-flow status` / `ai-flow next` (`proof is stale`, `[unproven]`), `computeTreeToken` (`bin/lib/identity.js` du paquet), rejeu du cache dans `bin/lib/evidence.js`
+- **Problème** : confirmé en lisant le code. `computeTreeToken` hache le
+  `git ls-tree` de **toute la racine** du dépôt, en excluant seulement
+  `.coding-flow/` et les dossiers de stories (`epics`, `specs`, `.specify`).
+  N'importe quel changement de `bin/`, `test/`, `templates/` ou `docs/` change
+  le token et périme la preuve de **toutes** les stories, y compris celles dont
+  aucun fichier n'a bougé. Constaté le 2026-10-24 : après les seuls commits de
+  la story 07-03, 31 stories des epics 01 à 07 sont `done` + `proof is stale`
+  et `ai-flow next` recommande de re-vérifier la 01-01 (« marked done but the
+  code moved since its last green verify »). Une preuve qui expire à chaque
+  commit, quel que soit le fichier touché, ne distingue plus « cette story est
+  cassée » de « quelqu'un a modifié autre chose » : le signal est toujours
+  allumé, donc ignoré — exactement le cas décrit plus haut, un check qu'on
+  apprend à désactiver. C'est l'extension à `verify` de l'entrée sur la
+  fraîcheur d'une review (même cause), mais plus grave : c'est la preuve
+  elle-même qui est vidée de son sens, pas seulement un indicateur annexe.
+- **Workaround** : ré-exécuter `ai-flow verify --story <dir>` pour chaque story
+  `done` après chaque commit (coût proportionnel au nombre de stories closes,
+  ici 31 × `npm test`), ou accepter que `proof is stale` ne signifie rien et ne
+  s'y fier qu'au moment de `/flow-ship`.
+- **Résolution** : ouverte (comportement du paquet `coding-flow`, pas de ce
+  dépôt). Piste : scoper le token aux fichiers que la story touche (ses
+  commits, ou la liste de `Implementation Context` du `plan.md`) plus leurs
+  dépendances, comme `bin/lib/source-hash.js#sourceHashScope` le fait déjà ici
+  pour l'évidence d'une phase ; à défaut, ne traiter la péremption comme une
+  alerte qu'au moment de `ship`/`land`, pas à chaque commit.

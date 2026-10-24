@@ -27,6 +27,9 @@ accepté.
 
 Config projet (`.ai-learn/*.json`) : créée une fois avec des valeurs concrètes,
 **jamais réécrite** ensuite. Fallback champ par champ à la lecture.
+Seule exception : `ai-learn mode` réécrit `mode`, `modeChangedAt` et `modeTiers`
+de `.ai-learn/guard.json` — une bascule explicite de l'apprenant, qui préserve
+tous les autres champs. Ce n'est jamais un automatisme de synchronisation.
 
 ## Tests
 
@@ -36,7 +39,11 @@ Config projet (`.ai-learn/*.json`) : créée une fois avec des valeurs concrète
   de `test/install.test.js` / `test/tracks-git.test.js`.
 - Un test qui dépend d'un binaire externe (`opencode`, `gh`) **s'auto-skippe**
   quand il est absent — jamais un échec de CI sur une machine sans l'outil.
-- La suite tourne aujourd'hui à ~340 tests sur 19 fichiers.
+- Un test qui ne peut pas tourner sous Windows porte sa raison **dans le test**
+  (`{ skip: "…" }`), jamais un `if (process.platform)` silencieux : la matrice CI
+  tourne sur `ubuntu-latest`, `windows-latest` et `macos-latest`, et un skip muet
+  y ressemble à une couverture qui n'existe pas.
+- La suite tourne aujourd'hui à ~810 tests sur 29 fichiers.
 
 ## Git
 

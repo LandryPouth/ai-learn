@@ -120,16 +120,22 @@ function main() {
     }
 
     case "verify": {
-      const { verifyCommand } = require("./lib/verify");
+      const { verifyCommand, staleCommand } = require("./lib/verify");
+
+      if (flags.has("--stale")) {
+        staleCommand({ dir });
+        break;
+      }
+
       const { parseArgs } = require("./lib/args");
       const { positionals } = parseArgs(commandArgs, { valueFlags: ["--dir"] });
       const phaseId = Number.parseInt(positionals[0] || "", 10);
 
       if (!Number.isFinite(phaseId)) {
-        fail("verify requires a phase id, ex: ai-learn verify 0");
+        fail("verify requires a phase id or --stale, ex: ai-learn verify 0");
       }
 
-      verifyCommand({ dir, phaseId, noMark: flags.has("--no-mark") });
+      verifyCommand({ dir, phaseId, noMark: flags.has("--no-mark"), revisit: flags.has("--revisit") });
       break;
     }
 
@@ -164,6 +170,7 @@ function main() {
 
       const { entry, render } = recordPrediction(dir, config, {
         phaseId,
+        type: getFlagValue("--type", null),
         prediction: getFlagValue("--prediction", null),
         gaps: getFlagValue("--gaps", null),
         score: getFlagValue("--score", null),
@@ -231,8 +238,27 @@ function main() {
       // Standalone, read-only clean-code check (file/function length, nesting,
       // params) — same engine verify/check hard-block on, but callable anytime
       // for a fast local feedback loop. Exits non-zero on any violation.
-      const { normCommand } = require("./lib/norm");
+      // `--hook` is the PostToolUse entry point (story 07.03): it reads the
+      // hook JSON on stdin, measures only the written file, and never blocks.
+      const { normCommand, normHookCommand } = require("./lib/norm");
+
+      if (flags.has("--hook")) {
+        normHookCommand({ inputFile: getFlagValue("--input", null) });
+        break;
+      }
+
       normCommand({ dir });
+      break;
+    }
+
+    case "mode": {
+      // Switches `.ai-learn/guard.json` between `apprenti` and `dirigeant`.
+      // `dirigeant` is gated on tiers 1-3 of the global test-mastery ledger;
+      // `apprenti` is always permitted (see lib/mode.js).
+      const { modeCommand } = require("./lib/mode");
+      const { parseArgs } = require("./lib/args");
+      const { positionals } = parseArgs(commandArgs, { valueFlags: ["--dir", "--platform"] });
+      modeCommand({ dir, target: positionals[0] || null });
       break;
     }
 
@@ -263,7 +289,7 @@ function main() {
       const { positionals, flags: installFlags } = parseArgs(commandArgs, { valueFlags: ["--home"] });
       const platform = positionals[0] || null;
       const home = typeof installFlags["--home"] === "string" ? installFlags["--home"] : null;
-      installCommand({ platform, ...(home ? { home } : {}) });
+      installCommand({ platform, dryRun: Boolean(installFlags["--dry-run"]), ...(home ? { home } : {}) });
       break;
     }
 
@@ -280,23 +306,25 @@ Usage:
   ai-learn scan [--dir <dir>]
   ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
-  ai-learn verify <phase-id> [--dir <dir>] [--no-mark]
+  ai-learn verify <phase-id> [--dir <dir>] [--no-mark] [--revisit]
+  ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--gaps <text>] [--score <text>]
-             [--strengths <text>] [--weaknesses <text>] [--flash <text>] [--corrected <text>]
-             [--corrected-by <apprenant|IA>] [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality>]
+             [--gaps <text>] [--score <text>] [--strengths <text>] [--weaknesses <text>]
+             [--flash <text>] [--corrected <text>] [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]
-  ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--path <subdir>]
+  ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--secondary] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
   ai-learn traps [--dir <dir>]
-  ai-learn norm [--dir <dir>]
+  ai-learn norm [--dir <dir>]   (--hook: hook PostToolUse interne, lecture seule)
+  ai-learn mode <apprenti|dirigeant> [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn upgrade
-  ai-learn install [claude|codex|gemini|opencode|antigravity] [--home <dir>]
+  ai-learn install [claude|codex|gemini|opencode|antigravity] [--home <dir>] [--dry-run]
 
 --platform is accepted by EVERY command (not just init/update): before
-dispatch, ai-learn mechanically installs that platform's /… commands if
+dispatch, ai-learn mechanically installs that platform's skills if
 missing — a learner resuming on a different platform than the project was
 init'ed on self-heals on its very next command, no separate step to
 remember. Claude Code also self-heals with no flag at all (CLAUDECODE=1,
@@ -308,7 +336,7 @@ with the text output.
 
 Commands:
   init     Scaffold a learning project (progress.json, docs/plans/, checkpoint/, predictions journal).
-           --platform installs that platform's /… commands immediately (the agent knows its own
+           --platform installs that platform's skills immediately (the agent knows its own
            identity — pass it explicitly; falls back to detecting Claude Code only, the sole
            verified signal — see bin/lib/platforms/detect.js)
   status   Show phases and their state in the current project
@@ -317,7 +345,11 @@ Commands:
   propose  Suggest projects to build when you don't know what to do; every stage
            backed by a verifiable resource; --validate refuses an invented
            project with an unsourced stage
-  verify   Run a phase checkpoint, record executed evidence, mark it done on success
+  verify   Run a phase checkpoint, record executed evidence, mark it done on success.
+           --stale re-proves every done phase whose proof went stale, and separates
+           "toujours vert" (fresh proof) from "régression" (the checkpoint now fails)
+           --revisit replays a proven phase from memory: it refreshes lastProvenAt on
+           success, never demotes on failure, and never rewrites the ledger status
   mutate   Mutation testing: break the learner's code one way, run the phase
            checkpoint against it, report SURVÉCU (the test missed it) or TUÉ
            (the test caught it) per site — the file is always restored after
@@ -330,13 +362,22 @@ Commands:
            provenance; --online records URLs only, --regen recreates a
            non-clonable source locally from a verified origin (anti-hallucination);
            a local file (ex. a PDF book) is embedded whole and the AI distills
-           only what the plan needs into an essentiel.md citing pages
+           only what the plan needs into an essentiel.md citing pages;
+           --secondary adds a light 4th source outside the quota of 3 (citable,
+           never mined for traps)
   traps    Extract the friction bank (warning callouts) from the embedded docs —
            each trap cited file:line, probed by the protocol, never invented
   norm     Check clean-code metrics (file/function length, nesting depth, param
            count) against the project's norm (.ai-learn/norm.json or the stack
            pack's defaults) — read-only, non-zero exit on violation. Same engine
-           verify/check hard-block on; run standalone for fast local feedback
+           verify/check hard-block on; run standalone for fast local feedback.
+           --hook is the PostToolUse entry point: init/update wire it for
+           claude-code so a write into src/** gets the violation immediately,
+           without blocking (the block stays in verify/check)
+  mode     Switch between apprenti and dirigeant. Dirigeant is earned: tiers 1-3
+           of ~/.ai-learn/tracks/tests.json must be achieved (a killed mutant, a
+           100 % mutation score, red-before-green). An absent/corrupt ledger
+           refuses; returning to apprenti is always permitted
   guard    PreToolUse hook: refuses the AI any write into the learner's solution
            files (src/** by default, .ai-learn/guard.json). Wired by init/update —
            the learner types that code, the AI cannot
@@ -345,9 +386,10 @@ Commands:
   upgrade  Update the ai-learn tool itself to the latest version (npm reinstall from
            GitHub). Refuses to run on a dev checkout (git clone) — use git pull there.
            Does not touch already-scaffolded projects; run update --root for that
-  install  Install the 7 slash commands (and, for claude, the ai-learn
-           binary on PATH) for a platform: claude (mechanical guard) or
-           codex (commands only — no pre-write hook available there).
+  install  Install the 7 commands as <name>/SKILL.md skills (and, for claude,
+           the ai-learn binary on PATH) for a platform. Old command files this
+           tool wrote are removed only when unmodified; edited ones are kept
+           and named. --dry-run reports the actions without touching disk.
            No argument lists supported platforms and their guard status.
 
 Every verdict is executed proof: verify runs the checkpoint itself and only

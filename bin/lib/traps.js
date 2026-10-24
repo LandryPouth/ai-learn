@@ -14,7 +14,7 @@ const fs = require("fs");
 const path = require("path");
 const { log, fail, writeJson, mkdirp, normalizePortable } = require("./util");
 const { readProgress } = require("./progress");
-const { docSourceList } = require("./docs");
+const { docSourceList, sourceKind } = require("./docs");
 
 const MAX_FILES = 500;
 
@@ -294,7 +294,11 @@ function regenerateTraps(dir) {
     return { traps: [], sources: 0, possibleMisses: 0 };
   }
 
-  const local = docSourceList(config.docSource).filter((source) => source.mode === "local" && source.path);
+  // Secondary sources are citable but deliberately outside the trap bank:
+  // they are light complements, not the main teaching material (story 06.01).
+  const local = docSourceList(config.docSource).filter(
+    (source) => source.mode === "local" && source.path && sourceKind(source) === "primary",
+  );
 
   const traps = [];
   let sources = 0;

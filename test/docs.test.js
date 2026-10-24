@@ -12,6 +12,10 @@ const {
   updateSource,
   listSources,
   docSourceList,
+  sourceKind,
+  generateDigest,
+  digestPath,
+  digestCitations,
   MAX_SOURCES,
   SOURCE_PRESETS,
   docsCommand,
@@ -109,8 +113,63 @@ test("add enforces the max number of sources", () => {
 
   assert.throws(
     () => addSource({ dir, name: "too-many", source: src, online: false, subpath: "docs" }),
-    /cannot add "too-many": already 3\/3 sources/,
+    (error) => /cannot add "too-many": already 3\/3 sources/.test(error.message) && /--secondary/.test(error.message),
   );
+});
+
+test("add --secondary embeds a source outside the primary quota and lists it separately", () => {
+  const src = sourceDir();
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  for (let i = 0; i < MAX_SOURCES; i += 1) {
+    addSource({ dir, name: `src-${i}`, source: src, online: false, subpath: "docs" });
+  }
+
+  addSource({ dir, name: "docker", source: src, online: false, subpath: "docs", secondary: true });
+
+  const progress = readJson(path.join(dir, "progress.json"), null);
+  const docker = docSourceList(progress.docSource).find((source) => source.name === "docker");
+  assert.strictEqual(sourceKind(docker), "secondary");
+  assert.strictEqual(docker.path, "docs/sources/docker");
+
+  const out = capture(() => listSources({ dir }));
+  assert.match(out, /3\/3 principales/);
+  assert.match(out, /Sources secondaires \(hors quota\)/);
+  assert.match(out, /docker/);
+});
+
+test("docsCommand add --secondary records the source as secondary", () => {
+  const src = sourceDir();
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  capture(() => docsCommand({ dir, args: ["add", "docker", src, "--path", "docs", "--secondary"] }));
+
+  const progress = readJson(path.join(dir, "progress.json"), null);
+  const docker = docSourceList(progress.docSource).find((source) => source.name === "docker");
+  assert.strictEqual(sourceKind(docker), "secondary");
+});
+
+test("docSourceList defaults kind to primary and keeps secondary sources citable", () => {
+  const list = docSourceList({
+    type: "local",
+    sources: [
+      { name: "main", path: "docs/sources/main" },
+      { name: "extra", path: "docs/sources/extra", kind: "secondary" },
+    ],
+  });
+
+  assert.strictEqual(sourceKind(list[0]), "primary");
+  assert.strictEqual(sourceKind(list[1]), "secondary");
+  assert.strictEqual(list[1].path, "docs/sources/extra");
+});
+
+test("docs add --secondary without a name or source fails with usage and writes nothing", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  assert.throws(() => docsCommand({ dir, args: ["add", "--secondary"] }), /usage: ai-learn docs add/);
+
+  const progress = readJson(path.join(dir, "progress.json"), null);
+  assert.strictEqual(progress.docSource, null);
 });
 
 test("add refuses a duplicate name", () => {
@@ -134,6 +193,31 @@ test("remove deletes the local copy and the ledger entry", () => {
   assert.ok(!fs.existsSync(path.join(dir, "docs", "sources", "gone")));
   const progress = readJson(path.join(dir, "progress.json"), null);
   assert.strictEqual(progress.docSource, null);
+});
+
+test("remove sans `trash` (Windows natif) : suppression permanente annoncée, jamais `rm -rf`", () => {
+  const src = sourceDir();
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  addSource({ dir, name: "gone", source: src, online: false, subpath: "docs" });
+
+  // Simulate the native-Windows case: `trash` is not on PATH. Emptying PATH is
+  // what makes the probe fail, exactly like `spawnSync("trash")` on Windows.
+  const emptyPath = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-nopath-"));
+  const originalPath = process.env.PATH;
+  let output;
+
+  try {
+    process.env.PATH = emptyPath;
+    output = capture(() => removeSource({ dir, name: "gone" }));
+  } finally {
+    process.env.PATH = originalPath;
+  }
+
+  assert.ok(!fs.existsSync(path.join(dir, "docs", "sources", "gone")), "the copy is removed");
+  assert.match(output, /Removed local copy/);
+  assert.match(output, /`trash` did not move the copy/);
+  assert.match(output, /permanently/);
 });
 
 test("update re-copies a local source from its recorded origin", () => {
@@ -212,6 +296,105 @@ test("list shows the sources and their state", () => {
   assert.match(out, /web/);
   assert.match(out, /\[remote\]/);
   assert.match(out, /online/);
+});
+
+function digestProject(sections, extraPhase = {}) {
+  const dir = tmpProject({
+    version: 1,
+    project: "demo",
+    technology: "Fastify",
+    docSource: {
+      type: "local",
+      sources: [{ name: "fastify-docs", mode: "local", path: "docs/sources/fastify-docs" }],
+    },
+    phases: [{ id: 1, name: "Routes", status: "pending", sections, ...extraPhase }],
+  });
+  writeFile(
+    dir,
+    "docs/sources/fastify-docs/Reference/Routes.md",
+    "# Routes\n\nline three\nline four\nline five\nline six\n",
+  );
+  return dir;
+}
+
+test("docs digest copies the declared line ranges and cites them", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "Reference/Routes.md", from: 3, to: 5 }]);
+
+  const target = generateDigest({ dir, phaseId: "1" });
+  const content = fs.readFileSync(target, "utf8");
+
+  assert.strictEqual(target, digestPath(dir, 1));
+  assert.match(content, /## fastify-docs\/Reference\/Routes\.md:3-5/);
+  assert.match(content, /line three\nline four\nline five/);
+  assert.doesNotMatch(content, /line six/);
+  assert.doesNotMatch(content, /^# Routes$/m);
+  assert.deepStrictEqual(digestCitations(content), [
+    { path: "fastify-docs/Reference/Routes.md", from: 3, to: 5 },
+  ]);
+});
+
+test("docs digest widens its fence when the excerpt contains code fences", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "Reference/Routes.md", from: 1, to: 3 }]);
+  writeFile(dir, "docs/sources/fastify-docs/Reference/Routes.md", "# Routes\n```js\ncode\n```\n");
+
+  const content = fs.readFileSync(generateDigest({ dir, phaseId: "1" }), "utf8");
+
+  assert.match(content, /^````markdown$/m);
+  assert.match(content, /^````$/m);
+});
+
+test("docs digest refuses a citation that does not point at real lines", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "Reference/Routes.md", from: 3, to: 99 }]);
+
+  assert.throws(() => generateDigest({ dir, phaseId: "1" }), /exceeds the file \(6 lines\)/);
+  assert.strictEqual(fs.existsSync(digestPath(dir, 1)), false);
+});
+
+test("docs digest refuses a file that escapes its source", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "../secrets.md", from: 1, to: 2 }]);
+
+  assert.throws(() => generateDigest({ dir, phaseId: "1" }), /escapes source/);
+});
+
+test("docs digest regenerates and overwrites a stale digest", () => {
+  const dir = digestProject([{ source: "fastify-docs", file: "Reference/Routes.md", from: 3, to: 5 }]);
+  const target = generateDigest({ dir, phaseId: "1" });
+  assert.match(fs.readFileSync(target, "utf8"), /line four/);
+
+  writeFile(
+    dir,
+    "docs/sources/fastify-docs/Reference/Routes.md",
+    "# Routes\n\nline three\nline FOUR updated\nline five\nline six\n",
+  );
+  generateDigest({ dir, phaseId: "1" });
+
+  const content = fs.readFileSync(target, "utf8");
+  assert.match(content, /line FOUR updated/);
+  assert.doesNotMatch(content, /line four\n/);
+});
+
+test("docs digest without declared sections says so and writes no file", () => {
+  const dir = digestProject([]);
+
+  const out = capture(() => generateDigest({ dir, phaseId: "1" }));
+
+  assert.match(out, /aucune section ciblée/);
+  assert.strictEqual(fs.existsSync(digestPath(dir, 1)), false);
+});
+
+test("docs digest without --phase fails with usage", () => {
+  const dir = digestProject([]);
+
+  assert.throws(() => docsCommand({ dir, args: ["digest"] }), /usage: ai-learn docs digest --phase <id>/);
+});
+
+test("the learn command requires a per-phase digest and forbids pointer lists", () => {
+  const content = fs.readFileSync(path.join(__dirname, "..", "commands", "learn.md"), "utf8");
+
+  assert.match(content, /docs digest --phase/);
+  assert.match(content, /readingBudgetMin/);
+  assert.match(content, /Lire un extrait, pas des pointeurs/);
+  assert.match(content, /liste de\s+pointeurs/);
 });
 
 test("SOURCE_PRESETS maps the two vetted complements", () => {

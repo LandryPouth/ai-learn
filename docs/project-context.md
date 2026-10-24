@@ -20,8 +20,10 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
 ## Utilisateurs
 
-1. **L'apprenant** — ne tape jamais de commande. Il passe par les 7 commandes `/…`
-   de son agent (`/learn`, `/status`, `/next`, `/scan`, `/propose`, `/check`, `/docs`).
+1. **L'apprenant** — ne tape jamais de commande. Il passe par les 7 commandes
+   `/learn-*` de son agent (`/learn`, `/learn-status`, `/learn-next`, `/learn-scan`,
+   `/learn-propose`, `/learn-check`, `/learn-docs`) ; les anciens noms (`/status`,
+   `/next`, …) restent des alias dépréciés.
    En mode `apprenti` (défaut), il tape **tout le code** de `src/**` ; en mode
    `dirigeant`, il garde la **spécification** (`test/**`, `tests/**`,
    `__tests__/**`, `checkpoint/**`, conventions test/spec) et l'IA écrit
@@ -44,6 +46,8 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 | Norme clean-code | `ai-learn norm` | heuristique, blocage dur |
 | Banque de pièges | `ai-learn traps` → `.ai-learn/traps.json` | extraite des docs, citée `fichier:ligne` |
 | Ledger git/gh cross-projet | `~/.ai-learn/tracks/git.json` | 6 tiers, jamais remis à zéro |
+| Ledger de tests cross-projet | `~/.ai-learn/tracks/tests.json` | 6 tiers observés depuis les évidences `verify` |
+| Mode dirigeant mérité | `ai-learn mode` + `ai-learn check` | tiers 1-3 requis, ledger illisible = refus, écart signalé en erreur |
 | Ledger de domaine cross-projet | `~/.ai-learn/domains/<stack>.json` | couverture de concepts |
 | Journal de friction | `.ai-learn/dogfood.md` (par projet) + `docs/DOGFOODING.md` (agrégé) | prose |
 
@@ -51,9 +55,11 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
 Claude Code (garde-fou mécanique complet), Codex (bac à sable OS sur les chemins
 littéraux des fichiers de l'apprenant ; `src/**` en apprenti, la spécification
-en dirigeant ; git/gh non traité), Gemini CLI / OpenCode / Antigravity
-(commandes `/…` seulement, `AGENTS.md` comme seule protection). Les limites sont
-documentées honnêtement dans le README — ne jamais les masquer.
+en dirigeant ; git/gh non traité), OpenCode (plugin
+`.opencode/plugins/ai-learn-guard.js` câblé par `init`/`update`, même `decide`
+que Claude : fichiers de l'apprenant et git/gh via Bash), Gemini CLI /
+Antigravity (commandes `/…` seulement, `AGENTS.md` comme seule protection). Les
+limites sont documentées honnêtement dans le README — ne jamais les masquer.
 
 ## Ce qui est mesuré et ce qui ne l'est pas
 

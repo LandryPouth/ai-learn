@@ -75,4 +75,21 @@ function sampleProgress(overrides = {}) {
   };
 }
 
-module.exports = { tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, spawnGit };
+// Run `fn` with os.homedir() pointed at an isolated directory, then restore the
+// environment. Same HOME + USERPROFILE pair as homeEnvOverrides, for in-process
+// calls that reach os.homedir() (platform installers, `check`'s platform
+// detection) without going through a child process.
+function withHome(home, fn) {
+  const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+
+  try {
+    return fn();
+  } finally {
+    process.env.HOME = original.HOME;
+    process.env.USERPROFILE = original.USERPROFILE;
+  }
+}
+
+module.exports = { tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit };

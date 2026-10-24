@@ -88,6 +88,30 @@ test("regenerateTraps writes the machine and human banks", () => {
   assert.match(md, /Reference\/Routes\.md:5/);
 });
 
+test("regenerateTraps ignores secondary sources", () => {
+  const dir = tmpProject({
+    version: 1,
+    project: "demo",
+    technology: "Fastify",
+    docSource: {
+      type: "local",
+      sources: [
+        { name: "primary", mode: "local", path: "docs/sources/primary" },
+        { name: "secondary", mode: "local", path: "docs/sources/secondary", kind: "secondary" },
+      ],
+    },
+    phases: [],
+  });
+  writeFile(dir, "docs/sources/primary/guide.md", WARNING_DOC);
+  writeFile(dir, "docs/sources/secondary/guide.md", WARNING_DOC);
+
+  const result = regenerateTraps(dir);
+
+  assert.strictEqual(result.sources, 1);
+  assert.strictEqual(result.traps.length, 1);
+  assert.strictEqual(result.traps[0].source, "primary");
+});
+
 test("a missing source is skipped and a doc without traps yields an empty bank", () => {
   const dir = tmpProject({
     version: 1,

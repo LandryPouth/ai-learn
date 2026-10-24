@@ -7,7 +7,7 @@ const os = require("os");
 const path = require("path");
 
 const { updateCommand } = require("../bin/lib/update");
-const { tmpProject, writeFile, capture } = require("./helpers");
+const { tmpProject, writeFile, capture, withHome } = require("./helpers");
 
 const MARKER = "Instructions pour les agents IA — projet d'apprentissage";
 
@@ -81,17 +81,39 @@ test("update regenerates the traps bank in each project", () => {
   assert.match(data.traps[0].text, /Do not return undefined/);
 });
 
-test("update wires the learner-file guard (hook, policy, solutions dir)", () => {
+test("update wires the learner-file guard (hook, policy, solutions README refresh)", () => {
+  const dir = tmpProject(project());
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
+
+  capture(() => updateCommand({ root: dir }));
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  assert.ok(
+    settings.hooks.PreToolUse.flatMap((entry) => entry.hooks || []).some((h) => /ai-learn\.js["']?\s+guard/.test(h.command)),
+  );
+  assert.ok(fs.existsSync(path.join(dir, ".ai-learn", "guard.json")));
+  assert.ok(fs.existsSync(path.join(dir, "docs", "solutions", "README.md")));
+
+  // Idempotent: a second update wires nothing new and keeps progress.json intact.
+  const before = fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8");
+  capture(() => updateCommand({ root: dir }));
+  assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
+});
+
+test("update wires the consultative norm hook and documents the no-hook fallback", () => {
   const dir = tmpProject(project());
 
   capture(() => updateCommand({ root: dir }));
 
   const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
-  assert.ok(JSON.stringify(settings).includes("ai-learn.js guard"));
-  assert.ok(fs.existsSync(path.join(dir, ".ai-learn", "guard.json")));
-  assert.ok(fs.existsSync(path.join(dir, "docs", "solutions", "README.md")));
+  const ours = (settings.hooks.PostToolUse || []).find((entry) =>
+    /ai-learn\.js\\?"? norm --hook/.test(JSON.stringify(entry)),
+  );
+  assert.ok(ours, "a PostToolUse norm hook is wired");
+  assert.match(ours.matcher, /Write/);
+  assert.match(fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8"), /après chaque brique/);
 
-  // Idempotent: a second update wires nothing new and keeps progress.json intact.
+  // Idempotent: a second update adds nothing and keeps settings.json intact.
   const before = fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8");
   capture(() => updateCommand({ root: dir }));
   assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
@@ -176,7 +198,37 @@ test("update --platform installs that platform's slash commands into an isolated
 
   try {
     capture(() => updateCommand({ root: dir, platform: "codex" }));
-    assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
+    assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-learn-next", "SKILL.md")));
+  } finally {
+    process.env.HOME = original.HOME;
+    process.env.USERPROFILE = original.USERPROFILE;
+  }
+});
+
+test("update --platform migrates a pre-04.05 install to skills, keeping the old name as a deprecated skill", () => {
+  const dir = tmpProject(project());
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-migration-"));
+  const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  // A project scaffolded before story 04.05: only the old codex prompt exists,
+  // carrying the old canonical body. Its bytes predate the current legacy
+  // renderer, so install.js conservatively keeps it (it cannot prove it is
+  // ours); the new alias skill carries the explicit deprecation.
+  writeFile(home, ".codex/prompts/ai-learn-next.md", "---\ndescription: \"Prochaine phase à faire\"\n---\n\nExécute `ai-learn next`.\n");
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+
+  try {
+    capture(() => updateCommand({ root: dir, platform: "codex" }));
+
+    const skills = path.join(home, ".codex", "skills");
+    assert.ok(fs.existsSync(path.join(skills, "ai-learn-learn-next", "SKILL.md")), "the new name is installed");
+
+    const alias = fs.readFileSync(path.join(skills, "ai-learn-next", "SKILL.md"), "utf8");
+    assert.match(alias, /Nom déprécié/);
+    assert.match(alias, /learn-next/);
+    assert.match(alias, /ai-learn next/, "the alias forwards the canonical body, not the stale old one");
+
+    assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")), "an unrecognised old file is kept, never silently deleted");
   } finally {
     process.env.HOME = original.HOME;
     process.env.USERPROFILE = original.USERPROFILE;
@@ -260,4 +312,61 @@ test("update walks a root and refreshes every learning project", () => {
   for (const name of ["proj-a", "proj-b"]) {
     assert.match(fs.readFileSync(path.join(root, name, "AGENTS.md"), "utf8"), /Banque de pièges/);
   }
+});
+
+test("update backfills a missing CLAUDE.md without touching a customized AGENTS.md", () => {
+  const dir = tmpProject(project());
+  const agentsPath = writeFile(dir, "AGENTS.md", "# Custom AGENTS\nMY OWN RULES\n");
+
+  const out = capture(() => updateCommand({ root: dir }));
+
+  assert.strictEqual(fs.readFileSync(agentsPath, "utf8"), "# Custom AGENTS\nMY OWN RULES\n");
+
+  const claudePath = path.join(dir, "CLAUDE.md");
+  assert.ok(fs.existsSync(claudePath));
+  assert.match(fs.readFileSync(claudePath, "utf8"), /^\s*@AGENTS\.md\s*$/m);
+  assert.match(out, /native memory: CLAUDE\.md created/);
+});
+
+test("update appends only the missing import to a customized CLAUDE.md, idempotently", () => {
+  const dir = tmpProject(project());
+  const claudePath = writeFile(dir, "CLAUDE.md", "# Mes règles\n- déjà là\n");
+
+  capture(() => updateCommand({ root: dir }));
+  capture(() => updateCommand({ root: dir }));
+
+  const content = fs.readFileSync(claudePath, "utf8");
+  assert.ok(content.startsWith("# Mes règles\n- déjà là\n"));
+  assert.strictEqual((content.match(/^\s*@AGENTS\.md\s*$/gm) || []).length, 1);
+});
+
+test("update writes no native memory stub for a platform that reads AGENTS.md natively", () => {
+  const dir = tmpProject(project());
+
+  withHome(fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-home-")), () =>
+    capture(() => updateCommand({ root: dir, platform: "codex" })),
+  );
+
+  assert.ok(!fs.existsSync(path.join(dir, "CLAUDE.md")));
+  assert.ok(!fs.existsSync(path.join(dir, "GEMINI.md")));
+});
+
+test("update never deletes an existing docs/solutions reveal", () => {
+  const dir = tmpProject(project());
+  writeFile(dir, "docs/solutions/routes.md", "# Routes\n\nconst handler = ...;\n");
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.strictEqual(
+    fs.readFileSync(path.join(dir, "docs", "solutions", "routes.md"), "utf8"),
+    "# Routes\n\nconst handler = ...;\n",
+  );
+});
+
+test("update does not create docs/solutions/ on a project that has none", () => {
+  const dir = tmpProject(project());
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.ok(!fs.existsSync(path.join(dir, "docs", "solutions")));
 });

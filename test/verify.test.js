@@ -6,8 +6,9 @@ const fs = require("fs");
 const path = require("path");
 
 const os = require("os");
-const { verifyCommand } = require("../bin/lib/verify");
-const { readProgress, runsDir, progressPath } = require("../bin/lib/progress");
+const { verifyCommand, staleCommand, findStalePhases } = require("../bin/lib/verify");
+const { readProgress, runsDir, progressPath, latestEvidenceForPhase } = require("../bin/lib/progress");
+const { computeSourceHash } = require("../bin/lib/source-hash");
 const { readGitTracks } = require("../bin/lib/tracks/git");
 const { recordPrediction } = require("../bin/lib/predictions");
 const { mutateConfigPath, mutateLockPath } = require("../bin/lib/mutate");
@@ -53,6 +54,8 @@ test("verify runs a passing checkpoint, records evidence, marks the phase done",
   const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
   assert.strictEqual(evidence.ok, true);
   assert.strictEqual(evidence.phaseId, 0);
+  assert.strictEqual(evidence.lastProvenAt, evidence.generatedAt);
+  assert.ok(!Number.isNaN(Date.parse(evidence.lastProvenAt)));
   assert.strictEqual(process.exitCode, 0);
 });
 
@@ -67,6 +70,10 @@ test("verify fails on a failing checkpoint and does not mark the phase done", ()
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
   assert.strictEqual(process.exitCode, 1);
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+  assert.strictEqual(evidence.lastProvenAt, null, "a failed run is not a proof and never refreshes the revisit date");
 });
 
 test("verify with a passing stressCheckpoint marks done once both checkpoints pass", () => {
@@ -286,6 +293,10 @@ test("verify suggests a per-phase commit once the phase is marked done", () => {
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.match(out, /git add -A && git commit -m "feat\(phase-0\): Phase zero"/);
+  assert.match(out, /add -A\s+indexe tout/);
+  assert.match(out, /commit -m\s+enregistre/);
+  assert.match(out, /Conventional Commits/);
+  assert.match(out, /hook commit-msg/);
 });
 
 test("verify refuses an unknown phase id", () => {
@@ -845,5 +856,366 @@ test("verify réussit même si le sync tests.json échoue", () => {
   const out = capture(() => verifyCommand({ dir, phaseId: 0, home: brokenHome }));
 
   assert.match(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+});
+
+// -----------------------------------------------------------------------
+// verify --stale (story 04.03) — re-prove every stale done phase through the
+// normal verify path, then separate "toujours vert" from a real regression.
+// -----------------------------------------------------------------------
+
+function twoPhaseProgress() {
+  return sampleProgress({
+    phases: [
+      { id: 0, name: "Zero", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 },
+      { id: 1, name: "One", status: "pending", checkpoint: 'node -e "process.exit(0)"', artifacts: [], predictionsRequired: 0 },
+    ],
+  });
+}
+
+test("verify --stale re-proves every stale phase that still passes and lists them as toujours vert", () => {
+  const dir = tmpProject(twoPhaseProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 1 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /toujours vert : 2 phase\(s\)/);
+  assert.match(out, /✓ Phase 0 — Zero/);
+  assert.match(out, /✓ Phase 1 — One/);
+  assert.doesNotMatch(out, /régression :/);
+  assert.strictEqual(process.exitCode, 0);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+  assert.strictEqual(config.phases[1].status, "done");
+  assert.strictEqual(fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json")).length, 4);
+
+  const currentHash = computeSourceHash(dir, {});
+  for (const id of [0, 1]) {
+    assert.strictEqual(latestEvidenceForPhase(dir, id).sourceHash.digest, currentHash.digest);
+  }
+});
+
+test("verify --stale classifies a failing checkpoint as a regression, cites the failure and leaves it unproven", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const { config } = readProgress(dir);
+  config.phases[0].checkpoint = 'node -e "process.exit(3)"';
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /régression : 1 phase\(s\)/);
+  assert.match(out, /✗ Phase 0 — Phase zero — exit 3/);
+  assert.match(out, /demoted: done → in_progress/);
+  assert.doesNotMatch(out, /toujours vert :/);
+  assert.strictEqual(process.exitCode, 1);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "in_progress");
+});
+
+test("verify --stale without a stale phase says so, exits 0 and writes nothing", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  const before = fs.readdirSync(runsDir(dir)).sort();
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /Aucune phase périmée/);
+  assert.strictEqual(process.exitCode, 0);
+  assert.deepStrictEqual(fs.readdirSync(runsDir(dir)).sort(), before);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+});
+
+test("verify --stale leaves status writes to verify: a re-proof is marked applied by the normal path", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /Phase 0 marked done/);
+  assert.strictEqual(latestEvidenceForPhase(dir, 0).marking, "applied");
+});
+
+test("findStalePhases only returns done phases whose passing proof no longer matches the source", () => {
+  const dir = tmpProject(twoPhaseProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  let { config } = readProgress(dir);
+  config.phases[1].status = "in_progress";
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  ({ config } = readProgress(dir));
+  assert.deepStrictEqual(findStalePhases(dir, config).map((phase) => phase.id), [0]);
+});
+
+test("verify --stale keeps going when one stale phase has lost its checkpoint, and reports it as a regression", () => {
+  const dir = tmpProject(twoPhaseProgress());
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 1 }));
+
+  const { config } = readProgress(dir);
+  delete config.phases[0].checkpoint;
+  fs.writeFileSync(progressPath(dir), JSON.stringify(config, null, 2));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const out = capture(() => staleCommand({ dir }));
+
+  assert.match(out, /toujours vert : 1 phase\(s\)/);
+  assert.match(out, /régression : 1 phase\(s\)/);
+  assert.match(out, /✗ Phase 0 — Zero — .*no checkpoint/);
+  assert.strictEqual(process.exitCode, 1);
+  process.exitCode = 0;
+});
+
+// -----------------------------------------------------------------------
+// Story 05.01 — `predictionsRequired` ventilé par type. A phase that demands
+// a reality check cannot go `done` on code predictions alone.
+// -----------------------------------------------------------------------
+
+test("verify blocks when a required reality prediction is missing, naming the type and its real/expected count", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = { code: 2, reality: 1 };
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "one" });
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "two" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /phase 0: 2\/3 recorded predictions; 1 missing \(reality 0\/1\)/);
+  assert.doesNotMatch(out, /marked done/);
+  assert.strictEqual(process.exitCode, 1);
+  process.exitCode = 0;
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "pending");
+});
+
+test("verify marks done once every required prediction type is covered", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = { code: 1, reality: 1 };
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "one" });
+  recordPrediction(dir, progress, { phaseId: 0, type: "reality", prediction: "two" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /Prédictions/);
+  assert.match(out, /marked done/);
+
+  const { config } = readProgress(dir);
+  assert.strictEqual(config.phases[0].status, "done");
+});
+
+test("an integer predictionsRequired still counts every type together (legacy format unchanged)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = 2;
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "one" });
+  recordPrediction(dir, progress, { phaseId: 0, type: "reality", prediction: "two" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.doesNotMatch(out, /Prédictions/);
+  assert.match(out, /marked done/);
+});
+
+test("verify's evidence records the per-type gap of a ventilated requirement", () => {
+  const progress = sampleProgress();
+  progress.phases[0].predictionsRequired = { code: 1, reality: 1 };
+  const dir = tmpProject(progress);
+  recordPrediction(dir, progress, { phaseId: 0, type: "code", prediction: "one" });
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
+
+  assert.strictEqual(evidence.predictions.ok, false);
+  assert.deepStrictEqual(evidence.predictions.requiredByType, { code: 1, reality: 1 });
+  assert.deepStrictEqual(evidence.predictions.countByType, { code: 1 });
+  assert.deepStrictEqual(evidence.predictions.missingByType, { reality: { expected: 1, actual: 0, missing: 1 } });
+  process.exitCode = 0;
+});
+
+// -----------------------------------------------------------------------
+// Story 05.05 — the tutor profile's proof gate: `proof: "transfert"` blocks
+// without a real transfert prediction, `tests` keeps the current behaviour,
+// and the evidence keeps `proof.tests` and `proof.mastery` distinct.
+// -----------------------------------------------------------------------
+
+function tutorProject(proof) {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", `${JSON.stringify({ version: 1, assistance: "indices", proof }, null, 2)}\n`);
+  return dir;
+}
+
+function latestVerifyEvidence(dir) {
+  const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
+  return JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[runs.length - 1]), "utf8"));
+}
+
+test("verify blocks when proof is transfert and the phase has no transfert prediction", () => {
+  const dir = tutorProject("transfert");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Preuve de transfert/);
+  assert.match(out, /aucune prédiction de type transfert pour la phase 0/);
+  assert.doesNotMatch(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.ok, false);
+  assert.strictEqual(evidence.proof.tests, true);
+  assert.strictEqual(evidence.proof.mastery, null);
+});
+
+test("verify marks done and records mastery transfert once the prediction exists", () => {
+  const dir = tutorProject("transfert");
+  const { config } = readProgress(dir);
+  recordPrediction(dir, config, { phaseId: 0, type: "transfert", prediction: "exercice inédit" });
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.proof.tests, true);
+  assert.strictEqual(evidence.proof.mastery, "transfert");
+});
+
+test("proof tests keeps the current behaviour and records tests mastery", () => {
+  const dir = tutorProject("tests");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  assert.doesNotMatch(out, /Preuve de transfert/);
+  assert.deepStrictEqual(latestVerifyEvidence(dir).proof, { tests: true, mastery: "tests", configInvalid: false });
+});
+
+test("a project without tutor.json keeps the current behaviour and records the default mastery", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /marked done/);
+  assert.deepStrictEqual(latestVerifyEvidence(dir).proof, { tests: true, mastery: "explication", configInvalid: false });
+});
+
+test("verify blocks on an invalid tutor.json and names the configuration error", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", `${JSON.stringify({ version: 1, assistance: "bogus", proof: "tests" })}\n`);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  assert.match(out, /Profil de tuteur/);
+  assert.match(out, /unknown assistance "bogus"/);
+  assert.doesNotMatch(out, /marked done/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+  assert.strictEqual(process.exitCode, 1);
+  assert.strictEqual(latestVerifyEvidence(dir).proof.configInvalid, true);
+  process.exitCode = 0;
+});
+
+// -----------------------------------------------------------------------
+// Story 07.02 — `verify --revisit`: replay without notes
+// -----------------------------------------------------------------------
+
+function provenPhaseProject() {
+  const progress = sampleProgress({
+    phases: [
+      { id: 0, name: "Phase zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0, reviewAfterDays: 7 },
+    ],
+  });
+  const dir = tmpProject(progress);
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  return dir;
+}
+
+test("verify --revisit refreshes lastProvenAt, records revisit: true, and keeps the phase done", () => {
+  const dir = provenPhaseProject();
+  const before = latestVerifyEvidence(dir);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
+
+  assert.match(out, /Revisite prouvée/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+  assert.strictEqual(process.exitCode, 0);
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.revisit, true);
+  assert.strictEqual(evidence.ok, true);
+  assert.strictEqual(evidence.lastProvenAt, evidence.generatedAt);
+  assert.ok(Date.parse(evidence.lastProvenAt) >= Date.parse(before.lastProvenAt));
+  assert.strictEqual(evidence.marking, "skipped");
+});
+
+test("verify --revisit on a phase that is not done is a clear usage error and writes nothing", () => {
+  const dir = tmpProject(sampleProgress());
+
+  assert.throws(
+    () => verifyCommand({ dir, phaseId: 0, revisit: true }),
+    /Revisit is only for a proven phase.*pending/s,
+  );
+
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
+  assert.strictEqual(fs.existsSync(runsDir(dir)), false);
+});
+
+test("a failed revisit keeps the phase done but traces the failure in the evidence", () => {
+  const dir = provenPhaseProject();
+  const progress = readProgress(dir).config;
+  progress.phases[0].checkpoint = 'node -e "process.exit(3)"';
+  fs.writeFileSync(progressPath(dir), `${JSON.stringify(progress, null, 2)}\n`);
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
+
+  assert.match(out, /Revisite échouée/);
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+  assert.strictEqual(process.exitCode, 1);
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.revisit, true);
+  assert.strictEqual(evidence.ok, false);
+  assert.strictEqual(evidence.lastProvenAt, null);
+  process.exitCode = 0;
+});
+
+test("verify --revisit with --no-mark still leaves the phase done and the ledger untouched", () => {
+  const dir = provenPhaseProject();
+
+  capture(() => verifyCommand({ dir, phaseId: 0, revisit: true, noMark: true }));
+
+  assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.revisit, true);
+  assert.strictEqual(evidence.marking, "skipped");
+});
+
+test("a green revisit on a stale phase refreshes the proof against the current code (documented tradeoff)", () => {
+  const dir = provenPhaseProject();
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
+
+  const evidence = latestVerifyEvidence(dir);
+  assert.strictEqual(evidence.ok, true);
+  assert.strictEqual(evidence.sourceHash.digest, computeSourceHash(dir, {}).digest);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
 });

@@ -9,7 +9,11 @@ const { readProgress, validateProgress, latestEvidenceForPhase, phaseVerdict } =
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
+const { loadGuardConfig } = require("./guard");
+const { readTutorConfig } = require("./tutor");
+const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 
 // The mark and, where useful, the French label shown next to a phase —
 // derived from the same verdict `check` and `next` consume, not re-derived
@@ -17,13 +21,13 @@ const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 // states are already legible from the mark plus the raw status text below.
 // The `stale` label names the exact command to run, same as `check`/`next` —
 // spec.md's UX Note requires a périmé state to say what to do, not just note it.
-function verdictDisplay(state, phaseId) {
+function verdictDisplay(state) {
   switch (state) {
     case "proven":
     case "proven-unhashed":
       return { mark: "✓", label: null };
     case "stale":
-      return { mark: "⚠", label: `périmé — re-prouver avec \`ai-learn verify ${phaseId}\`` };
+      return { mark: "⚠", label: "périmé — re-prouver avec `ai-learn verify --stale`" };
     case "unproven":
       return { mark: "✗", label: "non prouvé" };
     case "in-progress":
@@ -104,7 +108,7 @@ function printStatus(config, { dir }) {
     // other status, same guard as check.js/next.js.
     const currentHash = phase.status === "done" && ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
     const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
-    const { mark, label } = verdictDisplay(verdict.state, phase.id);
+    const { mark, label } = verdictDisplay(verdict.state);
 
     const evNote = ev ? ` — evidence ${new Date(ev.generatedAt).toISOString().slice(0, 10)}` : "";
     const labelNote = label ? ` (${label})` : "";
@@ -118,6 +122,16 @@ function printStatus(config, { dir }) {
       log(`      ${mutationLine}`);
     }
   }
+}
+
+// The active tutor profile (story 05.05), one line. Absent or invalid, the
+// defaults are what verify will actually use, so the line says so.
+function printTutorProfile({ dir }) {
+  const tutor = readTutorConfig(dir);
+  const { assistance, proof } = tutor.config;
+  const source = tutor.exists && tutor.valid ? "" : " (défaut)";
+
+  log(`\nTuteur : assistance=${assistance} · preuve=${proof}${source}`);
 }
 
 // Additive, read-only summary of the global git/gh mastery ledger (see
@@ -185,6 +199,38 @@ function printNormSummary({ dir }) {
   }
 }
 
+// Dirigeant-only, additive summary: how many done phases carry a valid sourced
+// review. In apprenti the review tier does not exist, so the line is silent —
+// same absence-is-not-a-warning stance as the other cross-project summaries.
+const REVIEW_REASONS = {
+  missing: "manquante",
+  unreadable: "illisible",
+  "no-citation": "sans file:line réel",
+  "no-decision": "sans décision",
+  "insufficient-substance": "sans substance",
+  "ambiguous-name": "nom de phase ambigu",
+};
+
+function printReviewSummary({ dir, config }) {
+  const guard = loadGuardConfig(dir);
+
+  if (guard.mode !== "dirigeant") {
+    return;
+  }
+
+  const states = reviewStates(dir, config, guard.implementationFiles);
+  const pending = states.filter((review) => review.state !== "valid");
+  const valid = states.length - pending.length;
+
+  if (pending.length === 0) {
+    log(`\nRevues (mode dirigeant) : ${valid}/${states.length} brique(s) revue(s).`);
+    return;
+  }
+
+  const detail = pending.map((review) => `${review.path} (${REVIEW_REASONS[review.reason] || "invalide"})`).join(", ");
+  log(`\nRevues (mode dirigeant) : ${valid}/${states.length} valide(s) — ${pending.length} à revoir : ${detail}`);
+}
+
 // The JSON-facing calc: same per-phase verdict `printStatus` prints as text,
 // reshaped into a stable, versioned object. Never throws — a missing or
 // corrupt progress.json becomes an `error` field on the object instead of a
@@ -193,7 +239,12 @@ function buildStatusReport(dir) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    return { version: 1, dir: normalizePortable(dir), error: `No progress.json in ${dir}. Run \`ai-learn init\` first.` };
+    return {
+      version: 1,
+      dir: normalizePortable(dir),
+      error: `No progress.json in ${dir}. Run \`ai-learn init\` first.`,
+      uncommitted: uncommittedCount(dir),
+    };
   }
 
   const phases = (config.phases || []).map((phase) => {
@@ -222,6 +273,7 @@ function buildStatusReport(dir) {
     phasesDone: phases.filter((phase) => phase.status === "done").length,
     phasesTotal: phases.length,
     phases,
+    uncommitted: uncommittedCount(dir),
     progressIssues: validateProgress(config).map((issue) => issue.message),
   };
 }
@@ -244,6 +296,8 @@ function statusCommand({ dir, home, json }) {
   }
 
   printStatus(config, { dir });
+  printTutorProfile({ dir });
+  printReviewSummary({ dir, config });
 
   const issues = validateProgress(config);
 
@@ -257,6 +311,7 @@ function statusCommand({ dir, home, json }) {
   printGitTracksSummary({ home });
   printDomainSummary({ dir, home });
   printNormSummary({ dir });
+  printCommitReminder(dir);
 }
 
 module.exports = {
@@ -266,6 +321,7 @@ module.exports = {
   printGitTracksSummary,
   printDomainSummary,
   printNormSummary,
+  printReviewSummary,
   formatMutationLine,
   mutationSummary,
 };

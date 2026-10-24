@@ -10,11 +10,11 @@ Vérification de contenu : ne jamais faire confiance à une citation non résolu
 
 ## Acceptance Criteria
 
-- [ ] Given `docs/reviews/<brique>.md` citant `src/x.ts:12` existant et une décision, when `check` tourne, then la revue est valide.
-- [ ] Given une revue sans citation, ou citant une ligne inexistante, when `check` tourne, then erreur (presence + substance, comme `citesRealPRUrl`).
-- [ ] Given le mode `apprenti`, when `check` tourne, then les revues ne sont jamais exigées.
-- [ ] Given `ai-learn status`, when des revues manquent en dirigeant, then le résumé les compte.
-- [ ] Given la primitive de vérification, when on lit le code, then elle réutilise `citesRealPRUrl` (ou en extrait un noyau commun) sans le recopier.
+- [x] Given `docs/reviews/<brique>.md` citant `src/x.ts:12` existant et une décision, when `check` tourne, then la revue est valide.
+- [x] Given une revue sans citation, ou citant une ligne inexistante, when `check` tourne, then erreur (presence + substance, comme `citesRealPRUrl`).
+- [x] Given le mode `apprenti`, when `check` tourne, then les revues ne sont jamais exigées.
+- [x] Given `ai-learn status`, when des revues manquent en dirigeant, then le résumé les compte.
+- [x] Given la primitive de vérification, when on lit le code, then elle réutilise `citesRealPRUrl` (ou en extrait un noyau commun) sans le recopier.
 
 ## Edge Cases
 

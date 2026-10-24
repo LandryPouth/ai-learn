@@ -11,12 +11,15 @@ bin/lib/
   context.js             résolution de --dir                          (feuille)
   progress.js            ledger progress.json + latestEvidenceForPhase + phaseVerdict (feuille)
   source-hash.js         empreinte sha256 du code prouvé (checkpointFilePath, computeSourceHash)
+  citation.js            citations vérifiables (URL de PR, fichier:ligne)
+  reviews.js             revue dirigeant : docs/reviews/<brique>.md (citation + décision)
   verify.js              LA commande d'écriture : exécute, prouve, marque done
   check.js               LE scanner : croise le ledger contre la réalité
   status.js / next.js    lecture seule
   scan.js                moteur de détection (walkSources, detectStack, detectConcepts, detectTests)
   norm.js                norme clean-code heuristique (blocage dur)
   guard.js               hook PreToolUse + câblage (.ai-learn/guard.json, .claude/settings.json)
+  platforms/opencode-guard.js  plugin OpenCode généré (.opencode/plugins/ai-learn-guard.js)
   traps.js / docs.js     banque de pièges, sources de doc embarquées
   init.js / update.js    scaffolding et propagation du protocole
   propose.js / upgrade.js / install.js / dogfood.js / git-hooks.js
@@ -24,8 +27,11 @@ bin/lib/
   tracks/domain.js       ledger cross-projet ~/.ai-learn/domains/<stack>.json
   stacks/*.js            packs par langage : concepts, directions, recipes, stresses, norm
   platforms/*.js         adaptateurs des 5 plateformes + détection + self-heal
-templates/               AGENTS-apprentissage.md, plan, predictions, dogfood, commit-msg
-commands/                les 7 commandes /… (markdown, format Claude Code)
+templates/               AGENTS-apprentissage.md, plan, predictions, dogfood, commit-msg,
+                         opencode-guard-plugin.js (source du plugin généré)
+commands/                les 7 commandes /learn-* (markdown, format Claude Code),
+                         source unique ; install.js les rend en <nom>/SKILL.md
+                         pour les 5 plateformes, alias historiques compris
 ```
 
 ## Invariants structurels
@@ -49,6 +55,10 @@ commands/                les 7 commandes /… (markdown, format Claude Code)
    absente ⇒ allow. Un guard cassé ne doit pas casser une session.
 8. **Rien n'est destructif.** `init` ne réécrit jamais un fichier existant ;
    `update` ne réécrit qu'un fichier *généré*, reconnu par son marqueur de titre.
+9. **La migration des commandes est prouvée par le contenu, pas par le nom.**
+   `install` ne retire un ancien fichier que si ses octets sont encore ceux
+   qu'`ai-learn` avait écrits ; un fichier modifié est conservé et nommé. Un
+   symlink ou un skill utilisateur n'est jamais traversé, écrasé ni supprimé.
 
 ## Couplages à connaître avant de toucher
 
@@ -71,8 +81,42 @@ commands/                les 7 commandes /… (markdown, format Claude Code)
   contenu normalisé (CRLF/LF inclus) — décision verrouillée, voir
   `epics/epic-01-verdict-fiable/story-01-01-trois-etats-du-verdict/plan.md`.
 - `check.js` importe `norm.js`, `docs.js`, `git-hooks.js`, `dogfood.js`,
-  `guard.js` (validation de `guard.json`), `platforms/codex-guard.js` — c'est le
+  `guard.js` (validation de `guard.json`), `mode.js` (écart mode ↔ ledger de
+  tests), `platforms/codex-guard.js`, `platforms/opencode-guard.js` — c'est le
   module le plus couplé.
+- `platforms/opencode-guard.js` génère `.opencode/plugins/ai-learn-guard.js`
+  depuis `templates/opencode-guard-plugin.js`. Le plugin charge `guard.js` en
+  processus (`createRequire`) et appelle `decide` — il ne réimplémente aucune
+  règle ; le repli est `spawnSync("node", [bin, "guard"])`, puis « NOT checked »
+  (fail-open tracé dans `.ai-learn/guard-unchecked.jsonl`). Marqueur de première
+  ligne : `init`/`update` ne régénèrent que ce qui le porte, et n'écrivent le
+  plugin que si le projet utilise OpenCode (`opencode.json(c)` ou `.opencode/`)
+  ou si `--platform opencode` le demande. `check` lit les états
+  `current/stale/foreign/absent` ; il ne signale `absent` que si OpenCode est
+  utilisé.
+- `mode.js` lit `tracks/tests.js` (lecture seule) et écrit `guard.json`, puis
+  appelle `guard.js#ensureGuardHook` pour que le profil Codex et le README
+  généré suivent le mode. C'est une décision **fail-closed** assumée, exception
+  explicite à la règle 7 : elle autorise un mode, donc un ledger
+  absent/corrompu/version inconnue refuse au lieu de laisser passer. Les syncs
+  de ledger, elles, restent best-effort (règle 5) parce qu'elles n'ajoutent que
+  des preuves. `guard.js#isHomeAiLearnPath` refuse à l'IA d'écrire dans
+  `~/.ai-learn/**` (Write/Edit, et les écritures Bash reconnues) : le ledger de
+  tests est une entrée d'autorisation, pas un fichier de travail de l'agent.
+  Depuis cette story, `guardRelatives` juge **deux** chemins — le lexical et le
+  `realpath` (racine et cible) — et refuse si l'un des deux touche le set
+  protégé/apprenant : un symlink interne ne contourne plus `isProtectedPath` ni
+  `matchesGuardPath`, et un symlink qui pointe **hors** de la racine reste bloqué
+  par son chemin lexical (son relatif résolu, lui, vaut `null`). Le `realpath`
+  du home est comparé à celui de la cible, donc un `$HOME` symlinké ne
+  contourne pas la comparaison. Les évidences `.ai-learn/runs/*.json` restent
+  non protégées — même régime de confiance que le ledger (suivi, non corrigé).
+- `reviews.js` importe `citation.js` et `guard.js` (`matchesLearnerPath`) : en
+  `dirigeant`, le `file:line` d'une revue doit rester dans
+  `implementationFiles`, pas seulement exister dans le dépôt. `check.js` et
+  `status.js` consomment `reviews.js` ; `status.js` importe aussi
+  `loadGuardConfig` pour ne produire le résumé qu'en mode `dirigeant`. Pas de
+  cycle : `guard.js` n'importe ni `reviews.js` ni `citation.js`.
 - `verify.js` importe `norm.js`, `tracks/git.js`, `tracks/domain.js`.
 
 ## Ce que le guard ne voit pas
@@ -86,6 +130,8 @@ jamais par lui — c'est voulu et documenté dans `guard.js#detectGitOrGh`.
 - Chemins normalisés via `normalizePortable` (backslash → slash) partout où un
   chemin est écrit dans un fichier de données ou comparé à un glob.
 - `install claude` bascule automatiquement du symlink vers la copie de fichier
-  quand l'OS refuse (`EPERM` Windows sans Developer Mode).
+  pour le binaire quand l'OS refuse (`EPERM` Windows sans Developer Mode). Les
+  skills sont des fichiers ordinaires (`<nom>/SKILL.md`), donc indépendants des
+  symlinks.
 - `verify` lance le checkpoint avec `shell: true` — la commande est celle du
   `progress.json`, telle quelle, depuis la racine du projet.

@@ -105,6 +105,18 @@ function spawnGit(args, opts = {}) {
   return spawnSync("git", args, { ...opts, env: gitIsolatedEnv(opts.env) });
 }
 
+// The suggested commit command and its part-by-part explanation live here, in
+// one place: `verify`'s phase closure and the `status`/`next` uncommitted
+// reminder must never drift into two different wordings of the same advice.
+function explainCommitCommand(command) {
+  return [
+    `  ${command}`,
+    "    add -A      indexe tout, y compris les fichiers nouveaux et supprimés",
+    "    commit -m   enregistre l'instantané indexé avec un message",
+    '    "…"         message au format Conventional Commits (feat:, fix:, chore: …) attendu par le hook commit-msg',
+  ];
+}
+
 module.exports = {
   log,
   fail,
@@ -116,4 +128,5 @@ module.exports = {
   findLearningProjects,
   spawnGit,
   gitIsolatedEnv,
+  explainCommitCommand,
 };

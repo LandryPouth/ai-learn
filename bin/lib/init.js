@@ -11,12 +11,15 @@ const path = require("path");
 const { log, writeJson, mkdirp, normalizePortable } = require("./util");
 const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
+const { ensureOpenCodeGuard, usesOpenCode } = require("./platforms/opencode-guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
-const { ensureNormConfig } = require("./norm");
+const { ensureNormConfig, ensureNormHook } = require("./norm");
 const { ensureMutateConfig } = require("./mutate");
+const { ensureTutorConfig } = require("./tutor");
 const { ensurePredictionsFile, predictionsPath } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
+const { ensureNativeMemoryFile } = require("./platforms/ensure");
 const os = require("os");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
@@ -102,12 +105,58 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     log("  note    AGENTS.md existe déjà — protocole écrit dans docs/plans/mode-apprentissage.md");
   }
 
+  // A generalist session only loads the protocol if the platform's native
+  // memory file imports AGENTS.md — Claude Code reads CLAUDE.md, Gemini reads
+  // GEMINI.md; Codex/OpenCode already read AGENTS.md itself (story 04.01).
+  // Append-only and best-effort: an existing, customized file keeps its lines.
+  const nativeMemory = ensureNativeMemoryFile(abs, platform);
+
+  if (nativeMemory) {
+    if (nativeMemory.action === "created") {
+      created.push(normalizePortable(path.relative(abs, path.join(abs, nativeMemory.file))));
+    } else if (nativeMemory.action === "appended") {
+      log(`  note    ${nativeMemory.file}: import @AGENTS.md ajouté (contenu conservé)`);
+    } else if (nativeMemory.action === "failed") {
+      log(`  note    ${nativeMemory.file} non inscriptible — import @AGENTS.md non ajouté`);
+    }
+  }
+
   // The learner-file block: the AI must never write the learner's solution code.
   // Wired mechanically (PreToolUse hook) so it cannot be skipped like prose can.
+  // Chat-first revelation (story 05.04): the guard wiring does not create
+  // docs/solutions/ — it appears at the first written reveal.
   const guard = ensureGuardHook(abs);
 
   for (const file of guard.created) {
     created.push(file);
+  }
+
+  // OpenCode's guard plugin (story 08.01). Written only when the project uses
+  // OpenCode or the caller explicitly says so — never create .opencode/ for a
+  // learner who does not use it.
+  if (usesOpenCode(abs) || platform === "opencode") {
+    const openCodeGuard = ensureOpenCodeGuard(abs, { force: platform === "opencode" });
+
+    if (openCodeGuard.status === "created") {
+      created.push(normalizePortable(path.relative(abs, openCodeGuard.path)));
+    } else if (openCodeGuard.status === "upgraded") {
+      log(`  note    .opencode/plugins/ai-learn-guard.js régénéré`);
+    } else if (openCodeGuard.status === "skipped" && openCodeGuard.path) {
+      log(`  note    .opencode/plugins/ai-learn-guard.js personnalisé — laissé intact`);
+    }
+  }
+
+  // The consultative norm hook (story 07.03): claude-code only, since it is
+  // the sole platform with a PostToolUse hook. Any other platform wires
+  // nothing and relies on the documented fallback in AGENTS.md §3quater.
+  if (platform === "claude") {
+    const normHook = ensureNormHook(abs);
+
+    for (const file of normHook.created) {
+      if (!created.includes(file)) {
+        created.push(file);
+      }
+    }
   }
 
   // The commit-msg hook (mechanical, Conventional Commits) — silent no-op if
@@ -145,6 +194,14 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     created.push(normalizePortable(path.relative(abs, path.join(abs, ".ai-learn", "mutate.json"))));
   }
 
+  // The tutor profile (story 05.05) — assistance level and required proof,
+  // written once with explicit defaults and never rewritten afterwards.
+  const tutorConfig = ensureTutorConfig(abs);
+
+  if (tutorConfig.created) {
+    created.push(normalizePortable(path.relative(abs, path.join(abs, ".ai-learn", "tutor.json"))));
+  }
+
   // The prediction journal's source of truth (story 01.03) — created empty so
   // a brand-new project starts on predictions.json from its very first
   // prediction; docs/plans/predictions.md stays the template until then.
@@ -175,12 +232,12 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
   if (platform && PLATFORMS[platform]) {
     try {
       const result = INSTALLERS[platform]({ home: os.homedir() });
-      log(`  platform ${platform}: commandes /… installées (${result.created.length} fichier(s))`);
+      log(`  platform ${platform}: skills installés (${result.created.length} fichier(s))`);
     } catch (error) {
-      log(`  note    installation des commandes ${platform} a échoué : ${error.message}`);
+      log(`  note    installation des skills ${platform} a échoué : ${error.message}`);
     }
   } else if (platform) {
-    log(`  note    plateforme "${platform}" inconnue — commandes /… non installées (voir \`ai-learn install\`)`);
+    log(`  note    plateforme "${platform}" inconnue — skills non installés (voir \`ai-learn install\`)`);
   }
 
   return { dir: abs, created, platform: platform || null };

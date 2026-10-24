@@ -10,16 +10,16 @@ Nouveau champ de config et section d'évidence : additifs, rétro-compatibles (a
 
 ## Acceptance Criteria
 
-- [ ] Given `ai-learn init`, when il scaffolde, then `.ai-learn/tutor.json` existe avec un défaut explicite (`assistance: "indices"`, `proof: "explication"`) et jamais réécrit ensuite.
-- [ ] Given `proof: "transfert"` et aucune prédiction de type `transfert` pour la phase, when `verify` tourne, then la phase n'est pas marquée `done` et le message nomme le type manquant.
-- [ ] Given `proof: "tests"`, when `verify` tourne, then le comportement actuel est inchangé (non-régression).
-- [ ] Given `AGENTS-apprentissage.md`, when on le lit, then un paragraphe décrit les trois niveaux d'assistance (libre, indices progressifs : indice → question → pseudo-code → solution, strict) et que l'IA lit `.ai-learn/tutor.json` avant chaque réponse.
-- [ ] Given `ai-learn status`, when il tourne, then le profil actif est affiché sur une ligne ; given une valeur inconnue dans `tutor.json`, when `check` tourne, then erreur explicite.
-- [ ] Given l'évidence, when `verify` réussit, then elle enregistre séparément `proof.tests: true` et `proof.mastery: <niveau atteint>` — deux preuves distinctes, jamais fusionnées.
+- [x] Given `ai-learn init`, when il scaffolde, then `.ai-learn/tutor.json` existe avec un défaut explicite (`assistance: "indices"`, `proof: "explication"`) et jamais réécrit ensuite.
+- [x] Given `proof: "transfert"` et aucune prédiction de type `transfert` pour la phase, when `verify` tourne, then la phase n'est pas marquée `done` et le message nomme le type manquant.
+- [x] Given `proof: "tests"`, when `verify` tourne, then le comportement actuel est inchangé (non-régression).
+- [x] Given `AGENTS-apprentissage.md`, when on le lit, then un paragraphe décrit les trois niveaux d'assistance (libre, indices progressifs : indice → question → pseudo-code → solution, strict) et que l'IA lit `.ai-learn/tutor.json` avant chaque réponse.
+- [x] Given `ai-learn status`, when il tourne, then le profil actif est affiché sur une ligne ; given une valeur inconnue dans `tutor.json`, when `check` tourne, then erreur explicite.
+- [x] Given l'évidence, when `verify` réussit, then elle enregistre séparément `proof.tests: true` et `proof.mastery: <niveau atteint>` — deux preuves distinctes, jamais fusionnées.
 
 ## Edge Cases
 
-- [ ] Aucun cas limite propre à cette story au-delà des critères.
+- [x] Aucun cas limite propre à cette story au-delà des critères.
 
 ## Out of Scope
 

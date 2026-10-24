@@ -23,7 +23,7 @@ const { verifyCommand } = require("../bin/lib/verify");
 const { defaultGitTracks, writeGitTracks } = require("../bin/lib/tracks/git");
 const { defaultDomainLedger, writeDomainLedger } = require("../bin/lib/tracks/domain");
 const { loadStack } = require("../bin/lib/scan");
-const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
+const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
 
 function tmpHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-status-home-"));
@@ -197,7 +197,7 @@ test("status displays the stale state for a phase whose proof no longer covers t
 // Found in review (story 01.01): the stale label named the state but not
 // what to do about it, unlike check.js/next.js which both name the exact
 // command — spec.md's UX Note requires a périmé state to say what to do.
-test("status's stale label names the exact verify command to re-prove the phase", () => {
+test("status's stale label names the bulk verify command to re-prove stale phases", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
@@ -206,7 +206,29 @@ test("status's stale label names the exact verify command to re-prove the phase"
 
   const home = tmpHome();
   const out = capture(() => statusCommand({ dir, home }));
-  assert.match(out, /ai-learn verify 0/);
+  assert.match(out, /ai-learn verify --stale/);
+  assert.doesNotMatch(out, /ai-learn verify \d/);
+});
+
+test("status marks a stale phase in ledger order without reordering the following phase", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [
+        { id: 0, name: "Zero", status: "done", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+        { id: 1, name: "One", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 },
+      ],
+    }),
+  );
+  writeFile(dir, "src/index.js", "console.log('hi');\n");
+
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "src/index.js", "console.log('changed');\n");
+
+  const home = tmpHome();
+  const out = capture(() => statusCommand({ dir, home }));
+
+  assert.match(out, /⚠ Phase 0 — Zero.*périmé/);
+  assert.ok(out.indexOf("Phase 0") < out.indexOf("Phase 1"));
 });
 
 test("statusCommand includes the domain summary alongside the git/gh one", () => {
@@ -423,4 +445,109 @@ test("status --json has mutation: null for a phase without phase.mutation", () =
   const parsed = JSON.parse(out);
 
   assert.strictEqual(parsed.phases[0].mutation, null);
+});
+
+// -----------------------------------------------------------------------
+// Dirigeant review summary (story 03.03).
+// -----------------------------------------------------------------------
+
+test("status counts the missing dirigeant reviews of done phases", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  writeFile(dir, "src/index.js", "const one = 1;\nconst two = 2;\n");
+
+  const out = capture(() => statusCommand({ dir, home: tmpHome() }));
+  assert.match(out, /Revues \(mode dirigeant\) : 0\/1 valide\(s\) — 1 à revoir : docs\/reviews\/phase-zero\.md \(manquante\)/);
+});
+
+test("status names the reason when a dirigeant review is invalid", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  writeFile(dir, "docs/reviews/phase-zero.md", "Décision : accepter.\n");
+
+  const out = capture(() => statusCommand({ dir, home: tmpHome() }));
+  assert.match(out, /0\/1 valide\(s\) — 1 à revoir : docs\/reviews\/phase-zero\.md \(sans file:line réel\)/);
+});
+
+test("status does not print the review summary in apprenti (non-regression)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+
+  const out = capture(() => statusCommand({ dir, home: tmpHome() }));
+  assert.doesNotMatch(out, /Revues \(mode dirigeant\)/);
+});
+
+// -----------------------------------------------------------------------
+// Commit reminder (story 04.04) — read-only: status only reads
+// `git status --porcelain`, and explains each part of the suggested command.
+// -----------------------------------------------------------------------
+
+function gitProject() {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "a.txt", "x");
+  spawnGit(["init", "-b", "main"], { cwd: dir });
+  spawnGit(["add", "."], { cwd: dir });
+  spawnGit(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "feat: init"], { cwd: dir });
+  return dir;
+}
+
+test("status reminds about modified and untracked files, with the suggested command and its explanation", () => {
+  const dir = gitProject();
+  writeFile(dir, "a.txt", "changed");
+  writeFile(dir, "b.txt", "new");
+
+  const home = tmpHome();
+  const out = capture(() => statusCommand({ dir, home }));
+
+  assert.match(out, /Rappel — 2 fichier\(s\) modifié\(s\) non commité\(s\)/);
+  assert.match(out, /git add -A && git commit -m "feat: décrire le changement"/);
+  assert.match(out, /add -A\s+indexe tout/);
+  assert.match(out, /commit -m\s+enregistre/);
+  assert.match(out, /Conventional Commits/);
+  assert.match(out, /hook commit-msg/);
+});
+
+test("status stays silent on a clean tree and on a non-git directory", () => {
+  const clean = gitProject();
+  const cleanOut = capture(() => statusCommand({ dir: clean, home: tmpHome() }));
+  assert.doesNotMatch(cleanOut, /Rappel —/);
+
+  const plain = tmpProject(sampleProgress());
+  const plainOut = capture(() => statusCommand({ dir: plain, home: tmpHome() }));
+  assert.doesNotMatch(plainOut, /Rappel —/);
+});
+
+test("status --json exposes uncommitted: <n>", () => {
+  const dir = gitProject();
+  writeFile(dir, "a.txt", "changed");
+  writeFile(dir, "b.txt", "new");
+
+  assert.strictEqual(buildStatusReport(dir).uncommitted, 2);
+});
+
+test("the commit reminder never executes a git write command", () => {
+  const dir = gitProject();
+  writeFile(dir, "a.txt", "changed");
+
+  const beforeLog = spawnGit(["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const beforeStatus = spawnGit(["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).stdout;
+
+  capture(() => statusCommand({ dir, home: tmpHome() }));
+
+  assert.strictEqual(spawnGit(["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8" }).stdout.trim(), beforeLog);
+  assert.strictEqual(spawnGit(["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).stdout, beforeStatus);
+});
+
+test("statusCommand shows the active tutor profile on one line", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "strict", proof: "transfert" }));
+
+  const out = capture(() => statusCommand({ dir, home: tmpHome() }));
+
+  assert.match(out, /Tuteur : assistance=strict · preuve=transfert/);
 });

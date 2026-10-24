@@ -4,7 +4,7 @@ argument-hint: ""
 allowed-tools: ["Bash", "Read", "Write"]
 ---
 
-# ai-learn: scan
+# ai-learn: learn-scan
 
 Pour un projet déjà avancé (ex. un RPG en C, une API web) qu'on continue
 de maîtriser : `scan` analyse le code réel, montre **où l'on en est** (stack,

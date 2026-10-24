@@ -15,6 +15,43 @@ const { findPhase } = require("./progress");
 
 const VERSION = 1;
 
+// Story 05.01 — a prediction carries a type so `verify` can require them
+// separately (`predictionsRequired: { code: 2, reality: 1 }`). Entries written
+// before this story have no `type` and count as `code` — no migration needed.
+const PREDICTION_TYPES = ["code", "casse", "reality", "transfert"];
+const DEFAULT_PREDICTION_TYPE = "code";
+
+// `predictionsRequired` accepts an integer (legacy: any type combined) or an
+// object keyed by type. Both normalise to one shape so `verify` and `check`
+// never diverge on how a requirement is read (same single-source rule as
+// `predictionsReport`).
+function normalizePredictionsRequired(required) {
+  if (Number.isFinite(required) && required > 0) {
+    return { total: required, byType: null };
+  }
+
+  if (required && typeof required === "object" && !Array.isArray(required)) {
+    const byType = {};
+
+    for (const type of PREDICTION_TYPES) {
+      const count = Number.isFinite(required[type]) && required[type] > 0 ? required[type] : 0;
+
+      if (count > 0) {
+        byType[type] = count;
+      }
+    }
+
+    const total = Object.values(byType).reduce((sum, count) => sum + count, 0);
+    return { total, byType: total > 0 ? byType : null };
+  }
+
+  return { total: 0, byType: null };
+}
+
+function predictionTypeOf(entry) {
+  return entry && PREDICTION_TYPES.includes(entry.type) ? entry.type : DEFAULT_PREDICTION_TYPE;
+}
+
 // The exact first line `init` writes (mirrored from templates/predictions.md).
 // A predictions.md that doesn't start with it is treated as customized and is
 // never regenerated — same rule `guard.js`/`update.js` already apply elsewhere.
@@ -65,6 +102,10 @@ function validatePredictionsData(data) {
 
     if (typeof entry.at !== "string" || !entry.at) {
       issues.push(`entries[${index}] is missing an "at" timestamp`);
+    }
+
+    if (entry.type !== undefined && !PREDICTION_TYPES.includes(entry.type)) {
+      issues.push(`entries[${index}] has unknown type ${JSON.stringify(entry.type)} (expected one of ${PREDICTION_TYPES.join(", ")})`);
     }
   });
 
@@ -135,9 +176,12 @@ function escapeField(value) {
 
 function phaseRequiredTotal(config, phaseId) {
   const phase = findPhase(config, phaseId);
-  return phase && Number.isFinite(phase.predictionsRequired) && phase.predictionsRequired > 0
-    ? phase.predictionsRequired
-    : null;
+
+  if (!phase) {
+    return null;
+  }
+
+  return normalizePredictionsRequired(phase.predictionsRequired).total || null;
 }
 
 // Renders the full file: the template's own header (title, Format, Règles —
@@ -155,6 +199,7 @@ function renderJournal(dir, config, data) {
 
     return [
       `### Phase ${entry.phaseId} — prédiction ${seenPerPhase[entry.phaseId]}/${total}`,
+      `- Type : ${predictionTypeOf(entry)}`,
       `- Prédiction : ${escapeField(entry.prediction)}`,
       `- Écarts : ${escapeField(entry.gaps)} — Note : ${escapeField(entry.score)}`,
       `- Points forts : ${escapeField(entry.strengths)}`,
@@ -215,6 +260,12 @@ function recordPrediction(dir, config, fields) {
     fail(`--corrected-by must be one of ${VALID_CORRECTED_BY.join(", ")}, got: ${correctedBy}`);
   }
 
+  const type = fields.type || DEFAULT_PREDICTION_TYPE;
+
+  if (!PREDICTION_TYPES.includes(type)) {
+    fail(`--type must be one of ${PREDICTION_TYPES.join(", ")}, got: ${type}`);
+  }
+
   const existing = readPredictions(dir);
 
   if (existing.exists && !existing.valid) {
@@ -227,6 +278,7 @@ function recordPrediction(dir, config, fields) {
     id: crypto.randomUUID(),
     phaseId: fields.phaseId,
     at: now,
+    type,
     prediction: fields.prediction,
     gaps: fields.gaps || null,
     score: fields.score || null,
@@ -266,36 +318,101 @@ function recordPrediction(dir, config, fields) {
 // phase that requires predictions. Omitted, this reads it itself — the shape
 // every existing caller (verify.js, the unit tests) relies on.
 function predictionsReport({ dir, phase, predictions }) {
-  const required = Number.isFinite(phase.predictionsRequired) && phase.predictionsRequired > 0 ? phase.predictionsRequired : 0;
+  const requirement = normalizePredictionsRequired(phase.predictionsRequired);
+  const required = requirement.total;
+  const emptyTypeCounts = {};
   const resolved = predictions || readPredictions(dir);
 
   if (!resolved.exists) {
-    return { required, count: 0, missing: 0, corrupted: false, anomalies: [] };
+    return {
+      required,
+      count: 0,
+      missing: 0,
+      requiredByType: requirement.byType,
+      countByType: emptyTypeCounts,
+      missingByType: {},
+      corrupted: false,
+      anomalies: [],
+    };
   }
 
   if (!resolved.valid) {
-    return { required, count: 0, missing: required, corrupted: true, issues: resolved.issues, anomalies: [] };
+    return {
+      required,
+      count: 0,
+      missing: required,
+      requiredByType: requirement.byType,
+      countByType: emptyTypeCounts,
+      missingByType: missingPerType(requirement.byType, emptyTypeCounts),
+      corrupted: true,
+      issues: resolved.issues,
+      anomalies: [],
+    };
   }
 
   const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id);
   const count = entries.length;
+  const countByType = {};
+
+  for (const entry of entries) {
+    const type = predictionTypeOf(entry);
+    countByType[type] = (countByType[type] || 0) + 1;
+  }
+
+  const missingByType = missingPerType(requirement.byType, countByType);
+  const missing = requirement.byType
+    ? Object.values(missingByType).reduce((sum, gap) => sum + gap.missing, 0)
+    : Math.max(0, required - count);
+
   const anomalies = entries
     .filter((entry) => entry.revealedAt && entry.at > entry.revealedAt)
     .map((entry) => ({ id: entry.id, at: entry.at, revealedAt: entry.revealedAt }));
 
-  return { required, count, missing: Math.max(0, required - count), corrupted: false, anomalies };
+  return { required, count, missing, requiredByType: requirement.byType, countByType, missingByType, corrupted: false, anomalies };
+}
+
+// Story 05.01 — only types the phase actually requires are reported, and only
+// when short: `{ reality: { expected: 1, actual: 0, missing: 1 } }`. A legacy
+// integer requirement has `byType: null` and no per-type gap at all.
+function missingPerType(requiredByType, countByType) {
+  if (!requiredByType) {
+    return {};
+  }
+
+  const gaps = {};
+
+  for (const [type, expected] of Object.entries(requiredByType)) {
+    const actual = countByType[type] || 0;
+
+    if (actual < expected) {
+      gaps[type] = { expected, actual, missing: expected - actual };
+    }
+  }
+
+  return gaps;
 }
 
 // Shared by `verify` and `check` so a phase's missing-predictions warning
 // never reads different counts in two places (plan.md Decisions) — the one
-// divergence this story exists to close.
+// divergence this story exists to close. A ventilated requirement names the
+// short type with its real/expected count, so "which prediction is missing"
+// is never left to guesswork.
 function formatPredictionsGap(phase, report) {
-  return `phase ${phase.id}: ${report.count}/${report.required} recorded predictions; ${report.missing} missing`;
+  const base = `phase ${phase.id}: ${report.count}/${report.required} recorded predictions; ${report.missing} missing`;
+  const details = Object.entries(report.missingByType || {})
+    .map(([type, gap]) => `${type} ${gap.actual}/${gap.expected}`)
+    .join(", ");
+
+  return details ? `${base} (${details})` : base;
 }
 
 module.exports = {
   VERSION,
   GENERATED_MARKER,
+  PREDICTION_TYPES,
+  DEFAULT_PREDICTION_TYPE,
+  normalizePredictionsRequired,
+  predictionTypeOf,
   predictionsPath,
   journalPath,
   readPredictions,

@@ -7,6 +7,7 @@
 // the command that makes "the AI skipped the rule" visible.
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { log, findLearningProjects, spawnGit, normalizePortable } = require("./util");
 const {
@@ -17,13 +18,27 @@ const {
   latestEvidenceForPhase,
   latestAnyEvidenceForPhase,
   phaseVerdict,
+  revisitState,
 } = require("./progress");
-const { docSourceList } = require("./docs");
+const { docSourceList, digestPath, digestCitations, digestCitationProblem } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
+const {
+  inspectOpenCodeGuard,
+  usesOpenCode,
+  PLUGIN_RELATIVE: OPENCODE_PLUGIN_RELATIVE,
+} = require("./platforms/opencode-guard");
+const {
+  NATIVE_MEMORY_FILE,
+  detectedPlatforms,
+  legacyOnlyPlatforms,
+  hasNativeMemoryImport,
+} = require("./platforms/ensure");
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
-const { guardConfigIssues, loadGuardConfig } = require("./guard");
+const { guardConfigIssues, loadGuardConfig, isOwnGuardCommand } = require("./guard");
+const { readTutorConfig } = require("./tutor");
+const { MODE_DIRIGEANT, formatLedgerRefusal, requiredTiersStatus } = require("./mode");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
 const {
@@ -31,14 +46,12 @@ const {
   readPredictions,
   countByPhase,
   countIATyped,
+  normalizePredictionsRequired,
   predictionsReport,
   formatPredictionsGap,
 } = require("./predictions");
-
-// A real merged/open PR URL — the only acceptable evidence shape for a tier-6
-// ("read a stranger's diff") phase, same "presence + minimum substance, not
-// truth" contract as `docCitesOrigin` below.
-const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
+const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
+const { duplicateSlugs, reviewState } = require("./reviews");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -47,7 +60,12 @@ const PR_URL_RE = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 // hole is well-placed.
 const HOLE_MARKER_RE = /\[\s*\.\.\.\s*\]|…|\bTODO\b|à (?:compl[ée]ter|finir)|\.\.\.\s*$/im;
 
-function checkProject(dir) {
+// Story 06.03 — the fixed reading speed used to turn a digest's word count into
+// an estimated reading time. A documented constant, not a per-project setting:
+// the budget is a nudge, never a proof.
+const READING_WORDS_PER_MINUTE = 200;
+
+function checkProject(dir, { home, now = new Date() } = {}) {
   const issues = { errors: [], warnings: [] };
   const { config, exists } = readProgress(dir);
 
@@ -60,8 +78,24 @@ function checkProject(dir) {
     return { dir, config: null, issues };
   }
 
+  // The learning mode lives in `.ai-learn/guard.json`; absent or typo'd, the
+  // guard resolves to apprenti. `check` only adds the dirigeant review tier
+  // when the mode is really dirigeant.
+  const guard = loadGuardConfig(dir);
+  // Review files are named after the phase, so a duplicate name makes one
+  // review stand for two phases. Computed once, shared by every done phase.
+  const duplicateReviewNames = duplicateSlugs(config.phases);
+
   for (const issue of validateProgress(config)) {
     (issue.level === "error" ? issues.errors : issues.warnings).push(issue);
+  }
+
+  // The tutor profile (story 05.05): an unknown assistance/proof value is an
+  // explicit error, never a silent fallback to the defaults verify would use.
+  const tutor = readTutorConfig(dir);
+
+  for (const message of tutor.issues) {
+    issues.errors.push({ file: ".ai-learn/tutor.json", message });
   }
 
   // Doc sources the ledger declares should exist. A local source that vanished
@@ -137,6 +171,26 @@ function checkProject(dir) {
       issues.warnings.push({ file: ".ai-learn/guard.json", message: issue.message });
     }
 
+    // `dirigeant` is earned through `ai-learn mode dirigeant`, which proves
+    // tiers 1-3 of the global ledger. A hand-edited guard.json can claim the
+    // mode without that proof, so the only place the divergence is visible is
+    // here — and it is an error, not a warning: the project is enforcing a
+    // property the learner has not demonstrated. An absent/corrupt ledger
+    // proves nothing either (fail closed, like the gate itself).
+    if (loadGuardConfig(dir).mode === MODE_DIRIGEANT) {
+      const ledger = requiredTiersStatus({ home });
+
+      if (!ledger.ok) {
+        issues.errors.push({
+          file: ".ai-learn/guard.json",
+          message:
+            "mode is \"dirigeant\" but the test ledger does not prove tiers 1-3: " +
+            `${formatLedgerRefusal(ledger)} — switch with \`ai-learn mode dirigeant\`, ` +
+            "never by hand-editing guard.json",
+        });
+      }
+    }
+
     // An implementation scope that matches nothing makes source-hash, norm and
     // mutation vacuous: the digest is constant, no file is ever policed and no
     // mutant is generated. That is the silent version of the epic-01 regression
@@ -146,7 +200,7 @@ function checkProject(dir) {
     // Only when the project actually has implementation candidates: a freshly
     // initialized project with no source written yet matches nothing legitimately
     // and must not be nagged. Test files don't count as implementation.
-    const implementationScope = loadGuardConfig(dir).implementationFiles;
+    const implementationScope = guard.implementationFiles;
     if (computeSourceHash(dir).files === 0) {
       const hasImplementationCandidates = walkSources(dir).files.some(
         (file) => ALL_SOURCE_EXTS.has(file.ext) && detectTests([file]).count === 0,
@@ -213,6 +267,83 @@ function checkProject(dir) {
       expected: "le profil de permissions ai-learn-guard aurait dû être câblé dans .codex/config.toml par init/update",
       problem: "guard.json existe mais .codex/config.toml ne porte pas le marqueur ai-learn (absent, ou fichier personnalisé jamais rafraîchi)",
     });
+  }
+
+  // OpenCode's mechanical guard is a generated plugin (story 08.01). Absent is
+  // only a finding when OpenCode is actually in use; stale/foreign means the
+  // project has a file there but it is not the guard we would run.
+  if (usesOpenCode(dir)) {
+    const openCode = inspectOpenCodeGuard(dir);
+
+    if (openCode.state !== "current") {
+      const label =
+        openCode.state === "absent"
+          ? "absent"
+          : openCode.state === "stale"
+            ? "périmé"
+            : openCode.state === "unreadable"
+              ? "illisible (pas un fichier, ou permissions)"
+              : "personnalisé (sans marqueur ai-learn)";
+      const remedy =
+        openCode.state === "foreign"
+          ? "Renomme ou supprime ce plugin personnalisé, puis lance `ai-learn update --platform opencode` : " +
+            "`update` ne remplace jamais un plugin qui ne porte pas le marqueur ai-learn."
+          : openCode.state === "unreadable"
+            ? "Rends `.opencode/plugins/ai-learn-guard.js` lisible (ou supprime-le), puis lance " +
+              "`ai-learn update --platform opencode`."
+            : "Lance `ai-learn update` (ou `ai-learn update --platform opencode`) pour le générer.";
+      issues.warnings.push({
+        file: OPENCODE_PLUGIN_RELATIVE.replace(/\\/g, "/"),
+        message: `plugin OpenCode ${label} — le garde-fou src/** n'y est pas actif. ${remedy}`,
+      });
+    }
+  }
+
+  // A platform that does not read AGENTS.md on its own (Claude Code, Gemini)
+  // only sees the protocol through its native memory file. When that platform
+  // is installed on the machine and the project has an AGENTS.md but no import
+  // line, a generalist session opens the project with no learning protocol at
+  // all — the exact silent skip this command exists to surface. Same warning
+  // discipline as the Codex guard above: actionable, never fatal.
+  if (fs.existsSync(path.join(dir, "AGENTS.md"))) {
+    // Pre-04.05 installs only carry the old slash names (`/next`, …). The new
+    // `/learn-*` names are additive, so this is a migration warning — never an
+    // error, and never something the learner has to fix by hand.
+    for (const platform of legacyOnlyPlatforms(home)) {
+      issues.warnings.push({
+        file: `/… skills (${platform})`,
+        message:
+          `skills ${platform} installés sous les anciens noms seulement — les skills /learn-* ` +
+          `manquent. Lance \`ai-learn update --platform ${platform}\` pour les ajouter (migration, non bloquant).`,
+      });
+    }
+
+    for (const platform of detectedPlatforms(home)) {
+      const filename = NATIVE_MEMORY_FILE[platform];
+
+      if (!filename) {
+        continue;
+      }
+
+      let content = null;
+
+      try {
+        content = fs.readFileSync(path.join(dir, filename), "utf8");
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          continue; // unreadable is not the same as missing — not this check's job
+        }
+      }
+
+      if (content === null || !hasNativeMemoryImport(content)) {
+        issues.warnings.push({
+          file: filename,
+          message:
+            `AGENTS.md exists but ${filename} does not import @AGENTS.md — ${platform} sessions ` +
+            "open the project without the learning protocol. Run `ai-learn update --root <dir>`.",
+        });
+      }
+    }
   }
 
   // The commit-msg hook (mechanical, Conventional Commits — see
@@ -289,7 +420,7 @@ function checkProject(dir) {
   // Counting is per phase: summing across phases let 6 predictions on phase 0
   // satisfy phase 1's requirement too (the bug this story fixes).
   const required = (config.phases || []).reduce(
-    (sum, phase) => sum + (Number.isFinite(phase.predictionsRequired) ? phase.predictionsRequired : 0),
+    (sum, phase) => sum + normalizePredictionsRequired(phase.predictionsRequired).total,
     0,
   );
   const journalMdPath = predictionsJournalPath(dir);
@@ -343,16 +474,16 @@ function checkProject(dir) {
     // its own count here — informative only (a warning, never a block; see
     // predictionsReport's own retro-compat contract).
     for (const phase of config.phases || []) {
-      const phaseRequired = Number.isFinite(phase.predictionsRequired) ? phase.predictionsRequired : 0;
+      const phaseRequired = normalizePredictionsRequired(phase.predictionsRequired).total;
 
       if (phaseRequired <= 0) {
         continue;
       }
 
       const have = countsByPhase[phase.id] || 0;
-      const report = predictions.valid
+      const report = predictions.valid || predictions.exists
         ? predictionsReport({ dir, phase, predictions })
-        : { required: phaseRequired, count: have, missing: Math.max(0, phaseRequired - have) };
+        : { required: phaseRequired, count: have, missing: Math.max(0, phaseRequired - have), missingByType: {} };
 
       if (report.missing > 0) {
         const legacyHint = jsonEmptyOverNonEmptyLegacy
@@ -381,6 +512,8 @@ function checkProject(dir) {
     const relative = (artifact) => normalizeRelative(dir, artifact);
     const ev = latestEvidenceForPhase(dir, phase.id);
     const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
+
+    checkDigest(dir, config, phase, issues);
 
     if (phase.status === "done") {
       if (!phase.checkpoint) {
@@ -424,8 +557,24 @@ function checkProject(dir) {
 
           issues.errors.push({
             file: "progress.json",
-            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}.${mutationClause} Run \`ai-learn verify ${phase.id}\` again to re-prove it.`,
+            message: `phase ${phase.id} ("${phase.name}") is done but its proof is stale — ${changeDetail}.${mutationClause} Run \`ai-learn verify --stale\` to re-prove it.`,
           });
+        } else {
+          // Retention (story 07.02): the proof still covers the code, but the
+          // learner has not redone the phase from memory within its
+          // `reviewAfterDays`. A warning, never an error — forgetting is a
+          // signal, not a lie, and the phase stays `done`.
+          const revisit = revisitState({ phase, evidence: ev, now });
+
+          if (revisit && revisit.due) {
+            issues.warnings.push({
+              file: "progress.json",
+              message:
+                `phase ${phase.id} ("${phase.name}") has not been revisited since ${revisit.lastProvenAt.slice(0, 10)} ` +
+                `(more than ${revisit.reviewAfterDays} day(s)). Redo it from memory, without notes or the prediction journal: ` +
+                `\`ai-learn verify ${phase.id} --revisit\`.`,
+            });
+          }
         }
       }
 
@@ -442,6 +591,17 @@ function checkProject(dir) {
       // to a generated doc source's origin citation (see docCitesOrigin).
       if (phase.gitTier === 6) {
         checkTier6Artifact(dir, phase, issues, relative);
+      }
+
+      // In dirigeant mode the learner no longer types the implementation: the
+      // only contribution left to prove is judgment. A done phase without a
+      // sourced review (`docs/reviews/<brique>.md`) is not proven.
+      if (guard.mode === "dirigeant") {
+        checkReview(dir, phase, issues, guard.implementationFiles, duplicateReviewNames);
+        // The other half of that judgment is the specification: the learner's
+        // test must provably kill at least one mutant. Reported separately from
+        // the review — they prove different things.
+        checkMutationKilled(phase, ev, issues);
       }
     } else {
       // A `--no-mark` run deliberately writes passing evidence without
@@ -484,6 +644,49 @@ function checkProject(dir) {
   }
 
   return { dir, config, issues };
+}
+
+// Story 06.02 — a generated digest is a snapshot of line ranges. The source
+// can move under it (a doc update, a hand edit), so `check` re-resolves every
+// citation and warns when a range no longer exists. A warning, never an error:
+// the fix is `ai-learn docs digest --phase <id>`, not a broken project.
+function checkDigest(dir, config, phase, issues) {
+  const target = digestPath(dir, phase.id);
+
+  if (!fs.existsSync(target)) {
+    return;
+  }
+
+  const content = fs.readFileSync(target, "utf8");
+  const relative = normalizePortable(path.relative(dir, target));
+
+  for (const citation of digestCitations(content)) {
+    const problem = digestCitationProblem(dir, config, citation);
+
+    if (problem) {
+      issues.warnings.push({
+        file: relative,
+        message: `phase ${phase.id} digest: ${problem} — regenerate with \`ai-learn docs digest --phase ${phase.id}\``,
+      });
+    }
+  }
+
+  // Story 06.03 — a declared reading budget turns the digest into a checked
+  // promise: over it, the learner is back to pre-reading whole files. A
+  // warning, never an error: the budget is a nudge, not a proof.
+  if (Number.isInteger(phase.readingBudgetMin) && phase.readingBudgetMin > 0) {
+    const words = (content.match(/\S+/g) || []).length;
+    const minutes = Math.ceil(words / READING_WORDS_PER_MINUTE);
+
+    if (minutes > phase.readingBudgetMin) {
+      issues.warnings.push({
+        file: relative,
+        message:
+          `phase ${phase.id} digest is ~${minutes} min of reading (${words} words at ` +
+          `${READING_WORDS_PER_MINUTE} wpm), over the declared readingBudgetMin (${phase.readingBudgetMin} min)`,
+      });
+    }
+  }
 }
 
 // A `generated` source was never cloned — the AI had to recreate the doc
@@ -561,8 +764,6 @@ function findTranscript(dirPath) {
 // with or without scheme/trailing slash, so compare normalized. Presence
 // check only — it cannot verify the surrounding content is *accurate*, only
 // that there is a non-trivial amount of it next to a real citation.
-const MIN_CONTENT_BEYOND_CITATION = 200;
-
 function docCitesOrigin(dirPath, url) {
   const needle = normalizeOrigin(url);
   let entries;
@@ -590,13 +791,7 @@ function docCitesOrigin(dirPath, url) {
       continue;
     }
 
-    const withoutCitationLines = content
-      .split("\n")
-      .filter((line) => !line.includes(needle))
-      .join("\n")
-      .trim();
-
-    if (withoutCitationLines.length >= MIN_CONTENT_BEYOND_CITATION) {
+    if (hasSubstantialBody(content, needle)) {
       return true;
     }
   }
@@ -611,22 +806,7 @@ function normalizeOrigin(url) {
 // Same presence-check shape as `docCitesOrigin`, applied to a phase artifact
 // instead of a doc-source directory: a real PR URL, plus enough real content
 // around it that the citation isn't stapled onto an empty or hallucinated file.
-function citesRealPRUrl(content) {
-  const match = content.match(PR_URL_RE);
-
-  if (!match) {
-    return false;
-  }
-
-  const withoutCitationLines = content
-    .split("\n")
-    .filter((line) => !line.includes(match[0]))
-    .join("\n")
-    .trim();
-
-  return withoutCitationLines.length >= MIN_CONTENT_BEYOND_CITATION;
-}
-
+// The core lives in citation.js — the dirigeant review reuses it for file:line.
 function checkTier6Artifact(dir, phase, issues, relative) {
   const artifacts = phase.artifacts || [];
   let found = false;
@@ -661,6 +841,69 @@ function checkTier6Artifact(dir, phase, issues, relative) {
         "reading a stranger's diff leaves no other trace to verify against",
     });
   }
+}
+
+// The dirigeant review tier: one sourced review per done phase. Presence is
+// not enough — the review must cite a real, resolvable `file:line` and state a
+// decision. Same "presence + minimum substance, not truth" contract as a tier-6
+// PR URL (see citation.js); the tool proves the citation resolves, never that
+// the judgment is good.
+function checkReview(dir, phase, issues, scope, duplicates) {
+  const review = reviewState(dir, phase, scope, duplicates);
+
+  if (review.state === "valid") {
+    return;
+  }
+
+  const reasons = {
+    missing: "is missing — the learner's sourced review is the proof of judgment",
+    unreadable: "is unreadable — a review must cite a real file:line and a decision",
+    "no-citation":
+      "cites no real file:line from the diff — a review without a resolvable citation proves nothing",
+    "no-decision": "states no decision (accepter, rejeter, demander un changement)",
+    "insufficient-substance":
+      `has too little content around its citation (${review.citation || "file:line"}) — ` +
+      "same presence + minimum-substance contract as a PR URL",
+    "ambiguous-name":
+      "is shared with another phase of the same name — rename one phase so each review is unique",
+  };
+
+  issues.errors.push({
+    file: review.path,
+    message: `phase ${phase.id} ("${phase.name}") is done in dirigeant mode but ${review.path} ` +
+      `${reasons[review.reason] || "is invalid"}`,
+  });
+}
+
+// The dirigeant mutation-killer tier (story 03.04): a done phase must show at
+// least one mutant killed by the learner's test. `verify` already wrote
+// `evidence.mutation` (story 02.03); check only reads it — recomputing would run
+// the checkpoint once per mutant on every `check`, the same fast/read-only
+// contract story 02.04 preserved. `killed === 0` proves no specification, and
+// `required: false` means `verify` never measured mutation for this phase, so
+// it proves nothing either. A phase with no passing evidence is already an
+// error ("marked done but has no passing evidence") — do not double-report.
+function checkMutationKilled(phase, ev, issues) {
+  if (!ev) {
+    return;
+  }
+
+  const measured = ev.mutation && ev.mutation.required === true;
+  const killed = measured ? ev.mutation.killed || 0 : 0;
+
+  if (killed >= 1) {
+    return;
+  }
+
+  const truncatedNote = measured && ev.mutation.truncated ? " — measure truncated, not every site was tried" : "";
+  const detail = measured ? `${killed} mutant(s) killed${truncatedNote}` : "mutation never measured for this phase";
+
+  issues.errors.push({
+    file: "progress.json",
+    message: `phase ${phase.id} ("${phase.name}") is done in dirigeant mode yet no mutant killed by the learner's test ` +
+      `is proven (${detail}) — the specification is the learner's only contribution; write a test that kills at ` +
+      `least one mutant, then run \`ai-learn verify ${phase.id}\``,
+  });
 }
 
 // Evidence journal format: one `### Phase <N> — prédiction <k>/<total>` heading per
@@ -730,7 +973,7 @@ function guardHookWired(dir) {
     (entry) =>
       entry &&
       Array.isArray(entry.hooks) &&
-      entry.hooks.some((h) => h && typeof h.command === "string" && /ai-learn(\.js)? guard/.test(h.command)),
+      entry.hooks.some((h) => h && isOwnGuardCommand(h.command)),
   );
 }
 
@@ -786,6 +1029,11 @@ function printProjectReport(entry) {
     const wired = guardHookWired(entry.dir);
     log(`  guard (claude): ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers de l'apprenant` : "configuré mais hook non câblé"}`);
     log(`  guard (codex): ${codexGuardWired(entry.dir) ? "actif (bac à sable OS)" : "configuré mais profil non câblé"}`);
+
+    if (usesOpenCode(entry.dir)) {
+      const openCode = inspectOpenCodeGuard(entry.dir);
+      log(`  guard (opencode): ${openCode.state === "current" ? "actif (plugin tool.execute.before)" : `inactif — plugin ${openCode.state}`}`);
+    }
   }
 
   // Purely informational: zero entries is a legitimate outcome (no friction

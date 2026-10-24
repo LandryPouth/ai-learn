@@ -15,9 +15,9 @@
 
 const fs = require("fs");
 const path = require("path");
-const { log, readJson, writeJson } = require("./util");
+const { log, readJson, writeJson, normalizePortable } = require("./util");
 const { walkSources, detectStack, detectTests, loadStack, stackKey, ALL_SOURCE_EXTS } = require("./scan");
-const { loadGuardConfig, matchesLearnerPath } = require("./guard");
+const { loadGuardConfig, matchesLearnerPath, findProjectRoot } = require("./guard");
 
 const FALLBACK_NORM = { maxFileLines: 400, maxFunctionLines: 50, maxNestingDepth: 4, maxParams: 5 };
 
@@ -643,9 +643,251 @@ function normCommand({ dir }) {
   process.exitCode = report.violations.length > 0 ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// PostToolUse hook: `ai-learn norm --hook` — the same checker at the moment of
+// the write, for claude-code. Consultative by design: it never blocks (the
+// wall stays in `verify`/`check`) and measures only the file just written,
+// never all of `src/**`, so its cost is bounded by one file. Silent on a clean
+// write — feedback noise is the failure mode this avoids.
+//
+// The honest limit: a platform without an equivalent hook (codex, gemini,
+// antigravity) gets nothing wired; AGENTS.md §3quater documents the fallback
+// (call `ai-learn norm` after each brick). OpenCode gets the same advice through
+// its guard plugin's `tool.execute.after` (story 08.02), which calls
+// `normHookContext` in-process.
+// ---------------------------------------------------------------------------
+
+const MAX_HOOK_FILE_BYTES = 1024 * 1024;
+const WRITE_TOOLS =new Set(["Write", "Edit", "MultiEdit"]);
+const NORM_HOOK_MARKER = /ai-learn\.js"? norm --hook/;
+// Manifests probed at the project root to pick the right stack pack without
+// walking the whole tree on every write.
+const ROOT_MANIFESTS = [
+  "tsconfig.json",
+  "package.json",
+  "Cargo.toml",
+  "go.mod",
+  "pyproject.toml",
+  "requirements.txt",
+  "CMakeLists.txt",
+  "Makefile",
+];
+
+function readHookInput({ inputFile = null } = {}) {
+  try {
+    if (inputFile) {
+      return fs.readFileSync(inputFile, "utf8");
+    }
+    return fs.readFileSync(0, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function parseHookInput(raw) {
+  if (!raw || !raw.trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function hookTargetPath(toolInput) {
+  if (!toolInput || typeof toolInput !== "object") {
+    return null;
+  }
+  return toolInput.file_path || null;
+}
+
+// The stack detection `normProject` gets from a full walk, reproduced from the
+// root manifests plus the one written file — no walk on the hot path.
+function stackFilesFor(root, file) {
+  const manifests = ROOT_MANIFESTS.filter((name) => fs.existsSync(path.join(root, name))).map((rel) => ({
+    rel,
+    ext: path.extname(rel).toLowerCase(),
+  }));
+
+  return [file, ...manifests];
+}
+
+// Violations for exactly one written file, under the same scope rules as
+// `normProject` (implementation files, ignore globs, test exclusion).
+function analyzeWrittenFile(root, rel) {
+  const abs = path.join(root, rel);
+  const ext = path.extname(rel).toLowerCase();
+
+  if (!ALL_SOURCE_EXTS.has(ext)) {
+    return [];
+  }
+
+  const { implementationFiles } = loadGuardConfig(root);
+
+  if (!matchesLearnerPath(rel, implementationFiles)) {
+    return [];
+  }
+
+  const { ignore, includeTests } = loadNormConfig(root);
+
+  if (ignore.length > 0 && matchesLearnerPath(rel, ignore)) {
+    return [];
+  }
+  if (!includeTests && detectTests([{ rel }]).files.length > 0) {
+    return [];
+  }
+
+  let source;
+
+  try {
+    // Same cap as `scan` (1 MiB): beyond it `norm` measures nothing, so the
+    // hook must not report what `ai-learn norm` would stay silent on.
+    if (fs.statSync(abs).size > MAX_HOOK_FILE_BYTES) {
+      return [];
+    }
+    source = fs.readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+
+  const loc = (source.match(/\n/g) || []).length;
+  const stack = detectStack(root, stackFilesFor(root, { rel, ext }));
+  const thresholds = resolveThresholds(root, stack.language);
+
+  return analyzeFile({ rel, abs, loc }, thresholds, stack.language).violations;
+}
+
+// The advice string for one written file, or null. Shared by the CLI hook and
+// the OpenCode plugin, which loads this module in-process: a Bun-compiled
+// OpenCode has no `node` to spawn, and a second copy of the wording would drift.
+function normHookContext(hook) {
+  if (!hook || !WRITE_TOOLS.has(hook.tool_name)) {
+    return null;
+  }
+
+  const target = hookTargetPath(hook.tool_input);
+
+  if (!target || typeof target !== "string") {
+    return null;
+  }
+
+  const start = typeof hook.cwd === "string" && hook.cwd ? hook.cwd : process.cwd();
+  const root = findProjectRoot(start);
+
+  const abs = path.isAbsolute(target) ? path.normalize(target) : path.resolve(start, target);
+  const rel = normalizePortable(path.relative(root, abs));
+
+  if (!rel || rel === ".." || rel.startsWith("../") || path.isAbsolute(rel)) {
+    return null;
+  }
+
+  let violations;
+
+  try {
+    violations = analyzeWrittenFile(root, rel);
+  } catch {
+    return null; // a broken hook must never break the write it follows
+  }
+
+  if (violations.length === 0) {
+    return null;
+  }
+
+  return (
+    `ai-learn norm — ${violations.length} violation(s) dans ${rel} (non bloquant) :\n` +
+    violations.map((v) => `  ${formatViolation(v)}`).join("\n") +
+    "\nExplique la règle et laisse l'apprenant refactorer lui-même."
+  );
+}
+
+function normHookCommand({ inputFile = null } = {}) {
+  const context = normHookContext(parseHookInput(readHookInput({ inputFile })));
+
+  if (!context) {
+    return;
+  }
+
+  process.stdout.write(
+    `${JSON.stringify({
+      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: context },
+    })}\n`,
+  );
+}
+
+// --- wiring (used by `init` and `update`, not the hot path) -----------------
+
+// Merge the consultative norm hook into `.claude/settings.json`, never
+// clobbering existing entries — the same marker-based, idempotent stance as
+// `ensureGuardHook`'s PreToolUse wiring.
+function ensureNormHook(dir) {
+  const settingsPath = path.join(dir, ".claude", "settings.json");
+  const command = `node "${path.join(__dirname, "..", "ai-learn.js")}" norm --hook`;
+  const matcher = "Write|Edit|MultiEdit";
+
+  let settings = {};
+
+  if (fs.existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    } catch {
+      return { wired: false, skipped: true, created: [] }; // never overwrite a file we cannot read
+    }
+  }
+
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    return { wired: false, skipped: true, created: [] };
+  }
+
+  const hooks = settings.hooks === undefined ? {} : settings.hooks;
+
+  if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) {
+    return { wired: false, skipped: true, created: [] };
+  }
+
+  const postToolUse = hooks.PostToolUse === undefined ? [] : hooks.PostToolUse;
+
+  if (!Array.isArray(postToolUse)) {
+    return { wired: false, skipped: true, created: [] };
+  }
+
+  const ours = postToolUse
+    .flatMap((entry) => (entry && Array.isArray(entry.hooks) ? entry.hooks : []))
+    .filter((h) => h && typeof h.command === "string" && NORM_HOOK_MARKER.test(h.command));
+
+  if (ours.length > 0) {
+    // Wired, but possibly to a binary path that has since moved (npx cache,
+    // reinstall): repoint it in place rather than leave a hook that no longer runs.
+    const stale = ours.filter((h) => h.command !== command);
+
+    if (stale.length === 0) {
+      return { wired: true, created: [] };
+    }
+    for (const h of stale) {
+      h.command = command;
+    }
+    fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+
+    return { wired: true, refreshed: [normalizePortable(path.relative(dir, settingsPath))], created: [] };
+  }
+
+  settings.hooks = {
+    ...hooks,
+    PostToolUse: [...postToolUse, { matcher, hooks: [{ type: "command", command, timeout: 60 }] }],
+  };
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+
+  return { wired: false, created: [normalizePortable(path.relative(dir, settingsPath))] };
+}
+
 module.exports = {
   normProject,
   normCommand,
+  normHookCommand,
+  normHookContext,
+  ensureNormHook,
+  analyzeWrittenFile,
   analyzeFile,
   detectFunctions,
   detectFunctionsBrace,

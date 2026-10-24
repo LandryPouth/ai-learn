@@ -17,7 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, fail, mkdirp, writeJson, normalizePortable, spawnGit } = require("./util");
-const { progressPath, readProgress } = require("./progress");
+const { progressPath, readProgress, findPhase } = require("./progress");
 const { parseArgs } = require("./args");
 
 const MAX_SOURCES = 3;
@@ -97,6 +97,17 @@ function findSource(config, name) {
   return docSourceList(config && config.docSource).find((source) => source.name === name) || null;
 }
 
+// Story 06.01 — a source is `primary` (counts against MAX_SOURCES, feeds the
+// trap bank) or `secondary` (outside the quota, citable, never mined for
+// traps). Old manifests have no `kind`: they are primary, no migration.
+function sourceKind(source) {
+  return source && source.kind === "secondary" ? "secondary" : "primary";
+}
+
+function primarySources(sources) {
+  return sources.filter((source) => sourceKind(source) === "primary");
+}
+
 function assertName(name) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
     fail(`invalid source name "${name}": use lowercase letters, digits and hyphens (ex. project-docs)`);
@@ -115,8 +126,11 @@ function deriveName(source) {
   return clean || "source";
 }
 
-// Prefer the `trash` CLI (recoverable from the system trash) when it exists;
-// fall back to rmSync otherwise, so the tool stays portable.
+// Prefer the `trash` CLI (recoverable from the system trash) when it exists.
+// It does not exist on native Windows, so the fallback is a direct, permanent
+// delete — never a shell `rm -rf` built from a path. Returns which one happened
+// so a user-facing removal can say the copy is gone for good instead of
+// deleting in silence (story 08.04).
 function removePath(target) {
   const probe = spawnSync("trash", ["--version"], { encoding: "utf8" });
 
@@ -124,11 +138,12 @@ function removePath(target) {
     const res = spawnSync("trash", [target], { encoding: "utf8" });
 
     if (res.status === 0) {
-      return;
+      return "trash";
     }
   }
 
   fs.rmSync(target, { recursive: true, force: true });
+  return "permanent";
 }
 
 // Copy a directory tree, skipping the usual noise. `.git` keeps the snapshot
@@ -305,7 +320,7 @@ function gitClone(url, target, pathFilter = null) {
 function writeDocSource(dir, config, entry) {
   const current = docSourceList(config.docSource);
   const sources = current.filter((source) => source.name !== entry.name);
-  sources.push(entry);
+  sources.push({ ...entry, kind: sourceKind(entry) });
 
   const allRemote = sources.every((source) => source.mode === "remote");
   config.docSource = { type: allRemote ? "remote" : "local", sources };
@@ -325,7 +340,7 @@ function regenerateTrapsBestEffort(dir) {
   }
 }
 
-function addSource({ dir, name, source, online, subpath, regen }) {
+function addSource({ dir, name, source, online, subpath, regen, secondary }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -340,11 +355,17 @@ function addSource({ dir, name, source, online, subpath, regen }) {
   }
 
   const sources = docSourceList(config.docSource);
+  const primaries = primarySources(sources);
+  const kind = secondary ? "secondary" : "primary";
 
-  if (sources.length >= MAX_SOURCES) {
+  // Only primary sources count against the quota. A secondary source is the
+  // documented way past the cap (story 06.01), so the error names it.
+  if (kind === "primary" && primaries.length >= MAX_SOURCES) {
     fail(
-      `cannot add "${name}": already ${sources.length}/${MAX_SOURCES} sources. Remove one first:\n` +
-        sources.map((source) => `  ai-learn docs remove ${source.name}`).join("\n"),
+      `cannot add "${name}": already ${primaries.length}/${MAX_SOURCES} sources (principales). ` +
+        `Add it outside the quota, or remove one first:\n` +
+        `  ai-learn docs add --secondary ${name} <path|url>\n` +
+        primaries.map((source) => `  ai-learn docs remove ${source.name}`).join("\n"),
     );
   }
 
@@ -376,6 +397,7 @@ function addSource({ dir, name, source, online, subpath, regen }) {
 
     writeDocSource(dir, config, {
       name,
+      kind,
       mode: "local",
       path: rel,
       url: source,
@@ -396,7 +418,7 @@ function addSource({ dir, name, source, online, subpath, regen }) {
       fail(`--online requires an http(s) URL, got: ${source}`);
     }
 
-    writeDocSource(dir, config, { name, mode: "remote", url: source });
+    writeDocSource(dir, config, { name, kind, mode: "remote", url: source });
     log(`Added online source "${name}" → ${source} (URL only, no local files)`);
     regenerateTrapsBestEffort(dir);
     return;
@@ -415,6 +437,7 @@ function addSource({ dir, name, source, online, subpath, regen }) {
 
     writeDocSource(dir, config, {
       name,
+      kind,
       mode: "local",
       path: rel,
       file,
@@ -440,10 +463,10 @@ function addSource({ dir, name, source, online, subpath, regen }) {
   if (isGitUrl(source)) {
     const url = expandGitUrl(source);
     gitClone(url, target, subpath);
-    entry = { name, mode: "local", path: rel, url, subpath: subpath || null };
+    entry = { name, kind, mode: "local", path: rel, url, subpath: subpath || null };
   } else {
     copyFromSubdir(source, subpath, target);
-    entry = { name, mode: "local", path: rel, src: source, subpath: subpath || null };
+    entry = { name, kind, mode: "local", path: rel, src: source, subpath: subpath || null };
   }
 
   writeDocSource(dir, config, entry);
@@ -471,8 +494,15 @@ function removeSource({ dir, name }) {
 
     // Only ever delete inside docs/sources/ — never a ledger path that escapes it.
     if (target.startsWith(root + path.sep) && fs.existsSync(target)) {
-      removePath(target);
+      const removal = removePath(target);
       log(`Removed local copy ${source.path}`);
+
+      // `trash` is absent on native Windows (and can fail for permissions or a
+      // full disk); say the removal is permanent rather than let the fallback
+      // look identical to a recycle-bin move.
+      if (removal === "permanent") {
+        log("  note    `trash` did not move the copy to the trash — it was deleted permanently.");
+      }
     }
   }
 
@@ -529,6 +559,214 @@ function updateSource({ dir, name, subpath }) {
   regenerateTrapsBestEffort(dir);
 }
 
+// Story 06.02 — a phase declares the doc ranges worth reading as
+// `sections: [{ source, file, from, to }]` (line ranges, never titles: a title
+// can be edited or duplicated, a range either exists or does not). The digest
+// is a mechanical copy of those ranges, so nothing is ever summarized or
+// invented. A source outside the declared ranges is simply absent (⏭️).
+const DIGEST_CITATION_RE = /^<!--\s*digest:\s*(.+):(\d+)(?:-(\d+))?\s*-->$/;
+
+function digestPath(dir, phaseId) {
+  return path.join(dir, "docs", "digests", `phase-${phaseId}.md`);
+}
+
+function digestSections(phase) {
+  return phase && Array.isArray(phase.sections) ? phase.sections : [];
+}
+
+function digestLanguage(file) {
+  const ext = path.extname(file).toLowerCase();
+  return {
+    ".js": "js",
+    ".mjs": "js",
+    ".cjs": "js",
+    ".ts": "ts",
+    ".json": "json",
+    ".sh": "sh",
+    ".py": "python",
+    ".md": "markdown",
+    ".sql": "sql",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+  }[ext] || "";
+}
+
+function resolveSourceRoot(dir, source) {
+  const expanded = source.path.replace(/^~/, process.env.HOME || "");
+  return path.isAbsolute(expanded) ? expanded : path.join(dir, expanded);
+}
+
+// Resolve one declared range to its file and lines. Every failure is a hard
+// error: a citation that cannot be proven must never reach the digest.
+function resolveDigestSection(dir, config, section, index) {
+  const label = `sections[${index}]`;
+
+  if (!section || typeof section !== "object") {
+    fail(`${label}: expected { source, file, from, to }`);
+  }
+
+  const { source: sourceName, file } = section;
+  const { from, to } = section;
+
+  if (typeof sourceName !== "string" || !sourceName) {
+    fail(`${label}: missing source`);
+  }
+  if (typeof file !== "string" || !file) {
+    fail(`${label}: missing file`);
+  }
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from) {
+    fail(`${label}: from/to must be integers with 1 <= from <= to`);
+  }
+
+  const source = docSourceList(config.docSource).find((entry) => entry.name === sourceName);
+
+  if (!source) {
+    fail(`${label}: unknown doc source "${sourceName}"`);
+  }
+  if (source.mode !== "local" || !source.path) {
+    fail(`${label}: source "${sourceName}" is online-only — a digest needs local lines`);
+  }
+
+  const root = resolveSourceRoot(dir, source);
+  const abs = path.resolve(root, file);
+  const rel = path.relative(root, abs);
+
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+    fail(`${label}: file "${file}" escapes source "${sourceName}"`);
+  }
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+    fail(`${label}: file not found: ${normalizePortable(path.join(source.path, file))}`);
+  }
+
+  const lines = fs.readFileSync(abs, "utf8").split(/\r?\n/);
+
+  if (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  if (to > lines.length) {
+    fail(`${label}: ${sourceName}/${normalizePortable(rel)}:${from}-${to} exceeds the file (${lines.length} lines)`);
+  }
+
+  return { sourceName, file: normalizePortable(rel), from, to, lines: lines.slice(from - 1, to) };
+}
+
+function renderDigest(phase, sections) {
+  const out = [
+    `# Extrait — Phase ${phase.id} — ${phase.name}`,
+    "",
+    `> Généré par \`ai-learn docs digest --phase ${phase.id}\`. Extrait mécanique : lignes copiées, jamais reformulées.`,
+    `> Sections retenues (✅) : ${sections.length}. Tout ce qui n'est pas listé ici est ignoré (⏭️).`,
+    "",
+  ];
+
+  for (const section of sections) {
+    const citation = `${section.sourceName}/${section.file}:${section.from}-${section.to}`;
+    out.push(`<!-- digest: ${citation} -->`);
+    out.push(`## ${citation}`, "");
+    const longestRun = Math.max(0, ...section.lines.flatMap((line) => (line.match(/`+/g) || []).map((run) => run.length)));
+    const fence = "`".repeat(Math.max(3, longestRun + 1));
+    out.push(fence + digestLanguage(section.file), ...section.lines, fence, "");
+  }
+
+  return out.join("\n");
+}
+
+function generateDigest({ dir, phaseId }) {
+  const { config, exists } = readProgress(dir);
+
+  if (!exists || !config) {
+    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+  }
+
+  const id = Number(phaseId);
+  const phase = Number.isInteger(id) ? findPhase(config, id) : null;
+
+  if (!phase) {
+    fail(`unknown phase "${phaseId}"`);
+  }
+
+  const declared = digestSections(phase);
+
+  if (declared.length === 0) {
+    log(`Phase ${id} n'a aucune section ciblée (sections) — aucun digest écrit.`);
+    return null;
+  }
+
+  const sections = declared.map((section, index) => resolveDigestSection(dir, config, section, index));
+  const target = digestPath(dir, id);
+  mkdirp(path.dirname(target));
+  fs.writeFileSync(target, renderDigest(phase, sections));
+  log(`Digest phase ${id} → ${normalizePortable(path.relative(dir, target))} (${sections.length} section(s) ✅, 0 ⏭️)`);
+  return target;
+}
+
+// Machine-readable citations live in HTML comments, not headings: an excerpt
+// of a markdown doc can legitimately contain `## ...`, and check must never
+// mistake the copied content for a new citation.
+function digestCitations(content) {
+  const citations = [];
+
+  for (const line of String(content || "").split(/\r?\n/)) {
+    const match = DIGEST_CITATION_RE.exec(line.trim());
+
+    if (!match) {
+      continue;
+    }
+
+    citations.push({
+      path: match[1].trim(),
+      from: Number(match[2]),
+      to: match[3] ? Number(match[3]) : Number(match[2]),
+    });
+  }
+
+  return citations;
+}
+
+// Returns null when the citation still points at real lines, otherwise the
+// problem `check` reports as a warning. Never throws: check must keep scanning
+// the rest of the project.
+function digestCitationProblem(dir, config, citation) {
+  const slash = citation.path.indexOf("/");
+
+  if (slash <= 0) {
+    return `malformed citation "${citation.path}" (expected <source>/<file>:<line>)`;
+  }
+
+  const sourceName = citation.path.slice(0, slash);
+  const file = citation.path.slice(slash + 1);
+  const source = docSourceList(config.docSource).find((entry) => entry.name === sourceName);
+
+  if (!source) {
+    return `citation "${citation.path}" names unknown source "${sourceName}"`;
+  }
+  if (source.mode !== "local" || !source.path) {
+    return `citation "${citation.path}" points at an online-only source`;
+  }
+
+  const root = resolveSourceRoot(dir, source);
+  const abs = path.resolve(root, file);
+  const rel = path.relative(root, abs);
+
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+    return `citation "${citation.path}" escapes source "${sourceName}"`;
+  }
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+    return `citation "${citation.path}" points at a missing file`;
+  }
+
+  const lines = fs.readFileSync(abs, "utf8").split(/\r?\n/);
+
+  if (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  if (citation.from < 1 || citation.to < citation.from || citation.to > lines.length) {
+    return `citation "${citation.path}" points past the end of the file (${lines.length} lines)`;
+  }
+
+  return null;
+}
+
 function listSources({ dir }) {
   const { config, exists } = readProgress(dir);
 
@@ -544,20 +782,29 @@ function listSources({ dir }) {
     return;
   }
 
-  log(`Doc sources (${sources.length}/${MAX_SOURCES}):`);
+  const primaries = primarySources(sources);
+  const secondaries = sources.filter((source) => sourceKind(source) === "secondary");
 
-  for (const source of sources) {
+  const describe = (source) => {
     const state =
       source.mode === "remote"
         ? "online"
         : fs.existsSync(path.join(dir, source.path))
           ? "present"
           : "MISSING (run `ai-learn docs update " + source.name + "`)";
-    log(`  ${source.name}  [${source.mode}]  ${source.path || source.url}  (${state})`);
+    return `  ${source.name}  [${source.mode}]  ${source.path || source.url}  (${state})`;
+  };
+
+  log(`Doc sources (${primaries.length}/${MAX_SOURCES} principales):`);
+  primaries.forEach((source) => log(describe(source)));
+
+  if (secondaries.length > 0) {
+    log(`\nSources secondaires (hors quota) :`);
+    secondaries.forEach((source) => log(describe(source)));
   }
 
-  if (sources.length >= MAX_SOURCES) {
-    log(`\nSource limit reached (${MAX_SOURCES}). Remove one before adding another.`);
+  if (primaries.length >= MAX_SOURCES) {
+    log(`\nSource limit reached (${MAX_SOURCES} principales). Remove one, or add a secondary source with \`--secondary\`.`);
   }
 }
 
@@ -567,9 +814,10 @@ function docsCommand({ dir, args }) {
   // before dispatch, but it still travels inside `commandArgs` — without the
   // shared parser knowing it takes a value, a short invocation like
   // `docs add <name> --dir <dir>` would swallow <dir> as the positional source.
-  const { flags, positionals: rest } = parseArgs(args.slice(1), { valueFlags: ["--dir", "--path"] });
+  const { flags, positionals: rest } = parseArgs(args.slice(1), { valueFlags: ["--dir", "--path", "--phase"] });
   const online = flags["--online"] === true;
   const regen = flags["--regen"] === true;
+  const secondary = flags["--secondary"] === true;
   const subpath = typeof flags["--path"] === "string" ? flags["--path"] : null;
 
   if (sub === "add") {
@@ -577,18 +825,18 @@ function docsCommand({ dir, args }) {
 
     if (!source && SOURCE_PRESETS[nameArg]) {
       // Bare preset: `docs add build-your-own-x` — the name IS the preset key.
-      addSource({ dir, name: nameArg, source: nameArg, online, subpath, regen });
+      addSource({ dir, name: nameArg, source: nameArg, online, subpath, regen, secondary });
       return;
     }
 
     if (!source) {
       fail(
-        "usage: ai-learn docs add <name> <path|url|preset> [--path <subdir>] [--online] [--regen]\n" +
+        "usage: ai-learn docs add <name> <path|url|preset> [--path <subdir>] [--online] [--regen] [--secondary]\n" +
           `       presets: ${Object.keys(SOURCE_PRESETS).join(", ")}`,
       );
     }
 
-    addSource({ dir, name: nameArg || deriveName(source), source, online, subpath, regen });
+    addSource({ dir, name: nameArg || deriveName(source), source, online, subpath, regen, secondary });
     return;
   }
 
@@ -612,7 +860,18 @@ function docsCommand({ dir, args }) {
     return;
   }
 
-  fail(`unknown docs subcommand "${sub}". Try: add | list | remove | update`);
+  if (sub === "digest") {
+    const phaseId = typeof flags["--phase"] === "string" ? flags["--phase"] : null;
+
+    if (!phaseId) {
+      fail("usage: ai-learn docs digest --phase <id>");
+    }
+
+    generateDigest({ dir, phaseId });
+    return;
+  }
+
+  fail(`unknown docs subcommand "${sub}". Try: add | list | remove | update | digest`);
 }
 
 module.exports = {
@@ -624,4 +883,10 @@ module.exports = {
   updateSource,
   listSources,
   docSourceList,
+  sourceKind,
+  digestPath,
+  digestSections,
+  generateDigest,
+  digestCitations,
+  digestCitationProblem,
 };

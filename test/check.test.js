@@ -3,13 +3,24 @@
 const { test, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
-const { checkProject, checkCommand, buildCheckReport, countDogfoodEntries, countJournalEntries } = require("../bin/lib/check");
+const {
+  checkProject,
+  checkCommand,
+  buildCheckReport,
+  countDogfoodEntries,
+  countJournalEntries,
+  guardHookWired,
+} = require("../bin/lib/check");
+const { ensureGuardHook } = require("../bin/lib/guard");
 const { verifyCommand } = require("../bin/lib/verify");
-const { readProgress } = require("../bin/lib/progress");
+const { readProgress, latestEvidenceForPhase } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
-const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
+const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome } = require("./helpers");
+const { scaffold } = require("../bin/lib/init");
+const { generateDigest } = require("../bin/lib/docs");
 const { findLearningProjects } = require("../bin/lib/util");
 
 function initRepo(dir) {
@@ -39,6 +50,49 @@ function mutationPhase(checkpoint, overrides = {}) {
   });
 }
 
+// Long enough to clear the citation content floor (200 chars) without ever
+// containing a `file:line` or a decision word — the scaffold the dirigeant
+// review tests add one ingredient to at a time.
+const REVIEW_FILLER =
+  "Cette revue détaille le raisonnement du relecteur sur le diff de la brique : " +
+  "ce qu'il a vérifié, ce qui tient, ce qui ne tient pas, et pourquoi. ".repeat(2);
+
+// A done phase in dirigeant mode with real passing evidence and a one-line
+// source file, so a citation to line 1-3 resolves. The review file is left to
+// each test — its absence is itself a case under test.
+function dirigeantProject() {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["src/**"] }));
+  writeFile(dir, "src/index.js", "const one = 1;\nconst two = 2;\nconst three = 3;\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  return dir;
+}
+
+// Story 03.04: a dirigeant done phase whose evidence was written by a real
+// `verify` run. The review is valid so only the mutation-killer tier is under
+// test; pass `checkpoint`/`source` to control what mutation measured (the
+// strong fixture kills one mutant, the no-op one has no mutable site).
+function dirigeantMutationProject({ checkpoint = STRONG_CHECKPOINT, source, overrides = {} } = {}) {
+  const dir = tmpProject(mutationPhase(checkpoint, overrides));
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["src/**"] }));
+  writeFile(
+    dir,
+    "src/index.js",
+    source || "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n",
+  );
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:1\`\n\nDécision : accepter.\n`);
+  return dir;
+}
+
+// A source with no mutable site (no boolean/comparison literal), so a real
+// verify marks the phase done with `mutation.required: true` and `killed: 0`.
+const NO_MUTABLE_SITE_SOURCE = "module.exports = { add: (a, b) => a + b };\n";
+
+const NO_KILLED_MUTANT_RE = /no mutant killed by the learner's test/;
+
 beforeEach(() => {
   process.exitCode = 0;
 });
@@ -49,6 +103,35 @@ afterEach(() => {
   process.exitCode = 0;
 });
 
+test("guardHookWired recognises the quoted command written by ensureGuardHook (and the legacy unquoted form)", () => {
+  // Regression guard for story 08.04: quoting the binary path must not make
+  // `check`/`status` believe the hook is missing (they used a regex that did not
+  // tolerate the quote between `.js` and `guard`).
+  const dir = tmpProject(sampleProgress());
+  ensureGuardHook(dir);
+  assert.strictEqual(guardHookWired(dir), true);
+
+  const legacy = tmpProject(sampleProgress());
+  writeFile(
+    legacy,
+    ".claude/settings.json",
+    JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "node /tmp/ai-learn.js guard" }] }] },
+    }),
+  );
+  assert.strictEqual(guardHookWired(legacy), true);
+
+  const globalInstall = tmpProject(sampleProgress());
+  writeFile(
+    globalInstall,
+    ".claude/settings.json",
+    JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "ai-learn guard" }] }] },
+    }),
+  );
+  assert.strictEqual(guardHookWired(globalInstall), true);
+});
+
 test("a phase marked done without evidence is an error", () => {
   const progress = sampleProgress();
   progress.phases[0].status = "done";
@@ -57,6 +140,39 @@ test("a phase marked done without evidence is an error", () => {
   const entry = checkProject(dir);
   assert.ok(entry.issues.errors.some((e) => /marked done but has no passing evidence/.test(e.message)));
   assert.strictEqual(entry.issues.warnings.length, 0);
+});
+
+test("check warns when a phase digest cites lines the source no longer has", () => {
+  const progress = sampleProgress({
+    docSource: {
+      type: "local",
+      sources: [{ name: "fastify-docs", mode: "local", path: "docs/sources/fastify-docs" }],
+    },
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+        sections: [{ source: "fastify-docs", file: "Reference/Routes.md", from: 2, to: 4 }],
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/sources/fastify-docs/Reference/Routes.md", "# Routes\nline two\nline three\nline four\n");
+  generateDigest({ dir, phaseId: "1" });
+
+  writeFile(dir, "docs/sources/fastify-docs/Reference/Routes.md", "# Routes\nline two\n");
+
+  const entry = checkProject(dir);
+
+  assert.ok(
+    entry.issues.warnings.some(
+      (warning) => /phase 1 digest/.test(warning.message) && /past the end of the file/.test(warning.message),
+    ),
+  );
 });
 
 test("a norm violation in the learner's files is an error (hard block), not a warning", () => {
@@ -81,6 +197,123 @@ test("a project with no norm violation reports none (no regression on the clean-
 
   const entry = checkProject(dir);
   assert.ok(!entry.issues.errors.some((e) => /\[function-length\]|\[file-length\]|\[nesting-depth\]|\[param-count\]/.test(e.message)));
+});
+
+test("check warns when a phase digest exceeds its declared reading budget", () => {
+  const progress = sampleProgress({
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+        readingBudgetMin: 30,
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/digests/phase-1.md", "word ".repeat(12000));
+
+  const entry = checkProject(dir);
+
+  assert.ok(
+    entry.issues.warnings.some(
+      (warning) =>
+        /~60 min of reading/.test(warning.message) &&
+        /12000 words/.test(warning.message) &&
+        /readingBudgetMin \(30 min\)/.test(warning.message),
+    ),
+  );
+});
+
+test("a phase without readingBudgetMin keeps check silent about reading time", () => {
+  const progress = sampleProgress({
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/digests/phase-1.md", "word ".repeat(12000));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((warning) => /reading/.test(warning.message)));
+});
+
+test("a digest within its reading budget stays silent", () => {
+  const progress = sampleProgress({
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+        readingBudgetMin: 30,
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/digests/phase-1.md", "word ".repeat(100));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((warning) => /reading/.test(warning.message)));
+});
+
+test("a digest exactly at its reading budget stays silent", () => {
+  const progress = sampleProgress({
+    phases: [
+      {
+        id: 1,
+        name: "Routes",
+        status: "pending",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: 0,
+        readingBudgetMin: 30,
+      },
+    ],
+  });
+  const dir = tmpProject(progress);
+  writeFile(dir, "docs/digests/phase-1.md", "word ".repeat(6000));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((warning) => /reading/.test(warning.message)));
+});
+
+test("readingBudgetMin accepts a positive integer and rejects anything else", () => {
+  const phase = (readingBudgetMin) => ({
+    id: 1,
+    name: "Routes",
+    status: "pending",
+    checkpoint: 'node -e "process.exit(0)"',
+    artifacts: [],
+    predictionsRequired: 0,
+    readingBudgetMin,
+  });
+
+  const valid = tmpProject(sampleProgress({ phases: [phase(30)] }));
+  assert.ok(!checkProject(valid).issues.errors.some((error) => /readingBudgetMin/.test(error.message)));
+
+  for (const bad of [0, -5, 1.5, "30"]) {
+    const dir = tmpProject(sampleProgress({ phases: [phase(bad)] }));
+    assert.ok(
+      checkProject(dir).issues.errors.some((error) => /invalid readingBudgetMin/.test(error.message)),
+      `expected an error for ${JSON.stringify(bad)}`,
+    );
+  }
 });
 
 test("an out-of-range gitTier is a warning, not an error; a valid one is silent", () => {
@@ -220,6 +453,222 @@ test("gitTier 6 done phase with a real, well-substantiated PR citation passes cl
 
   const entry = checkProject(dir);
   assert.ok(!entry.issues.errors.some((e) => /gitTier 6/.test(e.message)));
+});
+
+// -----------------------------------------------------------------------
+// Dirigeant review tier (story 03.03): docs/reviews/<brique>.md must cite a
+// real file:line and state a decision — presence + minimum substance, same
+// contract as a tier-6 PR URL. Absent in apprenti.
+// -----------------------------------------------------------------------
+
+test("dirigeant: a done phase with a sourced review (real file:line + decision) passes", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:3\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  // Every review-tier failure (missing, no-citation, no-decision,
+  // insufficient-substance, ambiguous-name) is phrased with this prefix, so
+  // checking it alone proves the review passed for the right reason.
+  assert.ok(!entry.issues.errors.some((e) => /in dirigeant mode but/.test(e.message)));
+});
+
+test("dirigeant: a done phase without its review is an error", () => {
+  const dir = dirigeantProject();
+
+  const entry = checkProject(dir);
+  assert.ok(
+    entry.issues.errors.some((e) =>
+      /phase 0 \("Phase zero"\) is done in dirigeant mode but docs\/reviews\/phase-zero\.md is missing/.test(e.message),
+    ),
+  );
+});
+
+test("dirigeant: a review with no citation is an error (presence, not only substance)", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nDécision : rejeter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: a review citing a line that does not exist is an error", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:99\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: citing the line right after the last real line is an error (trailing newline)", () => {
+  const dir = dirigeantProject();
+  // src/index.js has three lines and ends with a newline: line 4 does not exist.
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:4\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: a citation outside implementationFiles is an error", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "README.md", "readme\n");
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`README.md:1\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: the citation scope follows implementationFiles, not a hard-coded src/**", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["lib/**"] }));
+  writeFile(dir, "lib/app.js", "const one = 1;\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`lib/app.js:1\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => /dirigeant mode but/.test(e.message)));
+});
+
+test("dirigeant: a citation escaping the project root is an error", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`../outside.js:1\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /cites no real file:line/.test(e.message)));
+});
+
+test("dirigeant: a review citing a real line but stating no decision is an error", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:1\`\n`);
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /states no decision/.test(e.message)));
+});
+
+test("dirigeant: a review with a bare citation and no substance is an error (degenerate case)", () => {
+  const dir = dirigeantProject();
+  writeFile(dir, "docs/reviews/phase-zero.md", "Citation : `src/index.js:1`\n\nDécision : accepter.\n");
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.errors.some((e) => /too little content around its citation/.test(e.message)));
+});
+
+test("dirigeant: two phases sharing a name cannot share one review file", () => {
+  const phase = { ...sampleProgress().phases[0], status: "done" };
+  const progress = sampleProgress({ phases: [{ ...phase, id: 0 }, { ...phase, id: 1 }] });
+  const dir = tmpProject(progress);
+  writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant", implementationFiles: ["src/**"] }));
+  writeFile(dir, "src/index.js", "const one = 1;\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 1 }));
+  writeFile(dir, "docs/reviews/phase-zero.md", `${REVIEW_FILLER}\n\nCitation : \`src/index.js:1\`\n\nDécision : accepter.\n`);
+
+  const entry = checkProject(dir);
+  const reviewErrors = entry.issues.errors.filter((e) => /in dirigeant mode but/.test(e.message));
+
+  assert.strictEqual(reviewErrors.length, 2);
+  assert.ok(reviewErrors.every((e) => /shared with another phase of the same name/.test(e.message)));
+});
+
+test("apprenti never requires the dirigeant reviews (non-regression)", () => {
+  const progress = sampleProgress();
+  progress.phases[0].status = "done";
+  const dir = tmpProject(progress);
+  writeFile(dir, "src/index.js", "const one = 1;\n");
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => /dirigeant mode but/.test(e.message)));
+});
+
+// -----------------------------------------------------------------------
+// Dirigeant mutation-killer tier (story 03.04): a done phase must prove at
+// least one mutant killed by the learner's test. Reads `evidence.mutation`
+// already written by `verify`; apprenti is untouched.
+// -----------------------------------------------------------------------
+
+test("dirigeant: a done phase whose evidence kills at least one mutant passes the mutation tier", () => {
+  const dir = dirigeantMutationProject();
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => NO_KILLED_MUTANT_RE.test(e.message)));
+});
+
+test("dirigeant: a done phase with zero killed mutants is an error naming the phase", () => {
+  const dir = dirigeantMutationProject({
+    checkpoint: 'node -e "process.exit(0)"',
+    source: NO_MUTABLE_SITE_SOURCE,
+  });
+
+  const error = checkProject(dir).issues.errors.find((e) => NO_KILLED_MUTANT_RE.test(e.message));
+  assert.ok(error);
+  assert.match(error.message, /phase 0 \("Phase zero"\)/);
+  assert.match(error.message, /0 mutant\(s\) killed/);
+});
+
+test("dirigeant: a done phase whose mutation was never required is an error", () => {
+  const dir = dirigeantMutationProject({ overrides: { mutation: false } });
+
+  const error = checkProject(dir).issues.errors.find((e) => NO_KILLED_MUTANT_RE.test(e.message));
+  assert.ok(error);
+  assert.match(error.message, /mutation never measured/);
+});
+
+test("dirigeant: a zero-kill error mentions when the mutation measure was truncated", () => {
+  const dir = dirigeantMutationProject({
+    checkpoint: 'node -e "process.exit(0)"',
+    source: NO_MUTABLE_SITE_SOURCE,
+  });
+  const runs = path.join(dir, ".ai-learn", "runs");
+  const files = fs.readdirSync(runs).filter((f) => f.endsWith("-verify.json"));
+  assert.ok(files.length > 0);
+  for (const f of files) {
+    const file = path.join(runs, f);
+    const ev = JSON.parse(fs.readFileSync(file, "utf8"));
+    ev.mutation.truncated = true;
+    fs.writeFileSync(file, JSON.stringify(ev));
+  }
+
+  const error = checkProject(dir).issues.errors.find((e) => NO_KILLED_MUTANT_RE.test(e.message));
+  assert.ok(error);
+  assert.match(error.message, /measure truncated/);
+});
+
+test("apprenti never requires the mutation-killer tier (non-regression)", () => {
+  const dir = tmpProject(mutationPhase('node -e "process.exit(0)"'));
+  writeFile(dir, "src/index.js", NO_MUTABLE_SITE_SOURCE);
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const entry = checkProject(dir);
+  assert.ok(!entry.issues.errors.some((e) => NO_KILLED_MUTANT_RE.test(e.message)));
+});
+
+test("dirigeant: the review and mutation tiers are reported as separate errors", () => {
+  const dir = dirigeantMutationProject({
+    checkpoint: 'node -e "process.exit(0)"',
+    source: NO_MUTABLE_SITE_SOURCE,
+  });
+  fs.rmSync(path.join(dir, "docs/reviews/phase-zero.md"));
+
+  const errors = checkProject(dir).issues.errors;
+  assert.ok(errors.some((e) => /docs\/reviews\/phase-zero\.md is missing/.test(e.message)));
+  assert.ok(errors.some((e) => NO_KILLED_MUTANT_RE.test(e.message)));
+});
+
+test("check --json exposes both dirigeant verdicts as distinct entries", () => {
+  const dir = dirigeantMutationProject({
+    checkpoint: 'node -e "process.exit(0)"',
+    source: NO_MUTABLE_SITE_SOURCE,
+  });
+  fs.rmSync(path.join(dir, "docs/reviews/phase-zero.md"));
+
+  const report = buildCheckReport(dir);
+  const messages = report.projects[0].errorList.map((entry) => entry.message);
+
+  assert.ok(messages.some((message) => /docs\/reviews\/phase-zero\.md is missing/.test(message)));
+  assert.ok(messages.some((message) => NO_KILLED_MUTANT_RE.test(message)));
+  assert.strictEqual(report.ok, false);
 });
 
 test("the friction journal is counted but never gates check", () => {
@@ -462,6 +911,7 @@ test("le séparateur tiret ordinaire est compté — legacy .md with a plain hyp
 test("predictions.json corrompu est une erreur, jamais silencieusement accepté", () => {
   const dir = tmpProject(sampleProgress());
   writeFile(dir, ".ai-learn/predictions.json", "{ not json");
+  writeFile(dir, "docs/plans/predictions.md", "# Journal des prédictions\n");
 
   const entry = checkProject(dir);
 
@@ -988,4 +1438,163 @@ test("check never launches a checkpoint command to audit mutation (fast, read-on
   }
 
   assert.strictEqual(calls, 0);
+});
+
+test("check warns when a detected platform's native memory stub is missing", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "AGENTS.md", "# protocol\n");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+  writeFile(home, ".claude/commands/next.md", "# next\n");
+
+  const entry = checkProject(dir, { home });
+
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => w.file === "CLAUDE.md" && /learning protocol/.test(w.message)));
+});
+
+test("check does not warn about a native memory stub that imports AGENTS.md", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "AGENTS.md", "# protocol\n");
+  writeFile(dir, "CLAUDE.md", "@AGENTS.md\n");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+  writeFile(home, ".claude/commands/next.md", "# next\n");
+
+  const entry = checkProject(dir, { home });
+
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(!entry.issues.warnings.some((w) => w.file === "CLAUDE.md"));
+});
+
+test("check reports a legacy-only command install as a migration warning, never an error", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "AGENTS.md", "# protocol\n");
+  writeFile(dir, "CLAUDE.md", "@AGENTS.md\n");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+  writeFile(home, ".claude/commands/next.md", "# next\n"); // pre-04.05 install: old names only
+
+  const entry = checkProject(dir, { home });
+
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.ok(entry.issues.warnings.some((w) => /anciens noms/.test(w.message) && /migration/.test(w.message)));
+});
+
+test("init then check is clean; deleting the native memory stub makes check warn", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-init-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+
+  withHome(home, () =>
+    scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" }),
+  );
+
+  assert.ok(!checkProject(dir, { home }).issues.warnings.some((w) => w.file === "CLAUDE.md"));
+
+  fs.unlinkSync(path.join(dir, "CLAUDE.md"));
+
+  assert.ok(checkProject(dir, { home }).issues.warnings.some((w) => w.file === "CLAUDE.md"));
+});
+
+// -----------------------------------------------------------------------
+// Story 05.01 — a done phase that required a reality check but only has code
+// predictions must be signalled, with the missing type named.
+// -----------------------------------------------------------------------
+
+test("check signals a done phase missing its required reality prediction", () => {
+  const dir = tmpProject(sampleProgress({
+    phases: [
+      {
+        id: 0,
+        name: "Zero",
+        status: "done",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: { code: 1, reality: 1 },
+      },
+    ],
+  }));
+  writeFile(
+    dir,
+    ".ai-learn/predictions.json",
+    JSON.stringify(predictionsData([{ id: "a", phaseId: 0, at: "2026-01-01T00:00:00.000Z", type: "code", prediction: "x" }])),
+  );
+
+  const entry = checkProject(dir);
+  const warning = entry.issues.warnings.find((w) => /^phase 0:/.test(w.message));
+
+  assert.ok(warning);
+  assert.match(warning.message, /reality 0\/1/);
+});
+
+test("check names the missing reality type even when predictions.json is corrupted", () => {
+  const dir = tmpProject(sampleProgress({
+    phases: [
+      {
+        id: 0,
+        name: "Zero",
+        status: "done",
+        checkpoint: 'node -e "process.exit(0)"',
+        artifacts: [],
+        predictionsRequired: { code: 1, reality: 1 },
+      },
+    ],
+  }));
+  writeFile(dir, ".ai-learn/predictions.json", "{ not json");
+  writeFile(dir, "docs/plans/predictions.md", "# Journal des prédictions\n");
+
+  const entry = checkProject(dir);
+  const warning = entry.issues.warnings.find((w) => /^phase 0:/.test(w.message));
+
+  assert.ok(warning);
+  assert.match(warning.message, /reality 0\/1/);
+});
+
+test("check errors on an unknown tutor assistance or proof value", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "moyen", proof: "magie" }));
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /unknown assistance "moyen"/.test(issue.message)));
+  assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /unknown proof "magie"/.test(issue.message)));
+});
+
+// -----------------------------------------------------------------------
+// Story 07.02 — a proven phase past its revisit delay is a warning, not a lie
+// -----------------------------------------------------------------------
+
+const REVISIT_DAY_MS = 24 * 60 * 60 * 1000;
+
+function provenRevisitProject() {
+  const progress = sampleProgress({
+    phases: [
+      { id: 0, name: "Zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0, reviewAfterDays: 7 },
+    ],
+  });
+  const dir = tmpProject(progress);
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  return dir;
+}
+
+test("check warns (never errors) when a proven phase is past its revisit delay, naming it", () => {
+  const dir = provenRevisitProject();
+  const evidence = latestEvidenceForPhase(dir, 0);
+  const now = new Date(Date.parse(evidence.lastProvenAt) + 8 * REVISIT_DAY_MS);
+
+  const entry = checkProject(dir, { now });
+
+  assert.strictEqual(entry.issues.errors.length, 0);
+  assert.ok(
+    entry.issues.warnings.some(
+      (warning) => /phase 0 \("Zero"\) has not been revisited/.test(warning.message) && /--revisit/.test(warning.message),
+    ),
+  );
+});
+
+test("check stays silent before the revisit delay (non-regression)", () => {
+  const dir = provenRevisitProject();
+  const evidence = latestEvidenceForPhase(dir, 0);
+  const now = new Date(Date.parse(evidence.lastProvenAt) + 1 * REVISIT_DAY_MS);
+
+  const entry = checkProject(dir, { now });
+
+  assert.ok(!entry.issues.warnings.some((warning) => /revisited/.test(warning.message)));
 });

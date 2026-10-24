@@ -21,24 +21,28 @@ Scout pre-step : `no` — les points d'intégration sont nommés ci-dessus.
 
 ## Decisions
 
-- Décision à prendre : le stub est un fichier **append-only** (ligne `@AGENTS.md` ajoutée si absente) — jamais un remplacement, parce qu'un `CLAUDE.md` existant appartient à l'apprenant.
-- Décision à prendre : table `NATIVE_MEMORY_FILE` par plateforme, à côté de `MARKER_FILE`, pour ne pas disperser la connaissance des plateformes.
+- Décision : le stub est un fichier **append-only** (ligne `@AGENTS.md` ajoutée si absente) — jamais un remplacement, parce qu'un `CLAUDE.md` existant appartient à l'apprenant. Une écriture impossible (fichier en lecture seule) renvoie `failed` et `init`/`update` la signalent sans planter.
+- Décision : table `NATIVE_MEMORY_FILE` par plateforme, à côté de `MARKER_FILE` (`claude` → `CLAUDE.md`, `gemini` → `GEMINI.md`). Codex/OpenCode/Antigravity lisent `AGENTS.md` nativement : aucune entrée, donc aucun stub superflu.
+- Décision : `init` n'écrit que le stub de la plateforme explicite ; `update` sans `--platform` backfile les stubs des plateformes **détectées** (commandes `/…` installées, même signal que `check`), car il parcourt des projets sans savoir quel agent les ouvre — sans créer de `GEMINI.md` pour un apprenant Claude seul. Un `--platform` explicite restreint au stub de cette plateforme.
+- Décision : l'écriture est un vrai `appendFileSync` (octets existants jamais ré-encodés) et un `CLAUDE.md` symlink est refusé (`failed`), pour ne pas écrire hors du projet.
+- Décision : `check` détecte une plateforme par ses commandes `/…` installées (`MARKER_FILE`, même source que `ensurePlatformCommands`) et n'avertit que si le projet porte un `AGENTS.md` — sans protocole à importer, l'absence de stub n'est pas un écart.
 
 ## Test Plan
 
-- [ ] Unit : l'ajout est idempotent (deux `update` = un seul import).
-- [ ] Unit : un fichier personnalisé garde ses lignes.
-- [ ] Intégration : `init` puis `check` ne signale rien ; suppression du stub puis `check` signale un warning.
+- [x] Unit : l'ajout est idempotent (deux `update` = un seul import).
+- [x] Unit : un fichier personnalisé garde ses lignes.
+- [x] Intégration : `init` puis `check` ne signale rien ; suppression du stub puis `check` signale un warning.
+- [x] Unit : lecture seule — `init` ne plante pas et signale.
 
 ## Acceptance Traceability
 
 | Acceptance criterion | Test proving it |
 | --- | --- |
-| Given un projet scaffoldé par `ai-learn init` sur claude-code, when on… | `Unit : l'ajout est idempotent (deux `update` = un seul impor` (à nommer `file::test` au `/flow-run`) |
-| Given un projet existant sans `CLAUDE.md`, when `ai-learn update --roo… | `Unit : un fichier personnalisé garde ses lignes.` (à nommer `file::test` au `/flow-run`) |
-| Given un `CLAUDE.md` déjà personnalisé par l'apprenant, when `init`/`u… | `Intégration : `init` puis `check` ne signale rien ; suppress` (à nommer `file::test` au `/flow-run`) |
-| Given une plateforme qui lit déjà `AGENTS.md` nativement (codex, openc… | `Intégration : `init` puis `check` ne signale rien ; suppress` (à nommer `file::test` au `/flow-run`) |
-| Given `ai-learn check`, when le stub d'une plateforme détectée manque,… | `Intégration : `init` puis `check` ne signale rien ; suppress` (à nommer `file::test` au `/flow-run`) |
+| Given un projet scaffoldé par `ai-learn init` sur claude-code, when on… | `test/init.test.js::init writes the platform's native memory file importing AGENTS.md (claude)` |
+| Given un projet existant sans `CLAUDE.md`, when `ai-learn update --roo… | `test/update.test.js::update backfills a missing CLAUDE.md without touching a customized AGENTS.md` |
+| Given un `CLAUDE.md` déjà personnalisé par l'apprenant, when `init`/`u… | `test/init.test.js::init appends only the missing import to a customized CLAUDE.md, idempotently` + `test/update.test.js::update appends only the missing import to a customized CLAUDE.md, idempotently` |
+| Given une plateforme qui lit déjà `AGENTS.md` nativement (codex, openc… | `test/init.test.js::init writes no native memory stub for platforms that read AGENTS.md natively` |
+| Given `ai-learn check`, when le stub d'une plateforme détectée manque,… | `test/check.test.js::check warns when a detected platform's native memory stub is missing` + `test/check.test.js::init then check is clean; deleting the native memory stub makes check warn` |
 
 ## Commands
 

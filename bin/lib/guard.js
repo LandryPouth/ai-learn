@@ -22,6 +22,7 @@
 // read and a JSONL denial logged for `ai-learn check`.
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const {
   renderConfig: renderCodexConfig,
@@ -106,7 +107,24 @@ const PROTECTED_FILES = [
   // from being turned off.
   ".claude/settings.local.json",
   ".codex/config.toml",
+  // The OpenCode plugin is the guard on that platform (story 08.01): letting the
+  // AI rewrite or delete it would silently drop the learner-file block there.
+  ".opencode/plugins/ai-learn-guard.js",
+  // OpenCode's config can switch plugins and permissions: same class of risk.
+  "opencode.json",
+  "opencode.jsonc",
+  // The two traces that make the guard auditable: a denial log and the
+  // fail-open journal. An AI that can erase them can hide its own unjudged write.
+  ".ai-learn/guard.log",
+  ".ai-learn/guard-unchecked.jsonl",
 ];
+// Directories whose whole subtree is protected. `.ai-learn/runs/*.json` are the
+// verify evidences that feed the test ledger gating `dirigeant`: forging one is
+// one indirection away from forging the ledger itself.
+// `.opencode/plugins` (and its singular alias) is code OpenCode loads at
+// startup with the user's authority: a new file there defeats the guard on the
+// next session just as surely as rewriting the generated plugin.
+const PROTECTED_DIRS = [".ai-learn/runs", ".opencode/plugins", ".opencode/plugin"];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
 
 // Commands that merely wrap another command — unwrapped so `sudo git log` or
@@ -388,20 +406,209 @@ function isProtectedPath(relative, platform = process.platform) {
   const fold = caseInsensitiveFs(platform);
   const candidate = fold ? relative.toLowerCase() : relative;
 
-  return PROTECTED_FILES.some((file) => {
-    const protectedFile = fold ? file.toLowerCase() : file;
-    // A protected path is also its own directory: `rm -rf .ai-learn` removes
-    // `guard.json` just as surely as writing it directly.
-    return protectedFile === candidate || protectedFile.startsWith(`${candidate}/`);
+  // A nested `.ai-learn/guard.json` (`src/.ai-learn/guard.json`) is a decoy
+  // policy: protected at any depth, like the directory that holds it.
+  if (/(^|\/)\.ai-learn(\/guard\.json)?$/.test(candidate)) {
+    return true;
+  }
+
+  const inProtectedDir = PROTECTED_DIRS.some((dir) => {
+    const protectedDir = fold ? dir.toLowerCase() : dir;
+    return candidate === protectedDir || candidate.startsWith(`${protectedDir}/`);
   });
+
+  return (
+    inProtectedDir ||
+    PROTECTED_FILES.some((file) => {
+      const protectedFile = fold ? file.toLowerCase() : file;
+      // A protected path is also its own directory: `rm -rf .ai-learn` removes
+      // `guard.json` just as surely as writing it directly.
+      return protectedFile === candidate || protectedFile.startsWith(`${candidate}/`);
+    })
+  );
 }
 
-function toRelative(root, filePath) {
+// `~`/`~/…` as the shell would read them. Without this, `echo x > ~/.ai-learn/…`
+// resolves against the project root and walks past every check below.
+function expandHome(value) {
+  if (typeof value !== "string" || !value) {
+    return value;
+  }
+  if (value === "~") {
+    return os.homedir();
+  }
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  // `~<login>/…` is only this home when the login is the current user's:
+  // `~someone-else` names a different directory the guard cannot resolve (and
+  // must not silently collapse onto `$HOME`). `~+`/`~-` name `$PWD`/`$OLDPWD`,
+  // not home, and stay unresolvable here (documented hedge).
+  const namedTilde = value.match(/^~([^/\\]*)(?=[\\/]|$)/);
+  let currentUser = null;
+
+  try {
+    currentUser = os.userInfo().username;
+  } catch {
+    // no passwd entry — leave the path unresolved rather than guess
+  }
+
+  if (namedTilde && namedTilde[1] && namedTilde[1] === currentUser) {
+    const rest = value.slice(namedTilde[0].length).replace(/^[\\/]/, "");
+    return rest ? path.join(os.homedir(), rest) : os.homedir();
+  }
+  // `$HOME`/`${HOME}` — the other idiomatic way to name the same directory. A
+  // shell would expand it before writing; the guard expands the one variable
+  // whose target is an authorization input.
+  const homeVar = value.match(/^\$\{?HOME\}?(?=[\\/]|$)/);
+  if (homeVar) {
+    const rest = value.slice(homeVar[0].length).replace(/^[\\/]/, "");
+    return rest ? path.join(os.homedir(), rest) : os.homedir();
+  }
+  return value;
+}
+
+// The deepest existing ancestor, realpath'd, with the missing tail re-joined.
+// A lexical `path.resolve` never sees a symlink: `ln -s ~/.ai-learn evil` inside
+// the project would otherwise let `evil/tracks/tests.json` be written, or a
+// symlink to a protected file defeat `isProtectedPath`/`matchesGuardPath` the
+// same way. Returns null when nothing can be resolved.
+function resolveRealPath(absPath) {
+  const tail = [];
+  let current = absPath;
+
+  for (;;) {
+    if (fs.existsSync(current)) {
+      let real;
+      try {
+        real = fs.realpathSync(current);
+      } catch {
+        return null;
+      }
+      return tail.length ? path.join(real, ...tail) : real;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    tail.unshift(path.basename(current));
+    current = parent;
+  }
+}
+
+function matchesDir(candidate, dir) {
+  const fold = caseInsensitiveFs(process.platform);
+  const c = fold ? candidate.toLowerCase() : candidate;
+  const d = fold ? dir.toLowerCase() : dir;
+  return c === d || c.startsWith(`${d}/`);
+}
+
+// The tool's own global state (`~/.ai-learn/tracks/*.json`, domains, levels)
+// lives outside the project root, where `toRelative` returns null and the guard
+// used to fail open. That state is now an authorization input — `ai-learn mode
+// dirigeant` reads `tracks/tests.json` — so an agent rewriting it could
+// fabricate the very evidence that gates the mode, then switch and write
+// `src/**`. It is denied like `guard.json` itself. Both the lexical path and its
+// realpath are checked, and both sides are realpath'd: when `$HOME` itself (or
+// `~/.ai-learn`) is a symlink, comparing the real target to the lexical home
+// would miss the same file. A computed path in a shell one-liner stays a
+// documented hedge.
+function isHomeAiLearnPath(root, filePath) {
+  if (!filePath) {
+    return false;
+  }
+  const expanded = expandHome(filePath);
+  const abs = path.isAbsolute(expanded) ? path.normalize(expanded) : path.resolve(root, expanded);
+  const dir = path.join(os.homedir(), ".ai-learn");
+
+  if (matchesDir(normalizePortable(abs), normalizePortable(dir))) {
+    return true;
+  }
+  const real = resolveRealPath(abs);
+  const realDir = resolveRealPath(dir) || dir;
+  return real !== null && matchesDir(normalizePortable(real), normalizePortable(realDir));
+}
+
+// The two project-relative paths the guard must judge: the lexical path the
+// tool named, and the realpath the filesystem will actually touch. A symlink
+// can point *into* a protected/learner path (only the realpath reveals it) and
+// it can also point *outside* the root (only the lexical path reveals it — the
+// resolved rel is null). Denying when either matches closes both directions.
+function guardRelatives(root, filePath) {
+  const expanded = expandHome(filePath);
+  const abs = path.isAbsolute(expanded) ? path.normalize(expanded) : path.resolve(root, expanded);
+  const realRoot = resolveRealPath(root) || root;
+  const real = resolveRealPath(abs) || abs;
+
+  return {
+    lexical: toRelative(root, abs, { lexical: true }),
+    real: toRelative(realRoot, real),
+  };
+}
+
+// The first of the lexical/real paths that hits the protected or learner set,
+// with the denial to return. Shared by the Write and Bash branches so both
+// judge the same two paths in the same order.
+function guardDenial({ rels, config, viaShell }) {
+  for (const rel of [rels.lexical, rels.real]) {
+    if (!rel) {
+      continue;
+    }
+    if (isProtectedPath(rel)) {
+      return {
+        decision: "deny",
+        reason: protectedPathReason(rel, viaShell),
+        path: rel,
+      };
+    }
+    if (matchesGuardPath(rel, config)) {
+      return {
+        decision: "deny",
+        reason: learnerDenialReason({
+          mode: config.mode,
+          rel,
+          learnerFiles: config.learnerFiles,
+          implementationFiles: config.implementationFiles,
+          viaShell,
+        }),
+        path: rel,
+      };
+    }
+  }
+  return null;
+}
+
+// Resolve symlinks on the deepest existing ancestor, so a link planted inside
+// `src/` that points at `test/` (`ln -s ../test src/t`) cannot launder a write
+// to `src/t/a.js`. The not-yet-existing tail is appended unchanged.
+function realResolve(abs) {
+  const tail = [];
+  let current = abs;
+
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(current), ...tail);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return abs;
+      }
+      tail.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+// `lexical` skips symlink resolution: `guardRelatives` needs the path as named
+// to catch a link that points outside the root (its resolved rel is null).
+function toRelative(root, filePath, { lexical: skipResolve = false } = {}) {
   if (!filePath) {
     return null;
   }
-  const abs = path.isAbsolute(filePath) ? filePath : path.resolve(root, filePath);
-  const rel = normalizePortable(path.relative(root, abs));
+  const lexical = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
+  const abs = skipResolve ? lexical : realResolve(lexical);
+  const realRoot = skipResolve ? path.resolve(root) : realResolve(path.resolve(root));
+  const rel = normalizePortable(path.relative(realRoot, abs));
   // On Windows, path.relative() across two different drives (e.g. project root
   // on D:, target on C:) can't express the difference as "../.." and instead
   // returns the target path unchanged — which doesn't start with "../" and
@@ -449,22 +656,24 @@ function execOneLinerWrites(command, tokens) {
 // left alone; relative paths are joined to the current `cd` context.
 function resolveShellTarget(cwd, target) {
   if (!target || !cwd) {
-    return target;
+    return expandHome(target);
   }
-  if (path.isAbsolute(target) || /^[A-Za-z]:[\\/]/.test(target)) {
-    return target;
+  const expanded = expandHome(target);
+  if (path.isAbsolute(expanded) || /^[A-Za-z]:[\\/]/.test(expanded)) {
+    return normalizePortable(expanded);
   }
-  return normalizePortable(path.join(cwd, target));
+  return normalizePortable(path.join(cwd, expanded));
 }
 
 // The directory a `cd`/`pushd` leaves the shell in, normalized the same way as
 // a write target so the two always compare on the same base. Joining (not
 // replacing) is what makes `cd a && cd ..` land back on the project root.
 function resolveShellCwd(cwd, next) {
-  if (path.isAbsolute(next) || /^[A-Za-z]:[\\/]/.test(next)) {
-    return normalizePortable(next);
+  const expanded = expandHome(next);
+  if (path.isAbsolute(expanded) || /^[A-Za-z]:[\\/]/.test(expanded)) {
+    return normalizePortable(expanded);
   }
-  return normalizePortable(path.join(cwd || ".", next));
+  return normalizePortable(path.join(cwd || ".", expanded));
 }
 
 function shellWriteTargets(command, depth = 0) {
@@ -538,7 +747,11 @@ function shellWriteTargets(command, depth = 0) {
         const parts = token.split(">");
         const dest = stripQuotes(parts[parts.length - 1]);
 
-        if (dest && !dest.startsWith("/dev/") && !dest.startsWith("$") && !dest.startsWith("<")) {
+        // Other `$VAR` paths are left to the shell (the guard cannot expand
+        // them); `$HOME` is the one whose target is an authorization input.
+        const isHomeVar = /^\$\{?HOME\}?(?=[\\/]|$)/.test(dest);
+
+        if (dest && !dest.startsWith("/dev/") && !dest.startsWith("<") && (isHomeVar || !dest.startsWith("$"))) {
           targets.push(resolveShellTarget(cwd, dest));
         }
 
@@ -606,12 +819,27 @@ function shellWriteTargets(command, depth = 0) {
             targets.push(resolveShellTarget(cwd, operand));
           }
         }
+
+        // `ln -s ../test src/t` plants a link whose later writes land in the
+        // link target; a same-command `&& echo x > src/t/a.js` is checked
+        // before the link exists. A relative link target resolves against the
+        // link's own directory, so a link into a learner path is itself denied.
+        if (token === "ln" && !targetDir && operands.length >= 2) {
+          const destination = normalizePortable(operands[operands.length - 1]);
+          for (const source of operands.slice(0, -1)) {
+            const linked = path.posix.isAbsolute(source)
+              ? source
+              : path.posix.join(path.posix.dirname(destination), normalizePortable(source));
+            targets.push(resolveShellTarget(cwd, linked));
+          }
+        }
         continue;
       }
 
-      // `rm` and `truncate` destroy/rewrite their operands; `rm -rf .ai-learn`
-      // must be caught even though the target is the directory, not guard.json.
-      if (token === "rm" || token === "truncate") {
+      // `rm`, `truncate` and `touch` destroy/rewrite/create their operands;
+      // `rm -rf .ai-learn` must be caught even though the target is the
+      // directory, not guard.json.
+      if (token === "rm" || token === "truncate" || token === "touch") {
         for (let j = i + 1; j < tokens.length; j++) {
           const t = tokens[j];
           if (t === "|" || t === "&&" || t === "||" || t === ";") {
@@ -621,6 +849,78 @@ function shellWriteTargets(command, depth = 0) {
             continue;
           }
           targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+        }
+        continue;
+      }
+
+      // `patch <file>` rewrites its operands (the diff on stdin is the `<`
+      // redirection, skipped); `dd of=<file>` writes its target.
+      if (token === "patch" || token === "dd") {
+        for (let j = i + 1; j < tokens.length; j++) {
+          const t = tokens[j];
+          if (t === "|" || t.startsWith("<")) {
+            break;
+          }
+          if (token === "dd" && t.startsWith("of=")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(3))));
+          } else if (token === "patch") {
+            // `-i`/`-p` never name a written file (the diff, a strip count);
+            // `-o out` does, and `-d dir` is where the diff's files are written.
+            if (t === "-d" || t === "--directory") {
+              targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j + 1] || "")));
+              j += 1;
+            } else if (t.startsWith("--directory=")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice("--directory=".length))));
+            } else if (/^-d.+/.test(t)) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(2))));
+            } else if (t === "-o" || t === "--output") {
+              targets.push(resolveShellTarget(cwd, stripQuotes(tokens[j + 1] || "")));
+              j += 1;
+            } else if (t.startsWith("--output=")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t.slice("--output=".length))));
+            } else if (t === "-i" || t === "--input" || t === "-p" || t === "--strip") {
+              j += 1;
+            } else if (!t.startsWith("-")) {
+              targets.push(resolveShellTarget(cwd, stripQuotes(t)));
+            }
+          }
+        }
+        continue;
+      }
+
+      // Extractors/syncers drop files under a directory operand: `tar -C dir`,
+      // `unzip -d dir`, `rsync src dest` (destination = last operand). The
+      // directory itself is the target, so `test` matches the `test` pattern.
+      if (token === "tar" || token === "unzip" || token === "rsync") {
+        const operands = [];
+        for (let j = i + 1; j < tokens.length; j++) {
+          const t = tokens[j];
+          if (t === "|") {
+            break;
+          }
+          // `-C dir`, `-Cdir`, `--directory dir`, `--directory=dir`, and bundled
+          // short flags (`-xCf dir`, `xCf dir`) where the next word is the
+          // directory. Over-collecting a neighbour is harmless: it only denies
+          // when it matches a learner pattern.
+          const tarBundle = token === "tar" && (/^-[a-zA-Z]*C/.test(t) || (j === i + 1 && /^[a-zA-Z]*C[a-zA-Z]*$/.test(t)));
+          const dirFlag = (token === "tar" && (t === "--directory" || t === "--one-top-level")) || (token === "unzip" && t === "-d");
+          if (tarBundle || dirFlag) {
+            const attached = token === "tar" && /^-C.+/.test(t) ? t.slice(2) : null;
+            const dir = attached !== null ? attached : tokens[j + 1] || "";
+            targets.push(resolveShellTarget(cwd, stripQuotes(dir)));
+            if (attached === null) {
+              j += 1;
+            }
+          } else if (token === "unzip" && /^-d.+/.test(t)) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(2))));
+          } else if (t.startsWith("--directory=") || t.startsWith("--one-top-level=")) {
+            targets.push(resolveShellTarget(cwd, stripQuotes(t.slice(t.indexOf("=") + 1))));
+          } else if (!t.startsWith("-")) {
+            operands.push(t);
+          }
+        }
+        if (token === "rsync" && operands.length > 1) {
+          targets.push(resolveShellTarget(cwd, stripQuotes(operands[operands.length - 1])));
         }
         continue;
       }
@@ -637,7 +937,7 @@ function shellWriteTargets(command, depth = 0) {
           if (t === "|") {
             break;
           }
-          if (t.startsWith("-i")) {
+          if (/^-[a-zA-Z]*i/.test(t) || t === "--in-place" || t.startsWith("--in-place=")) {
             inPlace = true;
             continue;
           }
@@ -784,8 +1084,47 @@ function learnerDenialReason({ mode, rel, learnerFiles, implementationFiles, via
     ? `cette commande écrit dans ${rel}, un fichier solution de l'apprenant (${scope}). ` +
         "`ai-learn guard` refuse l'écriture de l'IA ici : l'apprenant tape ce code (cf. AGENTS.md §3)."
     : `${rel} est un fichier solution de l'apprenant (${scope}). ` +
-        "L'IA n'écrit pas ici : déposer le code de révélation dans `docs/solutions/`, " +
+        "L'IA n'écrit pas ici : révéler le code dans le chat (ou dans `docs/solutions/` si l'apprenant le demande), " +
         "l'apprenant tape le vrai code (cf. AGENTS.md §3).";
+}
+
+// `ai-learn mode` is the learner's act: the gate reads `os.homedir()`, which
+// follows `$HOME`, so an agent could forge a ledger under a fake home and then
+// switch itself. Any `HOME=` override on an ai-learn command is refused too.
+const AI_LEARN_MODE_RE = /(?:^|[\s;&|(`"'/])ai-learn(?:\.js)?["']?\s+(?:--?\S+\s+(?:\S+\s+)?)*mode\b/;
+const AI_LEARN_HOME_OVERRIDE_RE = /\bHOME=\S*[^]*?(?:^|[\s;&|(`"'/])ai-learn(?:\.js)?\b/;
+
+// Quoted text is data (`grep 'ai-learn mode' README.md`, `echo "HOME=1"`), so it
+// is blanked before matching — except in segments that can execute their
+// argument (`bash -c "ai-learn mode …"`, `eval`, `node -e`, `xargs`), where the
+// quoted text *is* the command and stays visible.
+const EXECUTES_ARGUMENT_RE = /(?:^|\s)(?:-[A-Za-z]*[ce]|eval|exec|xargs|source|\.)(?:\s|$)/;
+
+function blankQuoted(segment) {
+  return segment.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
+}
+
+function invokesModeSwitch(command) {
+  const visible = splitSegments(command)
+    .map((segment) => (EXECUTES_ARGUMENT_RE.test(segment) ? segment : blankQuoted(segment)))
+    .join(" ; ");
+
+  return AI_LEARN_MODE_RE.test(visible) || AI_LEARN_HOME_OVERRIDE_RE.test(visible);
+}
+
+function modeSwitchReason() {
+  return (
+    "`ai-learn mode` (ou un `HOME=` surchargé devant `ai-learn`) change le mode qui autorise l'IA à écrire " +
+    "l'implémentation. La bascule est un acte de l'apprenant : demande-lui de lancer la commande lui-même."
+  );
+}
+
+function homeStateReason(target, viaShell) {
+  return viaShell
+    ? `cette commande écrit dans ${target}, un ledger global d'ai-learn (hors du projet). ` +
+        "L'IA ne modifie pas les preuves qui autorisent son propre mode : demande à l'apprenant de le faire."
+    : `${target} est un ledger global d'ai-learn (hors du projet) — les preuves qui autorisent le mode dirigeant. ` +
+        "L'IA ne le modifie pas : demande à l'apprenant de le faire.";
 }
 
 function protectedPathReason(rel, viaShell) {
@@ -842,29 +1181,23 @@ function decide(hook, root) {
       };
     }
 
-    for (const target of shellWriteTargets(command)) {
-      const rel = toRelative(root, target);
+    if (invokesModeSwitch(command)) {
+      return { decision: "deny", command, reason: modeSwitchReason() };
+    }
 
-      if (rel && isProtectedPath(rel)) {
+    for (const target of shellWriteTargets(command)) {
+      if (isHomeAiLearnPath(root, target)) {
         return {
           decision: "deny",
-          reason: protectedPathReason(rel, true),
-          path: rel,
+          reason: homeStateReason(target, true),
+          path: target,
         };
       }
 
-      if (rel && matchesGuardPath(rel, config)) {
-        return {
-          decision: "deny",
-          reason: learnerDenialReason({
-            mode: config.mode,
-            rel,
-            learnerFiles: config.learnerFiles,
-            implementationFiles: config.implementationFiles,
-            viaShell: true,
-          }),
-          path: rel,
-        };
+      const denial = guardDenial({ rels: guardRelatives(root, target), config, viaShell: true });
+
+      if (denial) {
+        return denial;
       }
     }
 
@@ -877,28 +1210,21 @@ function decide(hook, root) {
 
   const config = loadGuardConfig(root);
   const filePath = targetPath(toolInput);
-  const rel = filePath ? toRelative(root, filePath) : null;
 
-  if (rel && isProtectedPath(rel)) {
+  if (isHomeAiLearnPath(root, filePath)) {
     return {
       decision: "deny",
-      reason: protectedPathReason(rel, false),
-      path: rel,
+      reason: homeStateReason(filePath, false),
+      path: null,
     };
   }
 
-  if (rel && matchesGuardPath(rel, config)) {
-    return {
-      decision: "deny",
-      reason: learnerDenialReason({
-        mode: config.mode,
-        rel,
-        learnerFiles: config.learnerFiles,
-        implementationFiles: config.implementationFiles,
-        viaShell: false,
-      }),
-      path: rel,
-    };
+  if (filePath) {
+    const denial = guardDenial({ rels: guardRelatives(root, filePath), config, viaShell: false });
+
+    if (denial) {
+      return denial;
+    }
   }
 
   return { decision: "allow", reason: "not a learner file" };
@@ -935,6 +1261,72 @@ function recordDenial({ root, hook, result }) {
   }
 }
 
+// The other half of fail-open: a write the guard never judged is allowed, but
+// it must leave a trace. The OpenCode plugin calls this when the guard module
+// cannot be loaded or errored — same bounded JSONL tail as `recordDenial`, in a
+// separate journal so a blocked write and an unjudged one are never confused.
+function recordUnchecked({ root, hook, result }) {
+  try {
+    const dir = path.join(root, ".ai-learn");
+
+    // Outside a learning project there is no journal to grow — stay silent.
+    if (!fs.existsSync(dir)) {
+      return;
+    }
+
+    const logPath = path.join(dir, "guard-unchecked.jsonl");
+
+    if (fs.existsSync(logPath) && fs.statSync(logPath).size > DENIAL_LOG_MAX_BYTES) {
+      const kept = fs.readFileSync(logPath, "utf8").split("\n").filter(Boolean).slice(-200);
+      fs.writeFileSync(logPath, kept.length ? `${kept.join("\n")}\n` : "");
+    }
+
+    const input = (hook && hook.tool_input) || {};
+    const target = input.file_path || input.path || null;
+
+    fs.appendFileSync(
+      logPath,
+      `${JSON.stringify({
+        at: new Date().toISOString(),
+        tool: (hook && hook.tool_name) || null,
+        path: target ? normalizePortable(path.isAbsolute(target) ? path.relative(root, target) : target) : null,
+        command: input.command || null,
+        reason: (result && result.reason) || "unchecked",
+      })}\n`,
+    );
+  } catch {
+    // a journal is never worth failing a write over
+  }
+}
+
+// The hook's `cwd` is the session's directory, not necessarily the project
+// root: after a `cd src` it is `<project>/src`, where no `.ai-learn/guard.json`
+// exists and the guard would resolve to the `apprenti` defaults with every
+// path outside `src/` dropped by `toRelative` (a bypass of the `dirigeant`
+// wall and of the policy self-protection). Walk up to the OUTERMOST directory
+// holding the guard config, never the nearest: in `dirigeant` the AI may write
+// `src/**`, so it could plant `src/.ai-learn/guard.json` (mode `apprenti`) and
+// make that fake file the root. Fall back to `start` when there is none.
+function findProjectRoot(start) {
+  let dir = path.resolve(start);
+  let found = null;
+
+  for (;;) {
+    try {
+      if (fs.existsSync(path.join(dir, ".ai-learn", "guard.json"))) {
+        found = dir;
+      }
+    } catch {
+      return found || start;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return found || start;
+    }
+    dir = parent;
+  }
+}
+
 // The hook entry point. Root comes from the hook's `cwd` when present — the
 // project where Claude Code runs — otherwise the process cwd. Any error inside
 // the guard itself is a fail-open allow: a broken guard must not break a session.
@@ -946,7 +1338,7 @@ function guardCommand({ inputFile = null } = {}) {
   hook = parseHookInput(raw);
 
   if (hook && typeof hook.cwd === "string" && hook.cwd) {
-    root = hook.cwd;
+    root = findProjectRoot(hook.cwd);
   }
 
   let result;
@@ -954,7 +1346,11 @@ function guardCommand({ inputFile = null } = {}) {
   try {
     result = decide(hook, root);
   } catch {
+    // Fail-open, but never silent: the OpenCode plugin's spawn fallback cannot
+    // tell an internal error from a clean allow otherwise.
     result = { decision: "allow", reason: "guard error — fail open" };
+    process.stderr.write(`ai-learn guard: ${result.reason}; this write was NOT checked\n`);
+    recordUnchecked({ root, hook, result });
   }
 
   if (result.decision === "deny") {
@@ -983,6 +1379,24 @@ function guardCommand({ inputFile = null } = {}) {
 
 // --- wiring (used by `init` and `update`, not the hot path) -----------------
 
+// The hook command is `node <bin> guard`, with the binary path in double quotes:
+// a checkout can live under a path containing a space (Windows "Program Files",
+// a user folder, a project name), and an unquoted path is split into several
+// argv by both sh and cmd.exe. Double quotes are the one quoting both shells
+// accept, which covers the realistic case (spaces). They do not stop `$` or
+// backtick expansion in sh, nor `%VAR%` expansion in cmd.exe: a checkout path
+// containing those characters remains a documented limit, because no single
+// shell string is safe for both shells at once.
+function guardHookCommand(toolBin) {
+  return `node "${toolBin}" guard`;
+}
+
+// Recognizes the hook we own, quoted (current form) or not (older installs), so
+// `update` upgrades a stale command instead of appending a duplicate.
+function isOwnGuardCommand(command) {
+  return typeof command === "string" && /ai-learn(\.js)?["']?\s+guard\b/.test(command);
+}
+
 // The generated README describes the mode's property. It is refreshed on
 // `update` (title marker), so a project that switches mode gets prose matching
 // its guard — leaving the apprenti text in a dirigeant project would document
@@ -1002,8 +1416,8 @@ liste est **dérivée du mode**, le champ \`learnerFiles\` de
 \`.ai-learn/guard.json\` est ignoré en dirigeant). Si ton code vit hors de
 \`src/**\`, déclare son périmètre dans \`implementationFiles\`.
 
-Ce dossier reste la référence de révélation : l'IA y dépose le code qu'elle a
-écrit, expliqué brique par brique, pour que l'apprenant puisse **juger** le diff
+Ce dossier est optionnel (la révélation se fait par défaut dans le chat) : quand
+il est utilisé, l'IA y dépose le code qu'elle a écrit, expliqué brique par brique, pour que l'apprenant puisse **juger** le diff
 plutôt que le taper.
 
 - **L'IA écrit** : \`src/**\` (l'implémentation), ce dossier, \`docs/\`, la config
@@ -1027,7 +1441,8 @@ Dans ce parcours, **l'apprenant tape tout le code de son projet** (\`src/**\`). 
 en est mécaniquement empêchée : le hook PreToolUse \`ai-learn guard\` refuse toute
 écriture de l'IA dans ces fichiers (liste configurable dans \`.ai-learn/guard.json\`).
 
-À la place, le code de révélation de chaque brique est déposé ici, dans
+À la place, le code de révélation de chaque brique est montré **dans le chat**
+par défaut. Sur demande explicite de l'apprenant, il est déposé ici, dans
 \`docs/solutions/<brique>.md\` — la référence que l'apprenant lit puis **retape**
 dans son éditeur.
 
@@ -1096,19 +1511,24 @@ function ensureGuardHook(dir) {
   // guard.json is learner-customizable (learnerFiles) — never overwritten here.
   // The solutions README is pure generated content (its title is the marker),
   // and its body follows the mode: switching to dirigeant must flip the prose.
-  const readmeText = fs.existsSync(solutionsReadme) ? fs.readFileSync(solutionsReadme, "utf8") : null;
-  const readme = renderSolutionsReadme(config.mode);
-  const isGeneratedReadme = readmeText === null || readmeText.trimStart().startsWith(SOLUTIONS_README_TITLE);
+  // Revelation is chat-first (story 05.04): the README is only refreshed when
+  // docs/solutions/ already exists — init/update/mode never create the folder,
+  // it appears at the first written reveal.
+  if (fs.existsSync(path.dirname(solutionsReadme))) {
+    const readmeText = fs.existsSync(solutionsReadme) ? fs.readFileSync(solutionsReadme, "utf8") : null;
+    const readme = renderSolutionsReadme(config.mode);
+    const isGeneratedReadme = readmeText === null || readmeText.trimStart().startsWith(SOLUTIONS_README_TITLE);
 
-  if (isGeneratedReadme && readmeText !== readme) {
-    fs.mkdirSync(path.dirname(solutionsReadme), { recursive: true });
-    fs.writeFileSync(solutionsReadme, readme);
-    const rel = normalizePortable(path.relative(dir, solutionsReadme));
-    (readmeText === null ? created : refreshed).push(rel);
+    if (isGeneratedReadme && readmeText !== readme) {
+      fs.mkdirSync(path.dirname(solutionsReadme), { recursive: true });
+      fs.writeFileSync(solutionsReadme, readme);
+      const rel = normalizePortable(path.relative(dir, solutionsReadme));
+      (readmeText === null ? created : refreshed).push(rel);
+    }
   }
 
   const toolBin = path.join(__dirname, "..", "ai-learn.js");
-  const command = `node ${toolBin} guard`;
+  const command = guardHookCommand(toolBin);
   const matcher = "Write|Edit|MultiEdit|NotebookEdit|Bash";
 
   let settings = null;
@@ -1130,7 +1550,7 @@ function ensureGuardHook(dir) {
     (entry) =>
       entry &&
       Array.isArray(entry.hooks) &&
-      entry.hooks.some((h) => h && typeof h.command === "string" && h.command.includes("ai-learn.js guard")),
+      entry.hooks.some((h) => h && isOwnGuardCommand(h.command)),
   );
 
   if (!alreadyWired) {
@@ -1139,6 +1559,34 @@ function ensureGuardHook(dir) {
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
     created.push(normalizePortable(path.relative(dir, settingsPath)));
+  } else {
+    // An older install wrote `node <path> guard` unquoted. Re-quote the path it
+    // already points at — never repoint it at this checkout: a project may
+    // deliberately use a global install or another checkout. A learner's other
+    // hooks are untouched.
+    let changed = false;
+
+    for (const entry of preToolUse) {
+      if (!entry || !Array.isArray(entry.hooks)) {
+        continue;
+      }
+      for (const h of entry.hooks) {
+        if (!h || !isOwnGuardCommand(h.command)) {
+          continue;
+        }
+        const match = h.command.match(/^node\s+(.+?)\s+guard\s*$/);
+
+        if (match && !/^["']/.test(match[1])) {
+          h.command = guardHookCommand(match[1]);
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+      refreshed.push(normalizePortable(path.relative(dir, settingsPath)));
+    }
   }
 
   return { created, refreshed, wired: alreadyWired, codex: codexResult };
@@ -1172,9 +1620,15 @@ function ensureCodexGuard(dir, learnerFiles, extraLiteralPaths = []) {
 
 module.exports = {
   guardCommand,
+  guardHookCommand,
+  isOwnGuardCommand,
+  MODE_APPRENTI,
+  MODE_DIRIGEANT,
   ensureGuardHook,
   ensureCodexGuard,
   decide,
+  recordDenial,
+  recordUnchecked,
   loadGuardConfig,
   validateGuardConfig,
   guardConfigIssues,
@@ -1184,5 +1638,6 @@ module.exports = {
   detectGitOrGh,
   splitSegments,
   toRelative,
+  findProjectRoot,
   DEFAULT_BLOCKED_COMMANDS,
 };

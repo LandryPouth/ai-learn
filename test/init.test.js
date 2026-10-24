@@ -8,6 +8,7 @@ const path = require("path");
 
 const { scaffold } = require("../bin/lib/init");
 const { readJson } = require("../bin/lib/util");
+const { capture, withHome } = require("./helpers");
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-init-"));
@@ -159,7 +160,7 @@ test("init installs the given platform's slash commands into an isolated home", 
   try {
     const { platform } = scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "codex" });
     assert.strictEqual(platform, "codex");
-    assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")));
+    assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next", "SKILL.md")));
   } finally {
     process.env.HOME = original.HOME;
     process.env.USERPROFILE = original.USERPROFILE;
@@ -187,4 +188,273 @@ test("init keeps an existing AGENTS.md and writes the protocol to docs/plans/ in
     fs.readFileSync(path.join(dir, "docs", "plans", "mode-apprentissage.md"), "utf8"),
     /prédire avant de révéler/,
   );
+});
+
+test("init writes the platform's native memory file importing AGENTS.md (claude)", () => {
+  const dir = tmpDir();
+  const home = tmpDir();
+
+  const { created } = withHome(home, () =>
+    scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" }),
+  );
+
+  const claudePath = path.join(dir, "CLAUDE.md");
+  assert.ok(fs.existsSync(claudePath));
+  assert.match(fs.readFileSync(claudePath, "utf8"), /^\s*@AGENTS\.md\s*$/m);
+  assert.ok(created.includes("CLAUDE.md"));
+});
+
+test("init appends only the missing import to a customized CLAUDE.md, idempotently", () => {
+  const dir = tmpDir();
+  const claudePath = path.join(dir, "CLAUDE.md");
+  fs.writeFileSync(claudePath, "# Mes règles\n\n- déjà là\n");
+
+  withHome(tmpDir(), () => {
+    scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" });
+    scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" });
+  });
+
+  const content = fs.readFileSync(claudePath, "utf8");
+  assert.ok(content.startsWith("# Mes règles\n\n- déjà là\n"));
+  assert.strictEqual((content.match(/^\s*@AGENTS\.md\s*$/gm) || []).length, 1);
+});
+
+test("init writes no native memory stub for platforms that read AGENTS.md natively", () => {
+  for (const platform of ["codex", "opencode", "cli-nu"]) {
+    const dir = tmpDir();
+
+    withHome(tmpDir(), () =>
+      scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform }),
+    );
+
+    assert.ok(!fs.existsSync(path.join(dir, "CLAUDE.md")), `unexpected CLAUDE.md for ${platform}`);
+    assert.ok(!fs.existsSync(path.join(dir, "GEMINI.md")), `unexpected GEMINI.md for ${platform}`);
+  }
+});
+
+test(
+  "init does not throw and signal when the native memory file is not writable",
+  { skip: typeof process.getuid === "function" && process.getuid() === 0 },
+  () => {
+    const dir = tmpDir();
+    const claudePath = path.join(dir, "CLAUDE.md");
+    fs.writeFileSync(claudePath, "# perso\n");
+    fs.chmodSync(claudePath, 0o444);
+
+    try {
+      const out = capture(() =>
+        withHome(tmpDir(), () =>
+          scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [], platform: "claude" }),
+        ),
+      );
+
+      assert.strictEqual(fs.readFileSync(claudePath, "utf8"), "# perso\n");
+      assert.match(out, /CLAUDE\.md non inscriptible/);
+    } finally {
+      fs.chmodSync(claudePath, 0o644);
+    }
+  },
+);
+
+test("init keeps the learner's existing bytes intact when appending the import", () => {
+  const dir = tmpDir();
+  const claudePath = path.join(dir, "CLAUDE.md");
+  const original = Buffer.concat([Buffer.from("# Règles "), Buffer.from([0xff, 0xfe]), Buffer.from("\n")]);
+  fs.writeFileSync(claudePath, original);
+
+  withHome(tmpDir(), () =>
+    scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "claude" }),
+  );
+
+  const after = fs.readFileSync(claudePath);
+  assert.ok(after.subarray(0, original.length).equals(original));
+  assert.match(after.toString("utf8"), /@AGENTS\.md\s*$/);
+});
+
+test("init refuses to write through a CLAUDE.md symlink", () => {
+  const dir = tmpDir();
+  const outside = path.join(tmpDir(), "outside.md");
+  fs.writeFileSync(outside, "hors projet\n");
+
+  try {
+    fs.symlinkSync(outside, path.join(dir, "CLAUDE.md"));
+  } catch {
+    return; // symlinks unavailable on this platform
+  }
+
+  withHome(tmpDir(), () =>
+    scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "claude" }),
+  );
+
+  assert.strictEqual(fs.readFileSync(outside, "utf8"), "hors projet\n");
+});
+
+// -----------------------------------------------------------------------
+// Story 05.02 — the protocol template's numbered sections, and the targeted
+// synthesis format (§1bis) that init must carry into every scaffolded project.
+// Structural assertions only: section ids and their order, never the prose.
+// -----------------------------------------------------------------------
+
+const PROTOCOL_TEMPLATE = path.join(__dirname, "..", "templates", "AGENTS-apprentissage.md");
+
+function protocolSection(content, id) {
+  const start = content.indexOf(`### ${id}.`);
+  if (start === -1) {
+    return null;
+  }
+
+  const rest = content.slice(start + 1);
+  const next = rest.search(/^### /m);
+  return next === -1 ? content.slice(start) : content.slice(start, start + 1 + next);
+}
+
+test("the protocol template keeps its numbered sections present and in order", () => {
+  const content = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
+  const ids = [...content.matchAll(/^###\s+([^\s.]+)\./gm)].map((match) => match[1]);
+
+  assert.deepStrictEqual(ids, ["1", "1bis", "2", "3", "3bis", "3ter", "3quater", "3quinquies", "4", "5", "5bis"]);
+});
+
+test("§1bis enumerates its five synthesis steps in order, between §1 and §2", () => {
+  const content = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
+  const section = protocolSection(content, "1bis");
+
+  assert.ok(section, "§1bis must exist");
+  const steps = [...section.matchAll(/^\d+\.\s+\*\*/gm)].map((match) => Number.parseInt(match[0], 10));
+  assert.deepStrictEqual(steps, [1, 2, 3, 4, 5]);
+});
+
+test("init copies §1bis verbatim into the generated AGENTS.md", () => {
+  const dir = tmpDir();
+  scaffold({
+    dir,
+    project: "demo",
+    technology: "Fastify",
+    docSource: { type: "local", value: "/nope" },
+    phases: [],
+  });
+
+  const template = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8").replace(/\{\{technology\}\}/g, "Fastify");
+  const agents = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+
+  assert.ok(protocolSection(template, "1bis"));
+  assert.strictEqual(protocolSection(agents, "1bis"), protocolSection(template, "1bis"));
+});
+
+// -----------------------------------------------------------------------
+// Story 05.03 — the protocol makes the three rules verifiable obligations:
+// re-read src/** and cite file:line before scoring (§2), reveal from the code
+// the learner actually typed (§3), and name a failure case in every prediction
+// question (§1). init must carry them into every scaffolded project.
+// -----------------------------------------------------------------------
+
+function protocolRules(content) {
+  return {
+    failureCase: protocolSection(content, "1"),
+    rereadBeforeScoring: protocolSection(content, "2"),
+    revealFromTypedCode: protocolSection(content, "3"),
+  };
+}
+
+test("the protocol requires a failure case, a re-read of src/** with file:line, and a reveal from typed code", () => {
+  const rules = protocolRules(fs.readFileSync(PROTOCOL_TEMPLATE, "utf8"));
+
+  assert.match(rules.failureCase, /cas d'échec/i);
+  assert.match(rules.failureCase, /entrée invalide|ressource absente/i);
+
+  assert.match(rules.rereadBeforeScoring, /Relire `src\/\*\*` avant de noter/);
+  assert.match(rules.rereadBeforeScoring, /`fichier:ligne`/);
+
+  assert.match(rules.revealFromTypedCode, /révélation part du code déjà tapé/i);
+  assert.match(rules.revealFromTypedCode, /`fichier:ligne`/);
+});
+
+test("init carries the three protocol obligations into the generated AGENTS.md", () => {
+  const dir = tmpDir();
+  scaffold({
+    dir,
+    project: "demo",
+    technology: "Fastify",
+    docSource: { type: "local", value: "/nope" },
+    phases: [],
+  });
+
+  const template = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8").replace(/\{\{technology\}\}/g, "Fastify");
+  const agents = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+
+  assert.deepStrictEqual(protocolRules(agents), protocolRules(template));
+});
+
+// -----------------------------------------------------------------------
+// Story 05.04 — chat-first revelation: init wires the guard but no longer
+// creates docs/solutions/; the protocol forbids solution-shaped extracts
+// before the learner has typed or explained anything.
+// -----------------------------------------------------------------------
+
+test("init does not create docs/solutions/", () => {
+  const dir = tmpDir();
+  const { created } = scaffold({
+    dir,
+    project: "demo",
+    technology: "Fastify",
+    docSource: { type: "local", value: "/nope" },
+    phases: [],
+  });
+
+  assert.ok(!fs.existsSync(path.join(dir, "docs", "solutions")));
+  assert.ok(!created.some((file) => file.startsWith("docs/solutions/")));
+});
+
+test("the protocol forbids solution-shaped extracts before typing and makes docs/solutions optional", () => {
+  const template = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
+  const section1 = protocolSection(template, "1");
+  const section3 = protocolSection(template, "3");
+
+  assert.match(section1, /Aucun extrait de la forme de la solution/);
+  assert.match(section1, /exemple « officiel » recopié de la doc/);
+  assert.match(section3, /par défaut dans le chat/);
+  assert.match(section3, /optionnel, à la demande explicite de l'apprenant/);
+  assert.match(section3, /init` ne crée plus ce dossier d'office/);
+});
+
+// -----------------------------------------------------------------------
+// Story 05.05 — the tutor profile: init writes explicit defaults once and
+// never rewrites a learner's customization; the protocol documents the three
+// assistance levels and reads tutor.json before every response.
+// -----------------------------------------------------------------------
+
+test("init writes .ai-learn/tutor.json with explicit defaults and never rewrites it", () => {
+  const dir = tmpDir();
+  const { created } = scaffold({
+    dir,
+    project: "demo",
+    technology: "Fastify",
+    docSource: { type: "local", value: "/nope" },
+    phases: [],
+  });
+
+  const tutorPath = path.join(dir, ".ai-learn", "tutor.json");
+  assert.ok(fs.existsSync(tutorPath));
+  assert.ok(created.includes(".ai-learn/tutor.json"));
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(tutorPath, "utf8")), {
+    version: 1,
+    assistance: "indices",
+    proof: "explication",
+  });
+
+  const custom = { version: 1, assistance: "strict", proof: "transfert" };
+  fs.writeFileSync(tutorPath, `${JSON.stringify(custom, null, 2)}\n`);
+  scaffold({ dir, project: "demo", technology: "Fastify", docSource: null, phases: [] });
+
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(tutorPath, "utf8")), custom);
+});
+
+test("the protocol documents the three assistance levels and reads tutor.json before each response", () => {
+  const section1 = protocolSection(fs.readFileSync(PROTOCOL_TEMPLATE, "utf8"), "1");
+
+  assert.match(section1, /`\.ai-learn\/tutor\.json`/);
+  assert.match(section1, /`libre`/);
+  assert.match(section1, /`indices`/);
+  assert.match(section1, /indice → question → pseudo-code → solution/);
+  assert.match(section1, /`strict`/);
 });

@@ -566,3 +566,21 @@ test("detectTests recognizes test(s)/ and __tests__, plus bare test/spec basenam
     ["test/a.c", "tests/b.c", "src/__tests__/c.js", "__tests__/d.js", "src/index.test.ts", "src/test.js", "spec.py"],
   );
 });
+
+test("gitState counts modified and untracked files from porcelain, and reports zero for a clean or non-repo tree", () => {
+  const repo = tmpDir();
+  writeFile(repo, "a.txt", "x");
+  spawnGit(["init", "-b", "main"], { cwd: repo });
+  spawnGit(["add", "."], { cwd: repo });
+  const commit = spawnGit(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init"], { cwd: repo });
+  assert.strictEqual(commit.status, 0, commit.stderr && commit.stderr.toString());
+  assert.strictEqual(gitState(repo).uncommitted, 0);
+
+  writeFile(repo, "a.txt", "changed");
+  writeFile(repo, "b.txt", "new");
+  assert.strictEqual(gitState(repo).uncommitted, 2);
+
+  const plain = tmpDir();
+  writeFile(plain, "a.txt", "x");
+  assert.strictEqual(gitState(plain).uncommitted, 0);
+});

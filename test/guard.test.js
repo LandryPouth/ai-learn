@@ -5,7 +5,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { execFileSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
 
 const {
   decide,
@@ -16,7 +16,9 @@ const {
   shellWriteTargets,
   detectGitOrGh,
   toRelative,
+  findProjectRoot,
   ensureGuardHook,
+  guardHookCommand,
 } = require("../bin/lib/guard");
 const { checkProject } = require("../bin/lib/check");
 const { tmpProject, writeFile } = require("./helpers");
@@ -433,6 +435,194 @@ test("le guard refuse à l'IA de réécrire sa propre configuration dans les deu
   );
 });
 
+test("le plugin OpenCode et les journaux du garde ne sont pas réécrivables par l'IA (hook Claude compris)", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const tool of ["Write", "Edit"]) {
+    for (const file of [
+      ".opencode/plugins/ai-learn-guard.js",
+      ".opencode/plugins/other.js",
+      "opencode.json",
+      "opencode.jsonc",
+      ".opencode/plugin/other.js",
+      ".ai-learn/guard.log",
+      ".ai-learn/guard-unchecked.jsonl",
+    ]) {
+      assert.strictEqual(
+        decide(hookFor(dir, tool, { file_path: path.join(dir, file) }), dir).decision,
+        "deny",
+        `${tool} ${file}`,
+      );
+    }
+  }
+});
+
+test("les ledgers globaux ~/.ai-learn ne sont pas réécrivables par l'IA (preuves du mode dirigeant)", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const ledger = path.join(os.homedir(), ".ai-learn", "tracks", "tests.json");
+
+  for (const tool of ["Write", "Edit", "MultiEdit"]) {
+    assert.strictEqual(
+      decide(hookFor(dir, tool, { file_path: ledger }), dir).decision,
+      "deny",
+      `${tool} ${ledger}`,
+    );
+  }
+
+  // The whole global state directory is protected, not just the one file.
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.join(os.homedir(), ".ai-learn") }), dir).decision,
+    "deny",
+  );
+  // A relative escape from the project resolves to the same absolute path.
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.relative(dir, ledger) }), dir).decision,
+    "deny",
+  );
+  // The common shell route is denied too (a hedge, like the rest of Bash).
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: `echo '{}' > ${ledger}` }), dir).decision,
+    "deny",
+  );
+  // A sibling directory that merely shares the prefix is not over-matched.
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.join(path.dirname(os.homedir()), "not-ai-learn", "x.json") }), dir).decision,
+    "allow",
+  );
+});
+
+test("~ et $HOME-free ~/.ai-learn ne contournent pas le refus Bash", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo x > ~/.ai-learn/tracks/tests.json" }), dir).decision,
+    "deny",
+  );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "cd ~ && echo x > .ai-learn/tracks/tests.json" }), dir).decision,
+    "deny",
+  );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo x > $HOME/.ai-learn/tracks/tests.json" }), dir).decision,
+    "deny",
+  );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo x > ${HOME}/.ai-learn/tracks/tests.json" }), dir).decision,
+    "deny",
+  );
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: `echo x > ~${os.userInfo().username}/.ai-learn/tracks/tests.json` }), dir).decision,
+    "deny",
+    "`~<login>` names the same home directory as `~`",
+  );
+  // Another login's home is not this ledger: leave it unresolved instead of
+  // over-denying a path that is not `$HOME`.
+  assert.strictEqual(
+    decide(
+      hookFor(dir, "Bash", { command: "echo x > ~ai-learn-nonexistent-user/.ai-learn/tracks/tests.json" }),
+      dir,
+    ).decision,
+    "allow",
+  );
+});
+
+test("un HOME symlinké ne sort pas le ledger réel de la protection", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-home-"));
+  const realHome = path.join(base, "real-home");
+  const linkHome = path.join(base, "link-home");
+  fs.mkdirSync(path.join(realHome, ".ai-learn", "tracks"), { recursive: true });
+
+  try {
+    fs.symlinkSync(realHome, linkHome, "dir");
+  } catch {
+    fs.rmSync(base, { recursive: true, force: true });
+    return; // symlinks unavailable on this platform/user
+  }
+
+  const previousHome = process.env.HOME;
+  process.env.HOME = linkHome;
+  try {
+    assert.strictEqual(
+      decide(
+        hookFor(dir, "Write", { file_path: path.join(realHome, ".ai-learn", "tracks", "tests.json") }),
+        dir,
+      ).decision,
+      "deny",
+      "the real path of a symlinked HOME is still the ledger",
+    );
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("un symlink ne contourne pas la protection (chemins résolus via realpath)", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "test"), { recursive: true });
+
+  const protectedLink = path.join(dir, "policy");
+
+  try {
+    fs.symlinkSync(path.join(dir, ".ai-learn"), protectedLink, "dir");
+  } catch {
+    return; // symlinks unavailable on this platform/user
+  }
+
+  // A symlinked route to the guard's own policy is denied like the real path.
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.join(protectedLink, "guard.json") }), dir).decision,
+    "deny",
+  );
+
+  const specLink = path.join(dir, "spec");
+  fs.symlinkSync(path.join(dir, "test"), specLink, "dir");
+  assert.strictEqual(
+    decide(hookFor(dir, "Write", { file_path: path.join(specLink, "foo.ts") }), dir).decision,
+    "deny",
+    "a symlinked route into the learner's specification is denied",
+  );
+});
+
+test("un symlink interne vers l'extérieur ne contourne pas le blocage apprenant", () => {
+  const dir = blankProject();
+  writeMode(dir, "apprenti");
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-outside-"));
+
+  try {
+    fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+    fs.rmdirSync(path.join(dir, "src"));
+    fs.symlinkSync(outside, path.join(dir, "src"), "dir");
+  } catch {
+    fs.rmSync(outside, { recursive: true, force: true });
+    return; // symlinks unavailable on this platform/user
+  }
+
+  try {
+    // The lexical path is the learner's `src/**` even though its real target is
+    // outside the project — judging only the realpath would let this write pass.
+    assert.strictEqual(
+      decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "foo.ts") }), dir).decision,
+      "deny",
+    );
+    assert.strictEqual(
+      decide(hookFor(dir, "Bash", { command: "echo x > src/foo.ts" }), dir).decision,
+      "deny",
+    );
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("`disableAllHooks` cannot be planted: settings.local.json outranks settings.json but stays denied", () => {
   for (const mode of [undefined, "apprenti", "dirigeant"]) {
     const dir = blankProject();
@@ -748,6 +938,7 @@ test("ensureGuardHook wires settings.json + guard.json + docs/solutions/, idempo
   const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
   // Pre-existing settings with another hook — must be preserved.
   writeFile(dir, ".claude/settings.json", JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "other-guard" }] }] } }));
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
 
   const first = ensureGuardHook(dir);
   assert.strictEqual(first.wired, false);
@@ -756,7 +947,7 @@ test("ensureGuardHook wires settings.json + guard.json + docs/solutions/, idempo
   const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
   const entries = settings.hooks.PreToolUse;
   assert.strictEqual(entries.length, 2); // the other hook survived
-  const ours = entries.find((e) => JSON.stringify(e).includes("ai-learn.js guard"));
+  const ours = entries.flatMap((entry) => entry.hooks || []).find((h) => /ai-learn\.js["']?\s+guard/.test(h.command));
   assert.ok(ours);
   assert.ok(fs.existsSync(path.join(dir, ".ai-learn", "guard.json")));
   assert.match(fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8"), /apprenant tape/);
@@ -767,6 +958,92 @@ test("ensureGuardHook wires settings.json + guard.json + docs/solutions/, idempo
   assert.strictEqual(second.wired, true);
   assert.strictEqual(second.created.length, 0);
   assert.strictEqual(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"), before);
+});
+
+test("ensureGuardHook quotes a tool path containing a space — the written command actually refuses", () => {
+  // `__dirname` is the real checkout, so copy the package into a directory whose
+  // name contains a space and wire from that copy: the generated command then
+  // carries the spaced path, exactly the Windows "Program Files" case.
+  const spacedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn space "));
+  const spacedBin = path.join(spacedRoot, "bin");
+  fs.cpSync(path.join(__dirname, "..", "bin"), spacedBin, { recursive: true });
+
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  require(path.join(spacedBin, "lib", "guard.js")).ensureGuardHook(dir);
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  const installed = settings.hooks.PreToolUse.flatMap((entry) => entry.hooks || []).find((h) =>
+    /ai-learn\.js["']?\s+guard/.test(h.command),
+  );
+
+  assert.ok(installed, "the hook was wired");
+  assert.strictEqual(installed.command, guardHookCommand(path.join(spacedBin, "ai-learn.js")));
+  assert.match(installed.command, /^node ".+ai-learn\.js" guard$/);
+
+  const input = path.join(dir, "_hook-input.json");
+  fs.writeFileSync(input, JSON.stringify(hookFor(dir, "Write", { file_path: path.join(dir, "src", "index.ts") })));
+
+  let status = 0;
+  let stdout = "";
+
+  try {
+    stdout = execSync(`${installed.command} --input "${input}"`, { encoding: "utf8", cwd: dir });
+  } catch (error) {
+    status = error.status;
+    stdout = error.stdout || "";
+  }
+
+  assert.strictEqual(status, 2, "the spaced hook command must run and refuse");
+  assert.match(stdout, /"permissionDecision":"deny"/);
+});
+
+test("ensureGuardHook upgrades an older unquoted hook command without duplicating it", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+  writeFile(
+    dir,
+    ".claude/settings.json",
+    JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: "Bash", hooks: [{ type: "command", command: "other-guard" }] },
+          { matcher: "Write", hooks: [{ type: "command", command: "node /old place/ai-learn.js guard", timeout: 60 }] },
+        ],
+      },
+    }),
+  );
+
+  const result = ensureGuardHook(dir);
+  assert.strictEqual(result.wired, true);
+  assert.deepStrictEqual(result.refreshed, [".claude/settings.json"]);
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  const hooks = settings.hooks.PreToolUse.flatMap((entry) => entry.hooks || []);
+  const ours = hooks.filter((h) => /ai-learn\.js/.test(h.command));
+
+  assert.strictEqual(ours.length, 1, "the old hook is migrated, not duplicated");
+  assert.match(ours[0].command, /^node ".+ai-learn\.js" guard$/);
+  assert.ok(hooks.some((h) => h.command === "other-guard"), "a learner's other hook survives");
+});
+
+test("garde : les écritures PowerShell/cmd ne sont pas analysées (limite documentée, figée par un test)", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  // Story 08.04 — the guard parses POSIX shell syntax only. These write `src/**`
+  // under Windows and are allowed today; freezing that here makes a future
+  // grammar change visible (README « Windows natif »).
+  for (const command of [
+    "Set-Content src/index.ts 'x'",
+    "Out-File -FilePath src/index.ts -InputObject x",
+    "copy NUL src\\index.ts",
+    "move src\\index.ts src\\other.ts",
+    "Move-Item src/index.ts src/other.ts",
+    "New-Item -ItemType File src/index.ts",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
+  }
+
+  // A cmd redirection is still caught: `>` is parsed and backslashes normalize.
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "type nul > src\\index.ts" }), dir).decision, "deny");
 });
 
 test("ensureGuardHook refreshes a stale generated solutions README (title marker), keeping it generated", () => {
@@ -811,6 +1088,7 @@ test("ensureGuardHook writes mode: apprenti into a fresh guard.json and preserve
 test("ensureGuardHook in dirigeant inverts the Codex profile and the generated README", () => {
   const dir = blankProject();
   writeFile(dir, ".ai-learn/guard.json", JSON.stringify({ version: 1, mode: "dirigeant" }));
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
 
   ensureGuardHook(dir);
 
@@ -840,6 +1118,7 @@ test("the Codex sandbox denies the guard's own config files in both modes", () =
 
 test("ensureGuardHook re-renders the README when the mode flips, without touching a custom one", () => {
   const dir = blankProject();
+  fs.mkdirSync(path.join(dir, "docs", "solutions"), { recursive: true });
   ensureGuardHook(dir);
   const apprenti = fs.readFileSync(path.join(dir, "docs", "solutions", "README.md"), "utf8");
   assert.match(apprenti, /l'apprenant tape tout le code/);
@@ -889,4 +1168,206 @@ test("checkProject warns on IA-typed corrections (the visible escape hatch)", ()
 
   const entry = checkProject(dir);
   assert.ok(entry.issues.warnings.some((w) => /Corrigé par : IA/i.test(w.message)));
+});
+
+test("guardCommand en dirigeant avec un cwd en sous-dossier applique quand même le mode du projet", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  const input = path.join(dir, "_hook-input.json");
+
+  for (const target of ["test/a.test.ts", ".ai-learn/guard.json"]) {
+    fs.writeFileSync(
+      input,
+      JSON.stringify({ cwd: path.join(dir, "src"), tool_name: "Write", tool_input: { file_path: path.join(dir, target) } }),
+    );
+    let status = 0;
+    try {
+      execFileSync(process.execPath, [BIN, "guard", "--input", input], { encoding: "utf8", stdio: "pipe" });
+    } catch (error) {
+      status = error.status;
+    }
+    assert.strictEqual(status, 2, target);
+  }
+});
+
+test("findProjectRoot remonte jusqu'au guard.json, sinon garde le point de départ", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src", "deep"), { recursive: true });
+
+  assert.strictEqual(findProjectRoot(path.join(dir, "src", "deep")), dir);
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), "no-guard-"));
+  assert.strictEqual(findProjectRoot(bare), bare);
+});
+
+test("dirigeant : un lien symbolique src/t -> test ne blanchit pas une écriture", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "test"), { recursive: true });
+  fs.symlinkSync(path.join(dir, "test"), path.join(dir, "src", "t"));
+  fs.symlinkSync(path.join(dir, ".ai-learn"), path.join(dir, "docs", "cfg"));
+
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "t", "a.js") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "docs", "cfg", "guard.json") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, "src", "ok.js") }), dir).decision, "allow");
+});
+
+test("dirigeant : perl -pi, patch, dd of=, tar -C, unzip -d et rsync vers test/ sont refusés", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "perl -pi -e 's/a/b/' test/a.js",
+    "sed -ni 's/a/b/p' test/a.js",
+    "patch test/a.js < p.diff",
+    "dd if=/dev/zero of=test/a",
+    "tar xf a.tar -C test",
+    "unzip a.zip -d test",
+    "rsync -a build/ test/",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+  for (const command of ["perl -e 'print 1'", "dd if=a of=src/b", "tar xf a.tar -C src", "patch src/a.js < p.diff"]) {
+    assert.strictEqual(bash(command), "allow", command);
+  }
+});
+
+test("dirigeant : un guard.json imbriqué planté dans src/ ne devient pas la racine ni ne s'écrit", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  fs.mkdirSync(path.join(dir, "src", ".ai-learn"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "test"), { recursive: true });
+  const decoy = path.join(dir, "src", ".ai-learn", "guard.json");
+
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: decoy }), dir).decision, "deny");
+
+  // Même si le leurre existe déjà (planté hors du guard), la racine reste la plus haute.
+  fs.writeFileSync(decoy, JSON.stringify({ version: 1, mode: "apprenti", learnerFiles: ["nothing/**"] }));
+  assert.strictEqual(findProjectRoot(path.join(dir, "src")), dir);
+
+  const input = path.join(dir, "_hook-input.json");
+  for (const target of ["test/a.test.ts", ".ai-learn/guard.json"]) {
+    fs.writeFileSync(
+      input,
+      JSON.stringify({ cwd: path.join(dir, "src"), tool_name: "Write", tool_input: { file_path: path.join(dir, target) } }),
+    );
+    let status = 0;
+    try {
+      execFileSync(process.execPath, [BIN, "guard", "--input", input], { encoding: "utf8", stdio: "pipe" });
+    } catch (error) {
+      status = error.status;
+    }
+    assert.strictEqual(status, 2, target);
+  }
+});
+
+test("dirigeant : formes collées de tar/unzip/patch vers test/ sont refusées", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "tar xf a.tar -Ctest",
+    "tar -xCf test a.tar",
+    "tar xCf test a.tar",
+    "tar x -f a.tar --directory test",
+    "tar x -f a.tar --directory=test",
+    "unzip a.zip -dtest",
+    "patch -i p.diff test/a.js",
+    "patch -p1 test/a.js",
+    "patch -o test/out.js src/a.js",
+    "patch --output=test/out.js src/a.js",
+    "patch -d test < x.diff",
+    "patch -dtest < x.diff",
+    "patch --directory=test -p0 < x.diff",
+    "tar xf a.tar --one-top-level=test",
+    "tar xf a.tar --one-top-level test",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+  for (const command of ["patch -i p.diff src/a.js", "patch -p1 src/a.js", "tar xf a.tar -Csrc", "unzip a.zip -dsrc", "patch -d src < x.diff", "tar xf a.tar --one-top-level=src"]) {
+    assert.strictEqual(bash(command), "allow", command);
+  }
+});
+
+test("dirigeant : ln -s vers test/ et touch dans test/ sont refusés, ln -s interne à src/ reste permis", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+  const bash = (command) => decide(hookFor(dir, "Bash", { command }), dir).decision;
+
+  for (const command of [
+    "ln -s ../test src/t && echo x > src/t/a.js",
+    "ln -s ../test src/t; echo x > src/t/a.js",
+    "ln -sf ../test/a.js src/a.js",
+    "touch test/a.js",
+    "cd test; touch a.js",
+    "cd test && touch a.js",
+  ]) {
+    assert.strictEqual(bash(command), "deny", command);
+  }
+
+  assert.strictEqual(bash("ln -s b.js src/a.js"), "allow");
+  assert.strictEqual(bash("touch src/a.js"), "allow");
+});
+
+test("l'IA ne lance pas `ai-learn mode` ni ne surcharge HOME pour forger un ledger", () => {
+  const dir = blankProject();
+  writeMode(dir, "apprenti");
+
+  for (const command of [
+    "ai-learn mode dirigeant",
+    "HOME=/tmp/fakehome ai-learn mode dirigeant",
+    "cd x && npx ai-learn mode dirigeant --dir .",
+    "node bin/ai-learn.js mode dirigeant",
+    "HOME=/tmp/fakehome ai-learn verify phase-1",
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  // Other ai-learn commands stay usable by the AI (verify, check, status).
+  for (const command of ["ai-learn verify phase-1", "ai-learn check", "ai-learn status"]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
+  }
+});
+
+test("les évidences .ai-learn/runs ne sont pas réécrivables par l'IA", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const tool of ["Write", "Edit", "MultiEdit"]) {
+    assert.strictEqual(
+      decide(hookFor(dir, tool, { file_path: path.join(dir, ".ai-learn", "runs", "phase-1.json") }), dir).decision,
+      "deny",
+      tool,
+    );
+  }
+  assert.strictEqual(
+    decide(hookFor(dir, "Bash", { command: "echo '{}' > .ai-learn/runs/phase-1.json" }), dir).decision,
+    "deny",
+  );
+});
+
+test("une commande qui cite `ai-learn mode` ou HOME= entre guillemets reste permise, sauf si elle l'exécute", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const command of [
+    "grep -n 'ai-learn mode' README.md",
+    'echo "HOME=1" && ai-learn status',
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
+  }
+
+  for (const command of [
+    'bash -c "ai-learn mode dirigeant"',
+    "sh -c 'HOME=/tmp/fakehome ai-learn check'",
+    'eval "ai-learn mode dirigeant"',
+    'echo "$(ai-learn mode dirigeant)"',
+  ]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
 });

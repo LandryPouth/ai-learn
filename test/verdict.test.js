@@ -10,7 +10,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 
-const { phaseVerdict } = require("../bin/lib/progress");
+const { phaseVerdict, revisitState, validateProgress } = require("../bin/lib/progress");
 const { computeSourceHash, checkpointFilePath } = require("../bin/lib/source-hash");
 const { normalizePortable } = require("../bin/lib/util");
 const { tmpProject, writeFile, sampleProgress } = require("./helpers");
@@ -86,6 +86,102 @@ test("phaseVerdict: done, no evidence -> unproven", () => {
     checkpointFileExists: true,
   });
   assert.strictEqual(verdict.state, "unproven");
+});
+
+// -----------------------------------------------------------------------
+// revisitState (story 07.01) — the spaced-repetition due date
+// -----------------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PROVEN_AT = "2026-09-01T10:00:00.000Z";
+
+test("revisitState: exactly reviewAfterDays old is not due yet", () => {
+  const now = new Date(Date.parse(PROVEN_AT) + 30 * DAY_MS);
+  const state = revisitState({
+    phase: { status: "done", reviewAfterDays: 30 },
+    evidence: { lastProvenAt: PROVEN_AT },
+    now,
+  });
+
+  assert.strictEqual(state.due, false);
+  assert.strictEqual(state.lastProvenAt, PROVEN_AT);
+  assert.strictEqual(state.reviewAfterDays, 30);
+});
+
+test("revisitState: one millisecond past reviewAfterDays is due (day-boundary)", () => {
+  const now = new Date(Date.parse(PROVEN_AT) + 30 * DAY_MS + 1);
+  const state = revisitState({
+    phase: { status: "done", reviewAfterDays: 30 },
+    evidence: { lastProvenAt: PROVEN_AT },
+    now,
+  });
+
+  assert.strictEqual(state.due, true);
+});
+
+test("revisitState: a phase without reviewAfterDays never becomes due (backward-compatible)", () => {
+  const state = revisitState({
+    phase: { status: "done" },
+    evidence: { lastProvenAt: PROVEN_AT },
+    now: new Date("2030-01-01T00:00:00.000Z"),
+  });
+
+  assert.strictEqual(state, null);
+});
+
+test("revisitState: a done phase with no evidence has nothing to age from", () => {
+  const state = revisitState({
+    phase: { status: "done", reviewAfterDays: 7 },
+    evidence: null,
+    now: new Date("2030-01-01T00:00:00.000Z"),
+  });
+
+  assert.strictEqual(state, null);
+});
+
+test("revisitState: evidence predating lastProvenAt falls back to generatedAt", () => {
+  const now = new Date(Date.parse(PROVEN_AT) + 8 * DAY_MS);
+  const state = revisitState({
+    phase: { status: "done", reviewAfterDays: 7 },
+    evidence: { generatedAt: PROVEN_AT },
+    now,
+  });
+
+  assert.strictEqual(state.due, true);
+  assert.strictEqual(state.lastProvenAt, PROVEN_AT);
+});
+
+test("revisitState: a failed run (lastProvenAt null) is never a proof date", () => {
+  const state = revisitState({
+    phase: { status: "done", reviewAfterDays: 7 },
+    evidence: { generatedAt: PROVEN_AT, lastProvenAt: null },
+    now: new Date(Date.parse(PROVEN_AT) + 8 * DAY_MS),
+  });
+
+  assert.strictEqual(state, null);
+});
+
+test("validateProgress: an invalid reviewAfterDays is an explicit error", () => {
+  for (const invalid of [0, -1, 1.5, "30"]) {
+    const issues = validateProgress({
+      version: 1,
+      phases: [{ id: 0, name: "Zero", status: "done", reviewAfterDays: invalid }],
+    });
+
+    assert.ok(
+      issues.some((issue) => issue.level === "error" && /reviewAfterDays/.test(issue.message)),
+      `expected an explicit reviewAfterDays error for ${JSON.stringify(invalid)}`,
+    );
+  }
+});
+
+test("validateProgress: a positive integer reviewAfterDays is accepted", () => {
+  const issues = validateProgress({
+    version: 1,
+    phases: [{ id: 0, name: "Zero", status: "done", checkpoint: "node -e \"\"", reviewAfterDays: 30 }],
+  });
+
+  assert.deepStrictEqual(issues, []);
 });
 
 // -----------------------------------------------------------------------
