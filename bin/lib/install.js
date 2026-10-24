@@ -149,7 +149,8 @@ function looksLikeOurSkill(content) {
     return false;
   }
 
-  const body = match[1].replace(/^\r?\n/, "");
+  // A CRLF checkout (Windows autocrlf) leaves a blank `\r\n` line before the heading.
+  const body = match[1].replace(/^\s+/, "");
   return body.startsWith("# ai-learn:") || body.startsWith("> ⚠ Nom déprécié");
 }
 

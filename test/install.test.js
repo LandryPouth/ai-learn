@@ -101,7 +101,7 @@ test("install claude and opencode produce a strict SKILL.md for every command", 
       assert.strictEqual(skill.name, command.name, `${platform}: ${command.name} name matches its directory`);
       assert.strictEqual(skill.description, command.description, `${platform}: ${command.name} description`);
       assert.strictEqual(skill.body, command.body, `${platform}: ${command.name} body is verbatim`);
-      assert.ok(file.endsWith(`${command.name}/SKILL.md`));
+      assert.ok(file.endsWith(path.join(command.name, "SKILL.md")));
     }
   }
 });

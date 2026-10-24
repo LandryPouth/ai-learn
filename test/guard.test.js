@@ -529,7 +529,10 @@ test("~ et $HOME-free ~/.ai-learn ne contournent pas le refus Bash", () => {
   );
 });
 
-test("un HOME symlinké ne sort pas le ledger réel de la protection", () => {
+test(
+  "un HOME symlinké ne sort pas le ledger réel de la protection",
+  { skip: process.platform === "win32" ? "Windows résout le home via USERPROFILE, pas $HOME : le scénario de symlink de $HOME n'existe pas" : false },
+  () => {
   const dir = blankProject();
   writeMode(dir, "dirigeant");
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-home-"));
@@ -563,7 +566,8 @@ test("un HOME symlinké ne sort pas le ledger réel de la protection", () => {
     }
     fs.rmSync(base, { recursive: true, force: true });
   }
-});
+  },
+);
 
 test("un symlink ne contourne pas la protection (chemins résolus via realpath)", () => {
   const dir = blankProject();
