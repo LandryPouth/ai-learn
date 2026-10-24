@@ -364,3 +364,32 @@ Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées
   sans PR déjà ouverte reçoit systématiquement une branche dédiée avant tout
   commit, plutôt que de dépendre d'une relecture de `git log` après coup pour
   détecter qu'elle a fini sur `main`.
+
+### `high` — la preuve `verify` est indexée sur tout le dépôt : à l'usage elle est périmée en permanence, donc ne prouve plus rien
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `ai-flow status` / `ai-flow next` (`proof is stale`, `[unproven]`), `computeTreeToken` (`bin/lib/identity.js` du paquet), rejeu du cache dans `bin/lib/evidence.js`
+- **Problème** : confirmé en lisant le code. `computeTreeToken` hache le
+  `git ls-tree` de **toute la racine** du dépôt, en excluant seulement
+  `.coding-flow/` et les dossiers de stories (`epics`, `specs`, `.specify`).
+  N'importe quel changement de `bin/`, `test/`, `templates/` ou `docs/` change
+  le token et périme la preuve de **toutes** les stories, y compris celles dont
+  aucun fichier n'a bougé. Constaté le 2026-10-24 : après les seuls commits de
+  la story 07-03, 31 stories des epics 01 à 07 sont `done` + `proof is stale`
+  et `ai-flow next` recommande de re-vérifier la 01-01 (« marked done but the
+  code moved since its last green verify »). Une preuve qui expire à chaque
+  commit, quel que soit le fichier touché, ne distingue plus « cette story est
+  cassée » de « quelqu'un a modifié autre chose » : le signal est toujours
+  allumé, donc ignoré — exactement le cas décrit plus haut, un check qu'on
+  apprend à désactiver. C'est l'extension à `verify` de l'entrée sur la
+  fraîcheur d'une review (même cause), mais plus grave : c'est la preuve
+  elle-même qui est vidée de son sens, pas seulement un indicateur annexe.
+- **Workaround** : ré-exécuter `ai-flow verify --story <dir>` pour chaque story
+  `done` après chaque commit (coût proportionnel au nombre de stories closes,
+  ici 31 × `npm test`), ou accepter que `proof is stale` ne signifie rien et ne
+  s'y fier qu'au moment de `/flow-ship`.
+- **Résolution** : ouverte (comportement du paquet `coding-flow`, pas de ce
+  dépôt). Piste : scoper le token aux fichiers que la story touche (ses
+  commits, ou la liste de `Implementation Context` du `plan.md`) plus leurs
+  dépendances, comme `bin/lib/source-hash.js#sourceHashScope` le fait déjà ici
+  pour l'évidence d'une phase ; à défaut, ne traiter la péremption comme une
+  alerte qu'au moment de `ship`/`land`, pas à chaque commit.

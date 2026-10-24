@@ -253,3 +253,5 @@
 {"at":"2026-10-24T10:29:56.779Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-24T10:30:05.915Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-24T10:30:14.559Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-24T11:01:54.785Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-24T11:01:54.805Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
