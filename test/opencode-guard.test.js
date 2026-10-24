@@ -104,6 +104,37 @@ test("the after hook stays silent on a clean write", async () => {
   assert.strictEqual(output.output, "Wrote file successfully.");
 });
 
+test("the after hook reads the files of an apply_patch", async () => {
+  const dir = openCodeProject();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/index.js", jsFunctionOfLength("tooLong", 5));
+
+  const hooks = await loadHooks(dir);
+  const output = { title: "apply_patch", output: "Done.", metadata: {} };
+  const patchText = "*** Begin Patch\n*** Update File: src/index.js\n@@\n-x\n+y\n*** End Patch";
+
+  await hooks["tool.execute.after"]({ tool: "apply_patch", args: { patchText } }, output);
+
+  assert.match(output.output, /^Done\./);
+  assert.match(output.output, /dans src\/index\.js/);
+});
+
+test("the after hook is a no-op when the norm module cannot load", async () => {
+  const dir = openCodeProject();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/index.js", jsFunctionOfLength("tooLong", 5));
+
+  const hooks = await loadHooks(dir, { binary: path.join(dir, "missing", "ai-learn.js") });
+  const output = { title: "write", output: "Wrote file successfully.", metadata: {} };
+
+  await hooks["tool.execute.after"](
+    { tool: "write", args: { filePath: path.join(dir, "src/index.js") } },
+    output,
+  );
+
+  assert.strictEqual(output.output, "Wrote file successfully.");
+});
+
 function jsFunctionOfLength(name, bodyLines) {
   const lines = [`function ${name}() {`];
   for (let i = 0; i < bodyLines; i += 1) {
