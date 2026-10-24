@@ -37,7 +37,11 @@ async function loadHooks(dir, { binary } = {}) {
   const result = ensureOpenCodeGuard(dir, binary ? { binary } : {});
 
   assert.ok(result.path, "the plugin was written");
-  const url = `${pathToFileURL(result.path).href}?t=${Date.now()}-${Math.random()}`;
+  // The plugin is ESM in a `.js` file: OpenCode runs it on Bun, but Node 18 only
+  // treats a `.mjs` as ESM. Import a `.mjs` copy so the test is runtime-agnostic.
+  const esmCopy = `${result.path}.${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`;
+  fs.copyFileSync(result.path, esmCopy);
+  const url = pathToFileURL(esmCopy).href;
   const mod = await import(url);
 
   return mod.default.server({ directory: dir });

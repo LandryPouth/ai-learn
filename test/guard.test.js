@@ -977,7 +977,7 @@ test("ensureGuardHook quotes a tool path containing a space — the written comm
   );
 
   assert.ok(installed, "the hook was wired");
-  assert.strictEqual(installed.command, guardHookCommand(path.join(spacedBin, "ai-learn.js")));
+  assert.strictEqual(installed.command, guardHookCommand(path.join(fs.realpathSync(spacedBin), "ai-learn.js")));
   assert.match(installed.command, /^node ".+ai-learn\.js" guard$/);
 
   const input = path.join(dir, "_hook-input.json");
