@@ -107,11 +107,21 @@ const PROTECTED_FILES = [
   // from being turned off.
   ".claude/settings.local.json",
   ".codex/config.toml",
+  // The OpenCode plugin is the guard on that platform (story 08.01): letting the
+  // AI rewrite or delete it would silently drop the learner-file block there.
+  ".opencode/plugins/ai-learn-guard.js",
+  // The two traces that make the guard auditable: a denial log and the
+  // fail-open journal. An AI that can erase them can hide its own unjudged write.
+  ".ai-learn/guard.log",
+  ".ai-learn/guard-unchecked.jsonl",
 ];
 // Directories whose whole subtree is protected. `.ai-learn/runs/*.json` are the
 // verify evidences that feed the test ledger gating `dirigeant`: forging one is
 // one indirection away from forging the ledger itself.
-const PROTECTED_DIRS = [".ai-learn/runs"];
+// `.opencode/plugins` (and its singular alias) is code OpenCode loads at
+// startup with the user's authority: a new file there defeats the guard on the
+// next session just as surely as rewriting the generated plugin.
+const PROTECTED_DIRS = [".ai-learn/runs", ".opencode/plugins", ".opencode/plugin"];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
 
 // Commands that merely wrap another command — unwrapped so `sudo git log` or
@@ -1248,6 +1258,44 @@ function recordDenial({ root, hook, result }) {
   }
 }
 
+// The other half of fail-open: a write the guard never judged is allowed, but
+// it must leave a trace. The OpenCode plugin calls this when the guard module
+// cannot be loaded or errored — same bounded JSONL tail as `recordDenial`, in a
+// separate journal so a blocked write and an unjudged one are never confused.
+function recordUnchecked({ root, hook, result }) {
+  try {
+    const dir = path.join(root, ".ai-learn");
+
+    // Outside a learning project there is no journal to grow — stay silent.
+    if (!fs.existsSync(dir)) {
+      return;
+    }
+
+    const logPath = path.join(dir, "guard-unchecked.jsonl");
+
+    if (fs.existsSync(logPath) && fs.statSync(logPath).size > DENIAL_LOG_MAX_BYTES) {
+      const kept = fs.readFileSync(logPath, "utf8").split("\n").filter(Boolean).slice(-200);
+      fs.writeFileSync(logPath, kept.length ? `${kept.join("\n")}\n` : "");
+    }
+
+    const input = (hook && hook.tool_input) || {};
+    const target = input.file_path || input.path || null;
+
+    fs.appendFileSync(
+      logPath,
+      `${JSON.stringify({
+        at: new Date().toISOString(),
+        tool: (hook && hook.tool_name) || null,
+        path: target ? normalizePortable(path.isAbsolute(target) ? path.relative(root, target) : target) : null,
+        command: input.command || null,
+        reason: (result && result.reason) || "unchecked",
+      })}\n`,
+    );
+  } catch {
+    // a journal is never worth failing a write over
+  }
+}
+
 // The hook's `cwd` is the session's directory, not necessarily the project
 // root: after a `cd src` it is `<project>/src`, where no `.ai-learn/guard.json`
 // exists and the guard would resolve to the `apprenti` defaults with every
@@ -1295,7 +1343,11 @@ function guardCommand({ inputFile = null } = {}) {
   try {
     result = decide(hook, root);
   } catch {
+    // Fail-open, but never silent: the OpenCode plugin's spawn fallback cannot
+    // tell an internal error from a clean allow otherwise.
     result = { decision: "allow", reason: "guard error — fail open" };
+    process.stderr.write(`ai-learn guard: ${result.reason}; this write was NOT checked\n`);
+    recordUnchecked({ root, hook, result });
   }
 
   if (result.decision === "deny") {
@@ -1524,6 +1576,8 @@ module.exports = {
   ensureGuardHook,
   ensureCodexGuard,
   decide,
+  recordDenial,
+  recordUnchecked,
   loadGuardConfig,
   validateGuardConfig,
   guardConfigIssues,

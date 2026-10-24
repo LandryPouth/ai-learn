@@ -55,9 +55,11 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
 Claude Code (garde-fou mécanique complet), Codex (bac à sable OS sur les chemins
 littéraux des fichiers de l'apprenant ; `src/**` en apprenti, la spécification
-en dirigeant ; git/gh non traité), Gemini CLI / OpenCode / Antigravity
-(commandes `/…` seulement, `AGENTS.md` comme seule protection). Les limites sont
-documentées honnêtement dans le README — ne jamais les masquer.
+en dirigeant ; git/gh non traité), OpenCode (plugin
+`.opencode/plugins/ai-learn-guard.js` câblé par `init`/`update`, même `decide`
+que Claude : fichiers de l'apprenant et git/gh via Bash), Gemini CLI /
+Antigravity (commandes `/…` seulement, `AGENTS.md` comme seule protection). Les
+limites sont documentées honnêtement dans le README — ne jamais les masquer.
 
 ## Ce qui est mesuré et ce qui ne l'est pas
 

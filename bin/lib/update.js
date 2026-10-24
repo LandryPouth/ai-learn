@@ -15,10 +15,11 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { log, findLearningProjects } = require("./util");
+const { log, findLearningProjects, normalizePortable } = require("./util");
 const { readProgress } = require("./progress");
 const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
+const { ensureOpenCodeGuard, usesOpenCode, PLUGIN_RELATIVE } = require("./platforms/opencode-guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
 const { ensureNormConfig, ensureNormHook } = require("./norm");
 const { ensureMutateConfig } = require("./mutate");
@@ -237,6 +238,12 @@ function updateCommand({ root, platform }) {
 
     const { traps } = regenerateTraps(project);
     const guard = ensureGuardHook(project);
+    // OpenCode's guard plugin (story 08.01): only for a project that uses
+    // OpenCode, or when the caller explicitly says it does.
+    const openCodeGuard =
+      usesOpenCode(project) || platform === "opencode"
+        ? ensureOpenCodeGuard(project, { force: platform === "opencode" })
+        : null;
     // claude-code is the only platform with a PostToolUse hook; an explicit
     // other --platform wires nothing (AGENTS.md §3quater documents the fallback).
     const normHook = !platform || platform === "claude" ? ensureNormHook(project) : null;
@@ -291,6 +298,18 @@ function updateCommand({ root, platform }) {
     log(
       `  guard (codex): ${guard.codex.skipped ? "customized .codex/config.toml — not touched" : ".codex/config.toml up to date"}`,
     );
+    if (openCodeGuard) {
+      const rel = normalizePortable(PLUGIN_RELATIVE);
+      const state =
+        openCodeGuard.status === "skipped"
+          ? "plugin personnalisé — laissé intact"
+          : openCodeGuard.status === "created"
+            ? `${rel} créé`
+            : openCodeGuard.status === "upgraded"
+              ? `${rel} régénéré`
+              : `${rel} inchangé`;
+      log(`  opencode guard: ${state}`);
+    }
     log(`  dogfood journal: .ai-learn/dogfood.md ${dogfood}`);
     log(`  checkpoint README: checkpoint/README.md ${checkpointReadme}`);
     log(

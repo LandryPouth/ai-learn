@@ -23,6 +23,11 @@ const {
 const { docSourceList, digestPath, digestCitations, digestCitationProblem } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
 const {
+  inspectOpenCodeGuard,
+  usesOpenCode,
+  PLUGIN_RELATIVE: OPENCODE_PLUGIN_RELATIVE,
+} = require("./platforms/opencode-guard");
+const {
   NATIVE_MEMORY_FILE,
   detectedPlatforms,
   legacyOnlyPlatforms,
@@ -262,6 +267,36 @@ function checkProject(dir, { home, now = new Date() } = {}) {
       expected: "le profil de permissions ai-learn-guard aurait dû être câblé dans .codex/config.toml par init/update",
       problem: "guard.json existe mais .codex/config.toml ne porte pas le marqueur ai-learn (absent, ou fichier personnalisé jamais rafraîchi)",
     });
+  }
+
+  // OpenCode's mechanical guard is a generated plugin (story 08.01). Absent is
+  // only a finding when OpenCode is actually in use; stale/foreign means the
+  // project has a file there but it is not the guard we would run.
+  if (usesOpenCode(dir)) {
+    const openCode = inspectOpenCodeGuard(dir);
+
+    if (openCode.state !== "current") {
+      const label =
+        openCode.state === "absent"
+          ? "absent"
+          : openCode.state === "stale"
+            ? "périmé"
+            : openCode.state === "unreadable"
+              ? "illisible (pas un fichier, ou permissions)"
+              : "personnalisé (sans marqueur ai-learn)";
+      const remedy =
+        openCode.state === "foreign"
+          ? "Renomme ou supprime ce plugin personnalisé, puis lance `ai-learn update --platform opencode` : " +
+            "`update` ne remplace jamais un plugin qui ne porte pas le marqueur ai-learn."
+          : openCode.state === "unreadable"
+            ? "Rends `.opencode/plugins/ai-learn-guard.js` lisible (ou supprime-le), puis lance " +
+              "`ai-learn update --platform opencode`."
+            : "Lance `ai-learn update` (ou `ai-learn update --platform opencode`) pour le générer.";
+      issues.warnings.push({
+        file: OPENCODE_PLUGIN_RELATIVE.replace(/\\/g, "/"),
+        message: `plugin OpenCode ${label} — le garde-fou src/** n'y est pas actif. ${remedy}`,
+      });
+    }
   }
 
   // A platform that does not read AGENTS.md on its own (Claude Code, Gemini)
@@ -994,6 +1029,11 @@ function printProjectReport(entry) {
     const wired = guardHookWired(entry.dir);
     log(`  guard (claude): ${wired ? `actif — ${blocks} écriture(s) IA bloquée(s) sur les fichiers de l'apprenant` : "configuré mais hook non câblé"}`);
     log(`  guard (codex): ${codexGuardWired(entry.dir) ? "actif (bac à sable OS)" : "configuré mais profil non câblé"}`);
+
+    if (usesOpenCode(entry.dir)) {
+      const openCode = inspectOpenCodeGuard(entry.dir);
+      log(`  guard (opencode): ${openCode.state === "current" ? "actif (plugin tool.execute.before)" : `inactif — plugin ${openCode.state}`}`);
+    }
   }
 
   // Purely informational: zero entries is a legitimate outcome (no friction

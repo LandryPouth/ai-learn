@@ -19,6 +19,7 @@ bin/lib/
   scan.js                moteur de détection (walkSources, detectStack, detectConcepts, detectTests)
   norm.js                norme clean-code heuristique (blocage dur)
   guard.js               hook PreToolUse + câblage (.ai-learn/guard.json, .claude/settings.json)
+  platforms/opencode-guard.js  plugin OpenCode généré (.opencode/plugins/ai-learn-guard.js)
   traps.js / docs.js     banque de pièges, sources de doc embarquées
   init.js / update.js    scaffolding et propagation du protocole
   propose.js / upgrade.js / install.js / dogfood.js / git-hooks.js
@@ -26,7 +27,8 @@ bin/lib/
   tracks/domain.js       ledger cross-projet ~/.ai-learn/domains/<stack>.json
   stacks/*.js            packs par langage : concepts, directions, recipes, stresses, norm
   platforms/*.js         adaptateurs des 5 plateformes + détection + self-heal
-templates/               AGENTS-apprentissage.md, plan, predictions, dogfood, commit-msg
+templates/               AGENTS-apprentissage.md, plan, predictions, dogfood, commit-msg,
+                         opencode-guard-plugin.js (source du plugin généré)
 commands/                les 7 commandes /learn-* (markdown, format Claude Code) ;
                          les anciens noms en sont des alias générés à l'install
 ```
@@ -75,7 +77,18 @@ commands/                les 7 commandes /learn-* (markdown, format Claude Code)
   `epics/epic-01-verdict-fiable/story-01-01-trois-etats-du-verdict/plan.md`.
 - `check.js` importe `norm.js`, `docs.js`, `git-hooks.js`, `dogfood.js`,
   `guard.js` (validation de `guard.json`), `mode.js` (écart mode ↔ ledger de
-  tests), `platforms/codex-guard.js` — c'est le module le plus couplé.
+  tests), `platforms/codex-guard.js`, `platforms/opencode-guard.js` — c'est le
+  module le plus couplé.
+- `platforms/opencode-guard.js` génère `.opencode/plugins/ai-learn-guard.js`
+  depuis `templates/opencode-guard-plugin.js`. Le plugin charge `guard.js` en
+  processus (`createRequire`) et appelle `decide` — il ne réimplémente aucune
+  règle ; le repli est `spawnSync("node", [bin, "guard"])`, puis « NOT checked »
+  (fail-open tracé dans `.ai-learn/guard-unchecked.jsonl`). Marqueur de première
+  ligne : `init`/`update` ne régénèrent que ce qui le porte, et n'écrivent le
+  plugin que si le projet utilise OpenCode (`opencode.json(c)` ou `.opencode/`)
+  ou si `--platform opencode` le demande. `check` lit les états
+  `current/stale/foreign/absent` ; il ne signale `absent` que si OpenCode est
+  utilisé.
 - `mode.js` lit `tracks/tests.js` (lecture seule) et écrit `guard.json`, puis
   appelle `guard.js#ensureGuardHook` pour que le profil Codex et le README
   généré suivent le mode. C'est une décision **fail-closed** assumée, exception

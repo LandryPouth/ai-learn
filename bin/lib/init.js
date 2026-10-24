@@ -11,6 +11,7 @@ const path = require("path");
 const { log, writeJson, mkdirp, normalizePortable } = require("./util");
 const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
+const { ensureOpenCodeGuard, usesOpenCode } = require("./platforms/opencode-guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
 const { ensureNormConfig, ensureNormHook } = require("./norm");
 const { ensureMutateConfig } = require("./mutate");
@@ -128,6 +129,21 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
 
   for (const file of guard.created) {
     created.push(file);
+  }
+
+  // OpenCode's guard plugin (story 08.01). Written only when the project uses
+  // OpenCode or the caller explicitly says so — never create .opencode/ for a
+  // learner who does not use it.
+  if (usesOpenCode(abs) || platform === "opencode") {
+    const openCodeGuard = ensureOpenCodeGuard(abs, { force: platform === "opencode" });
+
+    if (openCodeGuard.status === "created") {
+      created.push(normalizePortable(path.relative(abs, openCodeGuard.path)));
+    } else if (openCodeGuard.status === "upgraded") {
+      log(`  note    .opencode/plugins/ai-learn-guard.js régénéré`);
+    } else if (openCodeGuard.status === "skipped" && openCodeGuard.path) {
+      log(`  note    .opencode/plugins/ai-learn-guard.js personnalisé — laissé intact`);
+    }
   }
 
   // The consultative norm hook (story 07.03): claude-code only, since it is

@@ -434,6 +434,27 @@ test("le guard refuse à l'IA de réécrire sa propre configuration dans les deu
   );
 });
 
+test("le plugin OpenCode et les journaux du garde ne sont pas réécrivables par l'IA (hook Claude compris)", () => {
+  const dir = blankProject();
+  writeMode(dir, "dirigeant");
+
+  for (const tool of ["Write", "Edit"]) {
+    for (const file of [
+      ".opencode/plugins/ai-learn-guard.js",
+      ".opencode/plugins/other.js",
+      ".opencode/plugin/other.js",
+      ".ai-learn/guard.log",
+      ".ai-learn/guard-unchecked.jsonl",
+    ]) {
+      assert.strictEqual(
+        decide(hookFor(dir, tool, { file_path: path.join(dir, file) }), dir).decision,
+        "deny",
+        `${tool} ${file}`,
+      );
+    }
+  }
+});
+
 test("les ledgers globaux ~/.ai-learn ne sont pas réécrivables par l'IA (preuves du mode dirigeant)", () => {
   const dir = blankProject();
   writeMode(dir, "dirigeant");
