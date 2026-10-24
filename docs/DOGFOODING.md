@@ -46,6 +46,13 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### `medium` — `worktree place` isole une story alors qu'aucun travail n'occupe le checkout principal
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `/flow-run` → `ai-flow worktree place --epic … --story …`
+- **Problème** : la story 08.01 était `done`, sa preuve verte et son travail déjà atterri sur `main` ; `git status` ne montrait rien du travail en cours (seul un fichier d'évidence ignoré traînait). `place` a quand même annoncé « chain s1 already occupies this checkout » et ouvert `../ai-learn-worktrees/story-08-02-norm-opencode-spike`, sans demande de l'utilisateur. Le critère réel devrait être « le checkout principal porte du travail non atterri d'une chaîne parallèle » ; une chaîne terminée et landée n'occupe rien. Coût secondaire : la preuve `verify` capturée dans ce worktree jetable disparaît avec lui à l'`autoland`, il faut la recapturer sur `main` pour que `status` ne dise pas « no verify captured ».
+- **Workaround** : travailler dans le worktree créé, puis `autoland` l'a fusionné et supprimé ; recapturer `verify` sur `main`. La prochaine fois : `git worktree remove ../ai-learn-worktrees/<story>` juste après `place` et rester sur `main`.
+- **Résolution** : ouverte (paquet `coding-flow`). Règle attendue : le worktree ne se déclenche que s'il y a, sur le checkout principal, du travail **en cours** et **parallélisable** (une story de la chaîne encore `in-progress`/`blocked` avec des changements non landés). Piste : avant de créer un worktree, lire le statut/preuve des stories de la chaîne qui « occupe » le checkout et l'état `git status` réel ; une chaîne dont toutes les stories sont `done` et landées ne doit rien déclencher.
+
 ### `low` — `worktree lock` refuse une story à cause d'un verrou périmé d'une story déjà `done`, et ne dit pas lequel lever
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
 - **Surface** : `/flow-run` → `ai-flow worktree lock --story …`
