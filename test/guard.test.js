@@ -442,6 +442,8 @@ test("le plugin OpenCode et les journaux du garde ne sont pas réécrivables par
     for (const file of [
       ".opencode/plugins/ai-learn-guard.js",
       ".opencode/plugins/other.js",
+      "opencode.json",
+      "opencode.jsonc",
       ".opencode/plugin/other.js",
       ".ai-learn/guard.log",
       ".ai-learn/guard-unchecked.jsonl",

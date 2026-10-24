@@ -359,6 +359,14 @@ test("apply_patch with CRLF line endings is still judged", async () => {
   await assert.rejects(call(before, "apply_patch", { patchText: crlf }), /fichier solution de l'apprenant/);
 });
 
+test("apply_patch with an indented header is still judged", async () => {
+  const dir = openCodeProject();
+  const before = await loadPlugin(dir);
+
+  const indented = "*** Begin Patch\n  *** Add File: src/a.js\n+const a = 1;\n*** End Patch\n";
+  await assert.rejects(call(before, "apply_patch", { patchText: indented }), /fichier solution de l'apprenant/);
+});
+
 test("read, glob and grep launch no check and are never refused", async () => {
   const dir = openCodeProject();
   const before = await brokenPlugin(dir);

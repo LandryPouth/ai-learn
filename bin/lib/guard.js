@@ -110,6 +110,9 @@ const PROTECTED_FILES = [
   // The OpenCode plugin is the guard on that platform (story 08.01): letting the
   // AI rewrite or delete it would silently drop the learner-file block there.
   ".opencode/plugins/ai-learn-guard.js",
+  // OpenCode's config can switch plugins and permissions: same class of risk.
+  "opencode.json",
+  "opencode.jsonc",
   // The two traces that make the guard auditable: a denial log and the
   // fail-open journal. An AI that can erase them can hide its own unjudged write.
   ".ai-learn/guard.log",

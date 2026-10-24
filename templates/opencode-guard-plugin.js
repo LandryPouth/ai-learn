@@ -54,7 +54,9 @@ function patchPayloads(patchText, start) {
   // `\s*` after the colon: OpenCode's own parser accepts `*** Add File:src/a.js`
   // and tab-separated headers, and a header we fail to read is a write we would
   // otherwise allow without judging.
-  for (const line of String(patchText || "").split(/\r?\n/)) {
+  for (const raw of String(patchText || "").split(/\r?\n/)) {
+    // Leading whitespace is tolerated: an indented header is still a header.
+    const line = raw.trimStart();
     const file = line.match(/^\*\*\* (Add|Update|Delete) File:\s*(.+)$/);
     const move = line.match(/^\*\*\* Move to:\s*(.+)$/);
     const headerish = /^\*\*\* (?:Add|Update|Delete) File:|^\*\*\* Move to:/.test(line);
