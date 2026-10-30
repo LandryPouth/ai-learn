@@ -15,14 +15,14 @@ Quand une phase est `done`, l'apprenant sait que le test a vraiment exécuté qu
 
 ## Acceptance Criteria
 
-- [ ] Given une phase prouvée avec `node --test checkpoint/phase-1.test.mjs`, when `progress.json` passe à `node -e 0`, then `status` et `check` affichent la phase `stale` « checkpoint modifié depuis la preuve ».
-- [ ] Given une preuve rouge puis une verte où seul le fichier de checkpoint a changé, when `check`, then l'avertissement « passée au vert en modifiant le test » nomme la phase et la date.
-- [ ] Given le même cas avec un `contractChanges` daté après la preuve verte, when `check`, then l'avertissement disparaît et le motif est affiché une fois dans `status`.
-- [ ] Given un projet vide et le checkpoint `node --test`, when `verify 1`, then exit 1, phase non `done`, message « aucun test exécuté ».
-- [ ] Given chacun des motifs zéro-test listés (sortie simulée), when la détection tourne, then elle répond vrai ; given une sortie avec au moins un test passé, then faux.
-- [ ] Given un fichier de checkpoint qui ne mentionne aucun chemin de `learnerFiles`, when `check`, then un avertissement nomme le fichier.
-- [ ] Given une évidence ancienne sans `learnerHash`/`checkpointHash`, when `check`/`status`, then aucun nouvel avertissement (rétro-compatible).
-- [ ] Given un checkpoint qui démarre un serveur en arrière-plan puis réussit, when `verify`, then il rend la main sans attendre le délai et aucun processus du checkpoint ne survit — ou le Result consigne que le cas ne se reproduit pas.
+- [x] Given une phase prouvée avec `node --test checkpoint/phase-1.test.mjs`, when `progress.json` passe à `node -e 0`, then `status` et `check` affichent la phase `stale` « checkpoint modifié depuis la preuve ».
+- [x] Given une preuve rouge puis une verte où seul le fichier de checkpoint a changé, when `check`, then l'avertissement « passée au vert en modifiant le test » nomme la phase et la date.
+- [x] Given le même cas avec un `contractChanges` daté après la preuve verte, when `check`, then l'avertissement disparaît et le motif est affiché une fois dans `status`.
+- [x] Given un projet vide et le checkpoint `node --test`, when `verify 1`, then exit 1, phase non `done`, message « aucun test exécuté ».
+- [x] Given chacun des motifs zéro-test listés (sortie simulée), when la détection tourne, then elle répond vrai ; given une sortie avec au moins un test passé, then faux.
+- [x] Given un fichier de checkpoint qui ne mentionne aucun chemin de `learnerFiles`, when `check`, then un avertissement nomme le fichier.
+- [x] Given une évidence ancienne sans `learnerHash`/`checkpointHash`, when `check`/`status`, then aucun nouvel avertissement (rétro-compatible).
+- [x] Given un checkpoint qui démarre un serveur en arrière-plan puis réussit, when `verify`, then il rend la main sans attendre le délai et aucun processus du checkpoint ne survit — ou le Result consigne que le cas ne se reproduit pas.
 
 ## Edge Cases
 

@@ -12,7 +12,7 @@ const { computeSourceHash } = require("../bin/lib/source-hash");
 const { readGitTracks } = require("../bin/lib/tracks/git");
 const { recordPrediction } = require("../bin/lib/predictions");
 const { mutateConfigPath, mutateLockPath } = require("../bin/lib/mutate");
-const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
+const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withoutNodeTestContext } = require("./helpers");
 
 // A checkpoint that never inspects the return value of the mutated function —
 // it stays green whether the boolean literal is `true` or `false`, so the
@@ -1240,4 +1240,28 @@ test("a green revisit on a stale phase refreshes the proof against the current c
   assert.strictEqual(evidence.ok, true);
   assert.strictEqual(evidence.sourceHash.digest, computeSourceHash(dir, {}).digest);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+});
+
+
+test("a checkpoint that ran zero tests never proves a phase", () => {
+  const progress = sampleProgress();
+  progress.phases[0].checkpoint = "node --test";
+  const dir = tmpProject(progress);
+
+  const out = withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0 })));
+
+  assert.match(out, /Aucun test exécuté/);
+  assert.strictEqual(process.exitCode, 1);
+  assert.notStrictEqual(readProgress(dir).config.phases[0].status, "done");
+  assert.strictEqual(latestEvidenceForPhase(dir, 0), null);
+});
+
+test("verify writes learnerHash and checkpointHash next to the unchanged sourceHash", () => {
+  const dir = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const evidence = latestEvidenceForPhase(dir, 0);
+  assert.ok(evidence.sourceHash.digest);
+  assert.match(evidence.learnerHash.digest, /^[0-9a-f]{64}$/);
+  assert.match(evidence.checkpointHash.digest, /^[0-9a-f]{64}$/);
 });

@@ -53,6 +53,7 @@ const {
 const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
 const { duplicateSlugs, reviewState } = require("./reviews");
 const { ledgerHealth, hasReplayableEvidence } = require("./ledgers");
+const { contractWarnings } = require("./contract");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -516,6 +517,10 @@ function checkProject(dir, { home, now = new Date() } = {}) {
 
     checkDigest(dir, config, phase, issues);
 
+    for (const message of contractWarnings({ dir, phase, checkpointFile })) {
+      issues.warnings.push({ file: "progress.json", message });
+    }
+
     if (phase.status === "done") {
       if (!phase.checkpoint) {
         issues.warnings.push({
@@ -533,6 +538,11 @@ function checkProject(dir, { home, now = new Date() } = {}) {
           issues.errors.push({
             file: "progress.json",
             message: `phase ${phase.id} ("${phase.name}") is marked done but has no passing evidence. Run \`ai-learn verify ${phase.id}\`.`,
+          });
+        } else if (verdict.state === "stale" && verdict.reason === "checkpoint-changed") {
+          issues.errors.push({
+            file: "progress.json",
+            message: `phase ${phase.id} ("${phase.name}") is done but its checkpoint changed since the proof (checkpoint modifié depuis la preuve). Run \`ai-learn verify ${phase.id}\` to prove it again.`,
           });
         } else if (verdict.state === "stale") {
           // `entries` is absent on evidence written before story 01.02 —

@@ -145,7 +145,9 @@ function nextCommand({ dir, json, now = new Date() }) {
 
   const logBroken = (entries) => {
     for (const { phase, verdict } of entries) {
-      if (verdict.state === "stale") {
+      if (verdict.state === "stale" && verdict.reason === "checkpoint-changed") {
+        log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but its checkpoint changed since the proof (checkpoint modifié depuis la preuve) — re-prove it: \`ai-learn verify ${phase.id}\`.`);
+      } else if (verdict.state === "stale") {
         log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but its proof is stale — re-prove it: \`ai-learn verify --stale\`.`);
       } else {
         log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but has no passing evidence (unproven).`);

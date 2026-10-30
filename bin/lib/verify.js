@@ -11,11 +11,11 @@ const { log, fail, UsageError, explainCommitCommand } = require("./util");
 const { readProgress, runsDir, findPhase, setPhaseStatus, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { syncEvidence, formatSyncFailure } = require("./ledgers");
 const { normProject, formatViolation } = require("./norm");
-const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { checkpointFilePath, computeSourceHash, computeLearnerHash, computeCheckpointHash } = require("./source-hash");
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
 const { readTutorConfig, masteryLevel } = require("./tutor");
 const { mutationReport, formatMutationGap, emptyMutationReport, recoverOrphanLockAndLog } = require("./mutate");
-const { runCommand, portabilityHint } = require("./exec");
+const { runCommand, portabilityHint, zeroTestsRan } = require("./exec");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
@@ -111,6 +111,10 @@ function failureDetail(outcome) {
   }
 
   const evidence = outcome.evidence || {};
+
+  if (evidence.zeroTests) {
+    return "aucun test exécuté";
+  }
 
   if (Array.isArray(evidence.missingArtifacts) && evidence.missingArtifacts.length > 0) {
     return `artefacts manquants : ${evidence.missingArtifacts.join(", ")}`;
@@ -272,6 +276,15 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
     logResult(phase.stressCheckpoint, stressResult);
   }
 
+  // Story 09.02 — a checkpoint that exits 0 without running one test proves
+  // nothing. Applies to every command (stress included); never inferred for a
+  // runner the patterns do not know.
+  const zeroTests = results.some(zeroTestsRan);
+
+  if (zeroTests) {
+    log("\nAucun test exécuté — le checkpoint ne prouve rien.");
+  }
+
   // The clean-code norm (ai-learn norm — file/function length, nesting,
   // param count) is checked on every verify, whether or not this phase
   // touches gitTier/stressCheckpoint: it's a standing property of the
@@ -378,8 +391,12 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   // consistency and debugging.
   const sourceHash = computeSourceHash(dir, { checkpointFile: checkpointFilePath(dir, phase.checkpoint) });
 
+  const learnerHash = computeLearnerHash(dir);
+  const checkpointHash = computeCheckpointHash(dir, phase.checkpoint);
+
   const ok =
     result.ok &&
+    !zeroTests &&
     (!stressResult || stressResult.ok) &&
     normReport.violations.length === 0 &&
     missingArtifacts.length === 0 &&
@@ -414,6 +431,11 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
     results,
     missingArtifacts,
     sourceHash,
+    // Story 09.02 — the same empreinte split in two, so `check` can tell a
+    // green obtained by fixing the code from one obtained by editing the test.
+    learnerHash,
+    checkpointHash,
+    zeroTests,
     // Whether this run touched the ledger. `check` uses it to tell a
     // deliberate `--no-mark` observation run apart from a real drift (a
     // passing evidence that never got marked done) — see story 01.02. A

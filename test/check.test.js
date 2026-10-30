@@ -18,7 +18,7 @@ const { ensureGuardHook } = require("../bin/lib/guard");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, latestEvidenceForPhase } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
-const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome } = require("./helpers");
+const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome, withoutNodeTestContext } = require("./helpers");
 const { scaffold } = require("../bin/lib/init");
 const { generateDigest } = require("../bin/lib/docs");
 const { findLearningProjects } = require("../bin/lib/util");
@@ -1121,7 +1121,8 @@ test("a verified checkpoint file passes cleanly", () => {
   progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
   const dir = tmpProject(progress);
 
-  writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; test('ok', () => {});");
+  writeFile(dir, "src/index.js", "export const ready = true;\n");
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; import '../src/index.js'; test('ok', () => {});");
 
   capture(() => verifyCommand({ dir, phaseId: 0, home }));
 
@@ -1601,4 +1602,114 @@ test("check stays silent before the revisit delay (non-regression)", () => {
   const entry = checkProject(dir, { now });
 
   assert.ok(!entry.issues.warnings.some((warning) => /revisited/.test(warning.message)));
+});
+
+
+// Story 09.02 — an honest checkpoint verdict.
+function provenWithTestFile(checkpointBody = "import { test } from 'node:test'; import '../src/index.js'; test('ok', () => {});") {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+  const progress = sampleProgress();
+  progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
+  const dir = tmpProject(progress);
+
+  writeFile(dir, "src/index.js", "export const ready = true;\n");
+  writeFile(dir, "checkpoint/phase-0.test.mjs", checkpointBody);
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+
+  return { dir, home };
+}
+
+function setPhaseField(dir, field, value) {
+  const { config } = readProgress(dir);
+  config.phases[0][field] = value;
+  fs.writeFileSync(path.join(dir, "progress.json"), `${JSON.stringify(config, null, 2)}\n`);
+}
+
+test("a changed checkpoint command makes the proof stale", () => {
+  const { dir, home } = provenWithTestFile();
+
+  setPhaseField(dir, "checkpoint", "node -e 0");
+
+  const entry = checkProject(dir, { home });
+  assert.ok(entry.issues.errors.some((e) => /checkpoint modifié depuis la preuve/.test(e.message)));
+
+  const status = capture(() => require("../bin/lib/status").statusCommand({ dir, home }));
+  assert.match(status, /checkpoint modifié depuis la preuve/);
+});
+
+test("a whitespace-only checkpoint edit does not make the proof stale", () => {
+  const { dir, home } = provenWithTestFile();
+
+  setPhaseField(dir, "checkpoint", "node  --test   checkpoint/phase-0.test.mjs ");
+
+  const entry = checkProject(dir, { home });
+  assert.ok(!entry.issues.errors.some((e) => /checkpoint modifié depuis la preuve/.test(e.message)));
+});
+
+test("green obtained by changing only the checkpoint is warned", () => {
+  const { dir, home } = provenWithTestFile();
+
+  // Red: the test now fails against unchanged code; then green: the test is
+  // edited, the learner files are identical.
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ko', () => { throw new Error('x'); });");
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ok', () => {});");
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+
+  const entry = checkProject(dir, { home });
+  assert.ok(entry.issues.warnings.some((w) => /phase 0 : passée au vert en modifiant le test, pas le code \(\d{4}-\d{2}-\d{2}\)/.test(w.message)));
+  assert.deepStrictEqual(entry.issues.errors, []);
+});
+
+test("a recorded contract change silences the warning", () => {
+  const { dir, home } = provenWithTestFile();
+
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ko', () => { throw new Error('x'); });");
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ok', () => {});");
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+
+  setPhaseField(dir, "contractChanges", [{ at: new Date(Date.now() + 1000).toISOString(), why: "préfixe /api/v1" }]);
+
+  const entry = checkProject(dir, { home });
+  assert.ok(!entry.issues.warnings.some((w) => /modifiant le test/.test(w.message)));
+
+  const status = capture(() => require("../bin/lib/status").statusCommand({ dir, home }));
+  assert.match(status, /contrat modifié .* : préfixe \/api\/v1/);
+});
+
+test("a checkpoint file that never mentions learner files is warned", () => {
+  const { dir, home } = provenWithTestFile("import { test } from 'node:test'; test('ok', () => {});");
+
+  const entry = checkProject(dir, { home });
+  assert.ok(entry.issues.warnings.some((w) => /checkpoint\/phase-0\.test\.mjs|phase-0\.test\.mjs/.test(w.message) && /ne mentionne aucun fichier/.test(w.message)));
+});
+
+test("old evidence without split hashes raises nothing new", () => {
+  const { dir, home } = provenWithTestFile();
+
+  const runsPath = path.join(dir, ".ai-learn", "runs");
+  const file = fs.readdirSync(runsPath).find((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsPath, file), "utf8"));
+  delete evidence.learnerHash;
+  delete evidence.checkpointHash;
+  fs.writeFileSync(path.join(runsPath, file), JSON.stringify(evidence));
+
+  const entry = checkProject(dir, { home });
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.deepStrictEqual(entry.issues.warnings, []);
+});
+
+test("re-running verify after a green obtained by the test does not erase the warning", () => {
+  const { dir, home } = provenWithTestFile();
+  const run = () => withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ko', () => { throw new Error('x'); });");
+  run();
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ok', () => {});");
+  run();
+  run();
+
+  const entry = checkProject(dir, { home });
+  assert.ok(entry.issues.warnings.some((w) => /modifiant le test/.test(w.message)));
 });

@@ -474,3 +474,35 @@
 {"at":"2026-10-30T20:22:54.310Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
 {"at":"2026-10-30T20:23:13.755Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-30T20:23:13.760Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:28:40.833Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:28:40.834Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:28:53.609Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:28:53.614Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:29:02.233Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:29:02.241Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:29:25.914Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:29:25.915Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:29:48.042Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:29:48.049Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:30:28.210Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:30:28.230Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:31:01.455Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:31:01.458Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:31:07.973Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:31:07.976Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:31:25.715Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T20:31:25.718Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T20:31:43.901Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:31:43.905Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:31:58.030Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:31:58.041Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:33:57.092Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:33:57.105Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:34:17.652Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:34:17.666Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:34:34.250Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T20:34:34.255Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T20:37:49.845Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:37:49.850Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:38:10.265Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T20:38:10.312Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}

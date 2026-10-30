@@ -21,12 +21,16 @@ const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 // states are already legible from the mark plus the raw status text below.
 // The `stale` label names the exact command to run, same as `check`/`next` —
 // spec.md's UX Note requires a périmé state to say what to do, not just note it.
-function verdictDisplay(state) {
+function verdictDisplay(state, reason) {
   switch (state) {
     case "proven":
     case "proven-unhashed":
       return { mark: "✓", label: null };
     case "stale":
+      if (reason === "checkpoint-changed") {
+        return { mark: "⚠", label: "périmé — checkpoint modifié depuis la preuve, re-prouver avec `ai-learn verify`" };
+      }
+
       return { mark: "⚠", label: "périmé — re-prouver avec `ai-learn verify --stale`" };
     case "unproven":
       return { mark: "✗", label: "non prouvé" };
@@ -108,7 +112,7 @@ function printStatus(config, { dir }) {
     // other status, same guard as check.js/next.js.
     const currentHash = phase.status === "done" && ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
     const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
-    const { mark, label } = verdictDisplay(verdict.state);
+    const { mark, label } = verdictDisplay(verdict.state, verdict.reason);
 
     const evNote = ev ? ` — evidence ${new Date(ev.generatedAt).toISOString().slice(0, 10)}` : "";
     const labelNote = label ? ` (${label})` : "";
@@ -120,6 +124,14 @@ function printStatus(config, { dir }) {
     const mutationLine = formatMutationLine(phase, ev);
     if (mutationLine) {
       log(`      ${mutationLine}`);
+    }
+
+    // Story 09.02 — a contract change the learner acknowledged is shown once,
+    // here, with its reason (the `check` warning it silences is gone).
+    for (const change of Array.isArray(phase.contractChanges) ? phase.contractChanges : []) {
+      if (change && typeof change.why === "string") {
+        log(`      contrat modifié (${String(change.at).slice(0, 10)}) : ${change.why}`);
+      }
     }
   }
 }

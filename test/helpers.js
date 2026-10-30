@@ -16,6 +16,22 @@ const ISOLATED_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-home-"));
 process.env.HOME = ISOLATED_HOME;
 process.env.USERPROFILE = ISOLATED_HOME;
 
+// `npm test` runs under `node --test`, which sets NODE_TEST_CONTEXT; a nested
+// `node --test` checkpoint then reports differently (no TAP, failures exit 0).
+// Tests that run a real `node --test` checkpoint must drop it.
+function withoutNodeTestContext(fn) {
+  const saved = process.env.NODE_TEST_CONTEXT;
+  delete process.env.NODE_TEST_CONTEXT;
+
+  try {
+    return fn();
+  } finally {
+    if (saved !== undefined) {
+      process.env.NODE_TEST_CONTEXT = saved;
+    }
+  }
+}
+
 function tmpProject(progress) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-test-"));
   fs.writeFileSync(path.join(dir, "progress.json"), `${JSON.stringify(progress, null, 2)}\n`);
@@ -103,4 +119,4 @@ function withHome(home, fn) {
   }
 }
 
-module.exports = { ISOLATED_HOME, tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit };
+module.exports = { ISOLATED_HOME, tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit, withoutNodeTestContext };

@@ -278,6 +278,15 @@ function phaseVerdict({ phase, evidence, currentHash, checkpointFileExists }) {
       return { state: "unproven" };
     }
 
+    // Story 09.02 — the contract moved: the checkpoint command in the ledger
+    // is no longer the one the proof ran. Stale (re-provable with `verify`),
+    // never red, and named so nobody reads it as "your code changed".
+    const sameCommand = (a, b) => a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+
+    if (typeof evidence.checkpoint === "string" && typeof phase.checkpoint === "string" && !sameCommand(evidence.checkpoint, phase.checkpoint)) {
+      return { state: "stale", reason: "checkpoint-changed" };
+    }
+
     if (!evidence.sourceHash) {
       return { state: "proven-unhashed" };
     }
