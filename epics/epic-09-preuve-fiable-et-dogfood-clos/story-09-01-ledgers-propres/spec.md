@@ -15,14 +15,14 @@
 
 ## Acceptance Criteria
 
-- [ ] Given `NODE_TEST_CONTEXT` défini et un home égal à `os.userInfo().homedir`, when un ledger est écrit, then une erreur nomme le fichier et rien n'est écrit.
-- [ ] Given la suite complète, when `npm test` tourne, then aucun fichier sous le vrai `~/.ai-learn/` n'a changé (empreintes avant/après comparées par un test sentinelle qui s'exécute en dernier, ou par la vérification manuelle consignée dans le Result).
-- [ ] Given un ledger dont la synchronisation lève `EACCES`, when `verify` passe, then la phase est `done` et la sortie contient « ledger … non mis à jour » avec le code d'erreur.
-- [ ] Given un `tests.json` dont les tiers 1, 2, 6 ne reposent que sur des projets disparus, when `ledgers --repair`, then ces tiers redeviennent non atteints, un `.bak-*` existe, et le décompte des projets retirés est affiché.
-- [ ] Given `--dry-run`, when `ledgers --repair`, then aucun fichier n'est modifié et la sortie liste ce qui serait retiré.
-- [ ] Given un projet avec 3 phases prouvées absent des ledgers, when `ledgers --sync`, then il apparaît dans les trois ledgers ; relancé, rien ne change (idempotent).
-- [ ] Given ce même projet avant `--sync`, when `check`, then l'avertissement « progression absente des ledgers » apparaît ; après, il disparaît.
-- [ ] Given `mode dirigeant` après `--repair` sur un ledger sans preuve réelle, when il tourne, then il refuse (tiers non atteints).
+- [x] Given `NODE_TEST_CONTEXT` défini et un home égal à `os.userInfo().homedir`, when un ledger est écrit, then une erreur nomme le fichier et rien n'est écrit.
+- [x] Given la suite complète, when `npm test` tourne, then aucun fichier sous le vrai `~/.ai-learn/` n'a changé (empreintes avant/après comparées par un test sentinelle qui s'exécute en dernier, ou par la vérification manuelle consignée dans le Result).
+- [x] Given un ledger dont la synchronisation lève `EACCES`, when `verify` passe, then la phase est `done` et la sortie contient « ledger … non mis à jour » avec le code d'erreur.
+- [x] Given un `tests.json` dont les tiers 1, 2, 6 ne reposent que sur des projets disparus, when `ledgers --repair`, then ces tiers redeviennent non atteints, un `.bak-*` existe, et le décompte des projets retirés est affiché.
+- [x] Given `--dry-run`, when `ledgers --repair`, then aucun fichier n'est modifié et la sortie liste ce qui serait retiré.
+- [x] Given un projet avec 3 phases prouvées absent des ledgers, when `ledgers --sync`, then il apparaît dans les trois ledgers ; relancé, rien ne change (idempotent).
+- [x] Given ce même projet avant `--sync`, when `check`, then l'avertissement « progression absente des ledgers » apparaît ; après, il disparaît.
+- [x] Given `mode dirigeant` après `--repair` sur un ledger sans preuve réelle, when il tourne, then il refuse (tiers non atteints).
 
 ## Edge Cases
 

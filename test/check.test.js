@@ -347,12 +347,14 @@ test("a non-boolean phase.mutation is a warning, not an error; a real boolean is
 });
 
 test("a done phase with a green evidence passes", () => {
+  // An isolated home: verify syncs into it, so check finds the project there.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
   const progress = sampleProgress();
   const dir = tmpProject(progress);
 
-  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
 
-  const entry = checkProject(dir);
+  const entry = checkProject(dir, { home });
   assert.deepStrictEqual(entry.issues.errors, []);
   assert.deepStrictEqual(entry.issues.warnings, []);
 });
@@ -1113,15 +1115,17 @@ test("legacy evidence without a sourceHash field is never marked stale", () => {
 });
 
 test("a verified checkpoint file passes cleanly", () => {
+  // An isolated home: verify syncs into it, so check finds the project there.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
   const progress = sampleProgress();
   progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
   const dir = tmpProject(progress);
 
   writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; test('ok', () => {});");
 
-  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
 
-  const entry = checkProject(dir);
+  const entry = checkProject(dir, { home });
   assert.deepStrictEqual(entry.issues.errors, []);
   assert.deepStrictEqual(entry.issues.warnings, []);
 });

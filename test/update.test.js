@@ -7,7 +7,10 @@ const os = require("os");
 const path = require("path");
 
 const { updateCommand } = require("../bin/lib/update");
-const { tmpProject, writeFile, capture, withHome } = require("./helpers");
+const { tmpProject, writeFile, capture, withHome, sampleProgress } = require("./helpers");
+const { verifyCommand } = require("../bin/lib/verify");
+const { projectKey } = require("../bin/lib/ledgers");
+const { tracksPath: testsLedgerPath } = require("../bin/lib/tracks/tests");
 
 const MARKER = "Instructions pour les agents IA — projet d'apprentissage";
 
@@ -369,4 +372,36 @@ test("update does not create docs/solutions/ on a project that has none", () => 
   capture(() => updateCommand({ root: dir }));
 
   assert.ok(!fs.existsSync(path.join(dir, "docs", "solutions")));
+});
+
+// Story 09.01 — update catches up a proven project that no ledger knows (its
+// verify ran where the ledgers could not be written), once.
+function provenElsewhere() {
+  const dir = tmpProject(sampleProgress());
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-elsewhere-"));
+  capture(() => verifyCommand({ dir, phaseId: 0, home: elsewhere }));
+  return dir;
+}
+
+test("update replays a proven project missing from the ledgers, then leaves it alone", () => {
+  const dir = provenElsewhere();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-home-"));
+
+  const first = capture(() => updateCommand({ root: dir, home }));
+  assert.match(first, /ledgers: 1 preuve\(s\) rejouée\(s\)/);
+  assert.ok(JSON.parse(fs.readFileSync(testsLedgerPath({ home }), "utf8")).projects[projectKey(dir)]);
+
+  const second = capture(() => updateCommand({ root: dir, home }));
+  assert.match(second, /ledgers: à jour/);
+});
+
+test("update never overwrites an unreadable ledger and says so", () => {
+  const dir = provenElsewhere();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-home-"));
+  writeFile(home, ".ai-learn/tracks/tests.json", "{ not json");
+
+  const out = capture(() => updateCommand({ root: dir, home }));
+
+  assert.strictEqual(fs.readFileSync(testsLedgerPath({ home }), "utf8"), "{ not json");
+  assert.match(out, /ledger illisible, laissé intact : tracks\/tests\.json/);
 });

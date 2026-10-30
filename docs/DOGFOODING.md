@@ -59,6 +59,7 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 - **Problème** : `place` a résolu le checkout courant pour la story 08.01, mais `lock` refuse : « checkout is occupied by story-07-02 », une story dont le `verify` est vert et le statut `done`. Le verrou est resté d'un run précédent ; le message propose d'isoler la *nouvelle* story (`worktree add`) au lieu de dire que le verrou de l'ancienne est périmé et peut être levé (`worktree unlock --story …`).
 - **Workaround** : `worktree unlock --story …/story-07-02-…` (statut `done`, preuve verte relue dans `.coding-flow/runs/`), puis `lock` sur 08.01.
 - **Résolution** : ouverte (paquet `coding-flow`). Piste : `place`/`lock` devraient détecter qu'une story verrouillée est `done` et soit lever le verrou, soit le nommer comme tel dans le message.
+- **Récidive 2026-10-30** : même refus pour la story 09.01, verrou laissé par la 08.03 (`done`, fusionnée dans `main` par la PR #11) depuis le 2026-10-24. Même contournement (`unlock` de la 08.03 puis `lock`). Deux occurrences : à remonter au paquet.
 
 ### `low` — `worktree place` crée une branche/worktree alors que la consigne explicite est « sur main »
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)

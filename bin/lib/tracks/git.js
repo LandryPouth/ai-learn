@@ -17,7 +17,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { readJson, writeJson, spawnGit: spawnGitIsolated, gitIsolatedEnv } = require("../util");
+const { readJson, spawnGit: spawnGitIsolated, gitIsolatedEnv } = require("../util");
+const { writeLedgerFile, withoutTimestamps, canonicalizeProjects } = require("./store");
 
 // The tier bank this ledger tracks (see
 // docs/plans/git-gh-renforcement-domaine.md — Partie A): 1 vocabulaire+format
@@ -92,8 +93,8 @@ function validateGitTracks(config) {
   return issues;
 }
 
-function writeGitTracks(config, { home = os.homedir() } = {}) {
-  writeJson(tracksPath({ home }), config);
+function writeGitTracks(config, { home = os.homedir(), before } = {}) {
+  return writeLedgerFile(tracksPath({ home }), config, { before, validate: validateGitTracks });
 }
 
 // Read the ledger, or hand back a fresh default (never written to disk here
@@ -195,12 +196,19 @@ function syncGitTrack({ dir, phase, verifyEvidence, home } = {}) {
 
   const signals = captureGitSignals(dir);
   const config = readOrDefaultGitTracks({ home });
+  const before = readGitTracks({ home }).exists ? withoutTimestamps(config) : null;
+  canonicalizeProjects(config);
   const now = new Date().toISOString();
   const touchedTiers = [];
 
   const record = (tierId, kind, detail, source, achieved) => {
     const tier = config.tiers[String(tierId)];
-    tier.evidence.push({ at: now, project: dir, phaseId: phase.id, kind, detail, source });
+    // One entry per (project, phase, kind): re-verifying a phase, or replaying
+    // it with `ledgers --sync`, confirms the evidence instead of piling it up.
+    const known = tier.evidence.some((e) => e.project === dir && e.phaseId === phase.id && e.kind === kind);
+    if (!known) {
+      tier.evidence.push({ at: now, project: dir, phaseId: phase.id, kind, detail, source });
+    }
     if (achieved) {
       tier.achieved = true;
     }
@@ -236,7 +244,7 @@ function syncGitTrack({ dir, phase, verifyEvidence, home } = {}) {
   const previous = config.projects[dir] && Array.isArray(config.projects[dir].tiersTouched) ? config.projects[dir].tiersTouched : [];
   config.projects[dir] = { lastSyncedAt: now, tiersTouched: [...new Set([...previous, ...touchedTiers])] };
 
-  writeGitTracks(config, { home });
+  writeGitTracks(config, { home, before });
   return { touchedTiers };
 }
 

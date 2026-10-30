@@ -28,6 +28,7 @@ const {
   journalPath: predictionsJournalPath,
 } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
+const { syncProjectLedgers, formatSyncFailure, ledgerHealth } = require("./ledgers");
 const { PLATFORMS, INSTALLERS } = require("./install");
 const {
   ensureNativeMemoryFile,
@@ -193,7 +194,7 @@ function ensurePlatformCommands(platform) {
   }
 }
 
-function updateCommand({ root, platform }) {
+function updateCommand({ root, platform, home }) {
   const projects = findLearningProjects(root);
 
   if (projects.length === 0) {
@@ -325,6 +326,30 @@ function updateCommand({ root, platform }) {
     log(
       `  mutate config: .ai-learn/mutate.json ${mutateConfig.created ? "created" : "already present — not touched"}`,
     );
+
+    // Story 09.01 — a project no ledger knows (verify's sync failed in a
+    // sandbox, or predates the ledgers) is caught up here. Only those: a
+    // replay re-reads git/gh signals and walks the sources, too costly to run
+    // on every project at every update. Never aborts the remaining projects.
+    let ledgerLine;
+    try {
+      const { missing, unreadable } = ledgerHealth({ dir: project, home });
+      if (missing.length === 0) {
+        ledgerLine = "  ledgers: à jour";
+      } else {
+        const ledgers = syncProjectLedgers({ dir: project, home });
+        ledgerLine = `  ledgers: ${ledgers.replayed} preuve(s) rejouée(s)`;
+        for (const failure of ledgers.failures) {
+          ledgerLine += `\n    ${formatSyncFailure(failure)}`;
+        }
+      }
+      if (unreadable.length > 0) {
+        ledgerLine += `\n    ⚠ ledger illisible, laissé intact : ${unreadable.join(", ")} — le corriger ou le retirer`;
+      }
+    } catch (error) {
+      ledgerLine = `  ⚠ ledgers non synchronisés : ${error.code || error.message}`;
+    }
+    log(ledgerLine);
 
     if (predictionsData.action === "created") {
       log(

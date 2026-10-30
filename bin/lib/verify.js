@@ -9,9 +9,7 @@ const fs = require("fs");
 const path = require("path");
 const { log, fail, UsageError, explainCommitCommand } = require("./util");
 const { readProgress, runsDir, findPhase, setPhaseStatus, latestEvidenceForPhase, phaseVerdict } = require("./progress");
-const { syncGitTrack } = require("./tracks/git");
-const { syncTestsTrack } = require("./tracks/tests");
-const { syncDomainLedger } = require("./tracks/domain");
+const { syncEvidence, formatSyncFailure } = require("./ledgers");
 const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
@@ -470,25 +468,12 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
     } else if (!noMark) {
       setPhaseStatus(dir, phase.id, "done");
 
-      // Best-effort, secondary tracking feature — must never entangle with
-      // or break verify's own load-bearing contract (mark done only on a
-      // real pass), hence its own isolated try/catch.
-      try {
-        syncGitTrack({ dir, phase, verifyEvidence: evidence, home });
-      } catch {
-        // ledger sync failing is never a reason to fail verify itself
-      }
-
-      try {
-        syncDomainLedger({ dir, verifyEvidence: evidence, home });
-      } catch {
-        // same isolated failure domain as the git ledger sync above
-      }
-
-      try {
-        syncTestsTrack({ dir, phase, verifyEvidence: evidence, home });
-      } catch {
-        // same isolated failure domain as the git ledger sync above
+      // Best-effort, secondary tracking: a ledger sync failing is never a
+      // reason to fail verify (the phase proof is the contract), but it is
+      // no longer silent either — story 09.01 found real progress missing
+      // from every ledger because these failures were swallowed.
+      for (const failure of syncEvidence({ dir, phase, evidence, home })) {
+        log(formatSyncFailure(failure));
       }
 
       log(`Phase ${phase.id} marked done.`);

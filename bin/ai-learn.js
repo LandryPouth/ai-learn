@@ -277,6 +277,27 @@ function main() {
       break;
     }
 
+    case "ledgers": {
+      // Machinery (story 09.01): called by `update` and by the agent, never
+      // one of the learner's commands.
+      const { ledgersCommand } = require("./lib/ledgers");
+      const { parseArgs } = require("./lib/args");
+      const { flags, positionals } = parseArgs(commandArgs, { valueFlags: ["--dir", "--platform"] });
+      // A typo'd `--dryrun` must not silently turn a simulation into a repair.
+      const known = new Set(["--dir", "--platform", "--repair", "--sync", "--dry-run"]);
+      const unknown = [...Object.keys(flags).filter((flag) => !known.has(flag)), ...positionals];
+      if (unknown.length > 0) {
+        throw new UsageError(`ledgers : argument inconnu ${unknown.join(", ")} — attendu --repair [--dry-run] | --sync [--dir <dir>]`);
+      }
+      process.exitCode = ledgersCommand({
+        dir,
+        repair: Boolean(flags["--repair"]),
+        sync: Boolean(flags["--sync"]),
+        dryRun: Boolean(flags["--dry-run"]),
+      });
+      break;
+    }
+
     case "upgrade": {
       const { upgradeCommand } = require("./lib/upgrade");
       upgradeCommand();
@@ -320,6 +341,7 @@ Usage:
   ai-learn mode <apprenti|dirigeant> [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
+  ai-learn ledgers --repair [--dry-run] | --sync [--dir <dir>]   (machinerie : ledgers ~/.ai-learn)
   ai-learn upgrade
   ai-learn install [claude|codex|gemini|opencode|antigravity] [--home <dir>] [--dry-run]
 

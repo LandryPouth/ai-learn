@@ -22,7 +22,8 @@
 
 const os = require("os");
 const path = require("path");
-const { readJson, writeJson } = require("../util");
+const { readJson } = require("../util");
+const { writeLedgerFile, withoutTimestamps, canonicalizeProjects } = require("./store");
 const { allEvidenceForPhase } = require("../progress");
 
 const TIER_IDS = [1, 2, 3, 4, 5, 6];
@@ -89,8 +90,8 @@ function validateTestsTracks(config) {
   return issues;
 }
 
-function writeTestsTracks(config, { home = os.homedir() } = {}) {
-  writeJson(tracksPath({ home }), config);
+function writeTestsTracks(config, { home = os.homedir(), before } = {}) {
+  return writeLedgerFile(tracksPath({ home }), config, { before, validate: validateTestsTracks });
 }
 
 function readOrDefaultTestsTracks({ home = os.homedir() } = {}) {
@@ -149,6 +150,8 @@ function syncTestsTrack({ dir, phase, verifyEvidence, home } = {}) {
   }
 
   const config = readOrDefaultTestsTracks({ home });
+  const before = readTestsTracks({ home }).exists ? withoutTimestamps(config) : null;
+  canonicalizeProjects(config);
   const observed = observePhase(allEvidenceForPhase(dir, phase.id));
   const now = new Date().toISOString();
   const project = config.projects[dir] || {};
@@ -184,7 +187,7 @@ function syncTestsTrack({ dir, phase, verifyEvidence, home } = {}) {
   }
 
   config.updatedAt = now;
-  writeTestsTracks(config, { home });
+  writeTestsTracks(config, { home, before });
   return { tiersAchieved: [...tiersAchieved].sort() };
 }
 

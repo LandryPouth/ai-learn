@@ -52,6 +52,7 @@ const {
 } = require("./predictions");
 const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
 const { duplicateSlugs, reviewState } = require("./reviews");
+const { ledgerHealth, hasReplayableEvidence } = require("./ledgers");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -640,6 +641,28 @@ function checkProject(dir, { home, now = new Date() } = {}) {
           message: `checkpoint exists but no passing evidence — run \`ai-learn verify ${phase.id}\``,
         });
       }
+    }
+  }
+
+  // Story 09.01 — a proven project that no ledger knows means verify's sync
+  // failed (sandbox, permissions) or ran before the ledgers existed. The
+  // cross-project progression is then silently short; the fix is a replay.
+  // "Proven" is exactly what `ledgers --sync` replays, so the warning is
+  // always one the suggested command clears.
+  if (hasReplayableEvidence(dir, config)) {
+    const { missing, unreadable } = ledgerHealth({ dir, home });
+
+    if (missing.length > 0) {
+      issues.warnings.push({
+        file: "~/.ai-learn",
+        message: `progression absente des ledgers (${missing.join(", ")}) — \`ai-learn ledgers --sync --dir ${dir}\``,
+      });
+    }
+    if (unreadable.length > 0) {
+      issues.warnings.push({
+        file: "~/.ai-learn",
+        message: `ledger illisible, jamais réécrit (${unreadable.join(", ")}) — le corriger ou le retirer, \`ai-learn ledgers --repair --dry-run\` le nomme`,
+      });
     }
   }
 

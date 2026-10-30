@@ -49,6 +49,7 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 | Ledger de tests cross-projet | `~/.ai-learn/tracks/tests.json` | 6 tiers observés depuis les évidences `verify` |
 | Mode dirigeant mérité | `ai-learn mode` + `ai-learn check` | tiers 1-3 requis, ledger illisible = refus, écart signalé en erreur |
 | Ledger de domaine cross-projet | `~/.ai-learn/domains/<stack>.json` | couverture de concepts |
+| Ledgers propres | `ai-learn ledgers --repair [--dry-run]` / `--sync` (machinerie, `update` synchronise) | écriture unique `tracks/store.js` ; refus du home réel sous `node --test` ; échec de synchro averti par `verify`, projet absent averti par `check` |
 | Journal de friction | `.ai-learn/dogfood.md` (par projet) + `docs/DOGFOODING.md` (agrégé) | prose |
 
 ## Cinq plateformes supportées

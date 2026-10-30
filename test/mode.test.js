@@ -292,3 +292,25 @@ test("the CLI grants dirigeant end to end and wires the mode", () => {
   assert.match(codex, /ai-learn-guard/);
   assert.match(codex, /"test" = "deny"/, "the Codex profile follows the inverted mode");
 });
+
+// Story 09.01 — tiers earned only by projects that no longer exist (the test
+// suite's /tmp projects) no longer open dirigeant once the ledger is repaired.
+test("dirigeant refuses after a repair leaves no real evidence", () => {
+  const { repairLedgers } = require("../bin/lib/ledgers");
+  const home = tmpHome();
+  const dir = projectWithGuard();
+  const gone = path.join(os.tmpdir(), "ai-learn-vanished-project-does-not-exist");
+  const ledger = ledgerFor([1, 2, 3]);
+
+  for (const tier of [1, 2, 3]) {
+    ledger.tiers[String(tier)].evidence.push({ project: gone, phaseId: 0, kind: "mutation-observed" });
+  }
+  ledger.projects[gone] = { tiersAchieved: [1, 2, 3] };
+  writeLedger(home, ledger);
+  assert.strictEqual(requiredTiersStatus({ home }).ok, true, "before the repair, the polluted ledger opens dirigeant");
+
+  repairLedgers({ home });
+
+  assert.throws(() => modeCommand({ dir, target: "dirigeant", home }), isUsageError(/tier/i));
+  assert.strictEqual(readGuard(dir).mode, undefined);
+});

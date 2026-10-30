@@ -5,6 +5,17 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+// Story 09.01 — every test process runs with its own throwaway home. About 90
+// calls (verify, check, next, status) reached `os.homedir()` without an
+// injected `home` and filled the real `~/.ai-learn` ledgers with `/tmp`
+// projects. Redirecting HOME/USERPROFILE once, where every test file starts,
+// covers today's calls and tomorrow's; the production safety net in
+// bin/lib/tracks/store.js still refuses the real home for any test that does
+// not load this file. CLIs spawned with `process.env` inherit it too.
+const ISOLATED_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-home-"));
+process.env.HOME = ISOLATED_HOME;
+process.env.USERPROFILE = ISOLATED_HOME;
+
 function tmpProject(progress) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-test-"));
   fs.writeFileSync(path.join(dir, "progress.json"), `${JSON.stringify(progress, null, 2)}\n`);
@@ -92,4 +103,4 @@ function withHome(home, fn) {
   }
 }
 
-module.exports = { tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit };
+module.exports = { ISOLATED_HOME, tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit };

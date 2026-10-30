@@ -182,6 +182,28 @@ test("verify never marks done or fails if the git ledger sync throws (isolated f
   assert.strictEqual(process.exitCode, 0);
 });
 
+// Story 09.01 — the same isolated failure is no longer silent: the learner
+// sees which ledger was not written, the error code and what to run.
+test("a failing ledger sync is reported, the phase stays done", { skip: process.platform === "win32" || process.getuid() === 0 }, () => {
+  const dir = tmpProject(sampleProgress());
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-verify-eacces-"));
+  fs.mkdirSync(path.join(home, ".ai-learn"));
+  fs.chmodSync(path.join(home, ".ai-learn"), 0o555);
+
+  try {
+    const out = capture(() => verifyCommand({ dir, phaseId: 0, home }));
+
+    assert.match(out, /ledger git non mis à jour : EACCES \(/);
+    assert.match(out, /ledger tests non mis à jour : EACCES/);
+    assert.match(out, /ai-learn ledgers --sync/);
+    assert.match(out, /marked done/);
+    assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+    assert.strictEqual(process.exitCode, 0);
+  } finally {
+    fs.chmodSync(path.join(home, ".ai-learn"), 0o755);
+  }
+});
+
 test("verify with --no-mark keeps the phase pending despite a green checkpoint", () => {
   const dir = tmpProject(sampleProgress());
 
