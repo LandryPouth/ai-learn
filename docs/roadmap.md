@@ -108,6 +108,24 @@ après un `/clear` » se règle par un hook `SessionStart` dans `.claude/setting
 de ce dépôt (une modification de config, pas une story), après avoir vérifié que
 `SessionStart` se redéclenche bien après `/clear`.
 
+## Epic 09 — Preuve fiable, dogfood clos (2026-10-30) — à exécuter avant l'epic 10
+
+Issu de l'audit du 2026-10-30 (cas reproduits) et des journaux de friction de
+`tech-experiments` : preuve falsifiable par changement de checkpoint, zéro test
+accepté, garde-fou éteint sans signal, ledgers réels pollués par `npm test`,
+revisite toujours verte, norme jamais mesurée sur le code tapé par l'apprenant,
+scaffold sans `.gitignore`. Se termine par la clôture écrite de chaque entrée de
+friction ouverte. Détail : `epics/epic-09-preuve-fiable-et-dogfood-clos/`.
+
+## Epic 10 — Cap plateforme, tout en machinerie (2026-10-30)
+
+Décidé par l'utilisateur : quatre commandes visibles (`/learn`, `/learn-next`,
+`/learn-status`, `/learn-break`), le reste en machinerie ; profil global ;
+progression plateforme cross-projet ; incidents à diagnostiquer (promotion de la
+Partie A de `docs/plans/pistes-non-mesurees.md`, tiers 1-3 seulement) ; analyse
+de pertinence ; bilan de fin de projet. Détail : `epics/epic-10-cap-plateforme-et-machinerie/`.
+**S'exécute après l'epic 09.**
+
 ## Ligne rouge produit
 
 Le mode dirigeant n'est pas un raccourci, c'est un statut prouvé. Le jour où le

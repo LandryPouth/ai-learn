@@ -390,3 +390,29 @@
 {"at":"2026-10-24T18:08:28.871Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-24T18:08:34.063Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-24T18:08:34.072Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-30T19:16:36.440Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:16:36.445Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:17:10.041Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:17:10.053Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:17:31.193Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:17:31.224Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:18:04.495Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:18:04.501Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:19:12.503Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:19:12.513Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:19:56.570Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:19:56.609Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:20:23.316Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:20:23.352Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:31:55.365Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:31:55.374Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:32:16.091Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-30T19:32:16.094Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-30T19:32:38.256Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-30T19:32:38.276Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-30T19:33:31.450Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-30T19:33:31.456Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-30T19:33:38.689Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-30T19:33:38.689Z","tool":"Bash","path":null,"reason":"the working directory depends on shell expansion"}
+{"at":"2026-10-30T19:51:37.616Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-30T19:51:37.618Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
