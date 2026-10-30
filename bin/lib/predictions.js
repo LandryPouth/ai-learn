@@ -207,7 +207,7 @@ function renderJournal(dir, config, data) {
       `- Explication flash : ${escapeField(entry.flash)}`,
       `- Corrigé : ${escapeField(entry.corrected)}`,
       `- Corrigé par : ${escapeField(entry.correctedBy || "apprenant")}`,
-      `- Révélé le : ${entry.revealedAt || entry.at}`,
+      `- Révélé le : ${entry.revealedAt || "pas encore révélée"}`,
     ].join("\n");
   });
 
@@ -237,14 +237,12 @@ function syncJournalRender(dir, config, data) {
   return { action: existing === null ? "created" : "refreshed" };
 }
 
+const REVEAL_FIELDS = ["gaps", "score", "strengths", "weaknesses", "flash", "corrected"];
 const VALID_CORRECTED_BY = ["apprenant", "IA"];
 
-// Records one entry and (re)renders the `.md` from it in the same call — the
-// command an agent runs "at the moment of the protocol" (story goal), not a
-// two-step API. `at`/`revealedAt` are both stamped "now": this story stores
-// both fields faithfully (schema below) but does not itself demonstrate a
-// gap between them — story 01.04 is what will make that gap meaningful, by
-// calling this at prediction time and again at reveal time.
+// Records one entry and (re)renders the `.md` from it in the same call. With no
+// feedback field it is the first step (unrevealed); `revealPrediction` is the
+// second. Feedback given here is the legacy one-step form (`at == revealedAt`).
 function recordPrediction(dir, config, fields) {
   if (!findPhase(config, fields.phaseId)) {
     fail(`No phase ${fields.phaseId} in progress.json — cannot record a prediction for it.`);
@@ -274,6 +272,10 @@ function recordPrediction(dir, config, fields) {
 
   const data = existing.data || { version: VERSION, entries: [] };
   const now = new Date().toISOString();
+  // Two steps (story 09.03): a bare prediction is stored unrevealed, so its
+  // `at` provably precedes the reveal. Any feedback field makes it the legacy
+  // one-step form (`at == revealedAt`), which `check` reports as after-the-fact.
+  const oneStep = REVEAL_FIELDS.some((key) => fields[key]);
   const entry = {
     id: crypto.randomUUID(),
     phaseId: fields.phaseId,
@@ -287,7 +289,7 @@ function recordPrediction(dir, config, fields) {
     flash: fields.flash || null,
     corrected: fields.corrected || null,
     correctedBy,
-    revealedAt: now,
+    revealedAt: oneStep ? now : undefined,
   };
 
   data.entries.push(entry);
@@ -296,6 +298,51 @@ function recordPrediction(dir, config, fields) {
 
   const render = syncJournalRender(dir, config, data);
   return { entry, render };
+}
+
+// Completes a prediction recorded earlier: stamps `revealedAt` and stores the
+// feedback. Unknown id → fail before touching the file.
+function revealPrediction(dir, config, id, fields) {
+  const existing = readPredictions(dir);
+
+  if (!existing.exists || !existing.valid) {
+    fail(`No usable predictions.json to reveal ${id} in${existing.issues.length ? `: ${existing.issues.join("; ")}` : ""}.`);
+  }
+
+  const entry = existing.data.entries.find((candidate) => candidate.id === id);
+
+  if (!entry) {
+    fail(`No prediction ${id} in predictions.json.`);
+  }
+
+  if (fields.correctedBy && !VALID_CORRECTED_BY.includes(fields.correctedBy)) {
+    fail(`--corrected-by must be one of ${VALID_CORRECTED_BY.join(", ")}, got: ${fields.correctedBy}`);
+  }
+
+  if (entry.revealedAt) {
+    fail(`Prediction ${id} is already revealed — a reveal is final.`);
+  }
+
+  const missing = REVEAL_FIELDS.filter((key) => key !== "corrected" && !fields[key]);
+
+  if (missing.length > 0) {
+    fail(`predict --reveal needs the full feedback; missing: ${missing.map((key) => `--${key}`).join(", ")}.`);
+  }
+
+  for (const key of REVEAL_FIELDS) {
+    if (fields[key]) {
+      entry[key] = fields[key];
+    }
+  }
+
+  if (fields.correctedBy) {
+    entry.correctedBy = fields.correctedBy;
+  }
+
+  entry.revealedAt = new Date().toISOString();
+  fs.writeFileSync(predictionsPath(dir), `${JSON.stringify(existing.data, null, 2)}\n`);
+
+  return { entry, render: syncJournalRender(dir, config, existing.data) };
 }
 
 // Story 01.04 — the single source `verify` and `check` both consume so a
@@ -420,6 +467,7 @@ module.exports = {
   countByPhase,
   countIATyped,
   recordPrediction,
+  revealPrediction,
   renderJournal,
   predictionsReport,
   formatPredictionsGap,

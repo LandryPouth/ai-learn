@@ -405,3 +405,57 @@ test("update never overwrites an unreadable ledger and says so", () => {
   assert.strictEqual(fs.readFileSync(testsLedgerPath({ home }), "utf8"), "{ not json");
   assert.match(out, /ledger illisible, laissé intact : tracks\/tests\.json/);
 });
+
+function setHook(dir, event, command) {
+  const file = path.join(dir, ".claude", "settings.json");
+  const settings = JSON.parse(fs.readFileSync(file, "utf8"));
+  const entry = settings.hooks[event].find((e) => e.hooks.some((h) => /ai-learn\.js/.test(h.command)));
+  entry.hooks.find((h) => /ai-learn\.js/.test(h.command)).command = command;
+  fs.writeFileSync(file, JSON.stringify(settings));
+}
+
+function hookCommands(dir, event) {
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  return settings.hooks[event].flatMap((e) => e.hooks).map((h) => h.command);
+}
+
+test("update repoints a dead hook to the current tool", () => {
+  const dir = tmpProject(project());
+  capture(() => updateCommand({ root: dir }));
+  const dead = path.join(dir, "gone", "ai-learn.js");
+  setHook(dir, "PreToolUse", `node "${dead}" guard`);
+  setHook(dir, "PostToolUse", `node "${dead}" norm --hook`);
+
+  capture(() => updateCommand({ root: dir }));
+
+  const tool = path.join(__dirname, "..", "bin", "ai-learn.js");
+  assert.ok(hookCommands(dir, "PreToolUse").includes(`node "${tool}" guard`));
+  assert.ok(hookCommands(dir, "PostToolUse").includes(`node "${tool}" norm --hook`));
+  assert.ok(!JSON.stringify(hookCommands(dir, "PreToolUse")).includes("gone"));
+});
+
+test("update keeps a hook pointing at another live install", () => {
+  const dir = tmpProject(project());
+  capture(() => updateCommand({ root: dir }));
+  const other = path.join(dir, "other-install", "ai-learn.js");
+  writeFile(dir, "other-install/ai-learn.js", "");
+  setHook(dir, "PreToolUse", `node "${other}" guard`);
+  setHook(dir, "PostToolUse", `node "${other}" norm --hook`);
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.ok(hookCommands(dir, "PreToolUse").includes(`node "${other}" guard`));
+  assert.ok(hookCommands(dir, "PostToolUse").includes(`node "${other}" norm --hook`));
+});
+
+test("update re-quotes a live unquoted norm hook without repointing it", () => {
+  const dir = tmpProject(project());
+  capture(() => updateCommand({ root: dir }));
+  const other = path.join(dir, "other install", "ai-learn.js");
+  writeFile(dir, "other install/ai-learn.js", "");
+  setHook(dir, "PostToolUse", `node ${other} norm --hook`);
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.ok(hookCommands(dir, "PostToolUse").includes(`node "${other}" norm --hook`));
+});

@@ -153,12 +153,13 @@ function main() {
     }
 
     case "predict": {
-      const { recordPrediction } = require("./lib/predictions");
+      const { recordPrediction, revealPrediction } = require("./lib/predictions");
       const { readProgress } = require("./lib/progress");
+      const revealId = getFlagValue("--reveal", null);
       const phaseRaw = getFlagValue("--phase", null);
       const phaseId = phaseRaw !== null ? Number.parseInt(phaseRaw, 10) : NaN;
 
-      if (!Number.isFinite(phaseId)) {
+      if (!revealId && !Number.isFinite(phaseId)) {
         fail('predict requires --phase <id>, ex: ai-learn predict --phase 0 --prediction "..."');
       }
 
@@ -168,7 +169,7 @@ function main() {
         fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
       }
 
-      const { entry, render } = recordPrediction(dir, config, {
+      const fields = {
         phaseId,
         type: getFlagValue("--type", null),
         prediction: getFlagValue("--prediction", null),
@@ -178,10 +179,11 @@ function main() {
         weaknesses: getFlagValue("--weaknesses", null),
         flash: getFlagValue("--flash", null),
         corrected: getFlagValue("--corrected", null),
-        correctedBy: getFlagValue("--corrected-by", "apprenant"),
-      });
+        correctedBy: getFlagValue("--corrected-by", revealId ? null : "apprenant"),
+      };
+      const { entry, render } = revealId ? revealPrediction(dir, config, revealId, fields) : recordPrediction(dir, config, fields);
 
-      log(`Recorded prediction ${entry.id} for phase ${phaseId} (.ai-learn/predictions.json).`);
+      log(`${revealId ? "Revealed" : "Recorded"} prediction ${entry.id} for phase ${entry.phaseId} (.ai-learn/predictions.json).`);
 
       if (render.action === "kept-customized") {
         log("docs/plans/predictions.md is customized (no generated marker) — left untouched.");
@@ -330,9 +332,9 @@ Usage:
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark] [--revisit]
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality>]
-             [--gaps <text>] [--score <text>] [--strengths <text>] [--weaknesses <text>]
-             [--flash <text>] [--corrected <text>] [--corrected-by <apprenant|IA>] [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality>] [--dir <dir>]
+  ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]
+             [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--secondary] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual

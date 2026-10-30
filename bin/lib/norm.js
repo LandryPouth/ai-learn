@@ -17,7 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const { log, readJson, writeJson, normalizePortable } = require("./util");
 const { walkSources, detectStack, detectTests, loadStack, stackKey, ALL_SOURCE_EXTS } = require("./scan");
-const { loadGuardConfig, matchesLearnerPath, findProjectRoot } = require("./guard");
+const { loadGuardConfig, matchesLearnerPath, findProjectRoot, hookScriptMissing } = require("./guard");
 
 const FALLBACK_NORM = { maxFileLines: 400, maxFunctionLines: 50, maxNestingDepth: 4, maxParams: 5 };
 
@@ -858,13 +858,30 @@ function ensureNormHook(dir) {
   if (ours.length > 0) {
     // Wired, but possibly to a binary path that has since moved (npx cache,
     // reinstall): repoint it in place rather than leave a hook that no longer runs.
-    const stale = ours.filter((h) => h.command !== command);
+    // A path that still exists is a deliberate other install (kept, like the
+    // guard hook); only a dead one is repointed (story 09.03).
+    let changed = false;
 
-    if (stale.length === 0) {
-      return { wired: true, created: [] };
+    for (const h of ours) {
+      if (h.command === command) {
+        continue;
+      }
+      if (hookScriptMissing(h.command, dir)) {
+        h.command = command;
+        changed = true;
+        continue;
+      }
+      // Older unquoted form: re-quote the path it already points at.
+      const unquoted = h.command.match(/^node\s+([^"'\s].*?)\s+norm --hook\s*$/);
+
+      if (unquoted) {
+        h.command = `node "${unquoted[1]}" norm --hook`;
+        changed = true;
+      }
     }
-    for (const h of stale) {
-      h.command = command;
+
+    if (!changed) {
+      return { wired: true, created: [] };
     }
     fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
 

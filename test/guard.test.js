@@ -1375,3 +1375,31 @@ test("une commande qui cite `ai-learn mode` ou HOME= entre guillemets reste perm
     assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
   }
 });
+
+const TUNING = [".ai-learn/tutor.json", ".ai-learn/norm.json", ".ai-learn/mutate.json", ".ai-learn/predictions.json"];
+
+test("tuning files are a wall for the AI, naming the file and the legitimate route", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  for (const rel of TUNING) {
+    for (const tool of ["Write", "Edit", "MultiEdit"]) {
+      const denied = decide(hookFor(dir, tool, { file_path: path.join(dir, rel) }), dir);
+      assert.strictEqual(denied.decision, "deny", `${tool} ${rel}`);
+      assert.ok(denied.reason.includes(rel), denied.reason);
+    }
+  }
+
+  const reason = decide(hookFor(dir, "Write", { file_path: path.join(dir, TUNING[3]) }), dir).reason;
+  assert.match(reason, /ai-learn predict/);
+  assert.match(decide(hookFor(dir, "Write", { file_path: path.join(dir, TUNING[0]) }), dir).reason, /l'apprenant édite/);
+});
+
+test("shell writes to tuning files are denied", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  for (const rel of TUNING) {
+    for (const command of [`echo x > ${rel}`, `echo x | tee ${rel}`, `cp /tmp/x ${rel}`]) {
+      assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+    }
+  }
+});

@@ -311,3 +311,49 @@ test("predictionsReport: an integer requirement ignores types and keeps counting
   assert.strictEqual(report.missing, 0);
   assert.deepStrictEqual(report.missingByType, {});
 });
+
+const { revealPrediction } = require("../bin/lib/predictions");
+
+test("a prediction recorded before reveal counts, with no revealedAt", () => {
+  const dir = tmpProject(sampleProgress());
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "200" });
+  const { data } = readPredictions(dir);
+
+  assert.ok(data.entries[0].at);
+  assert.strictEqual(data.entries[0].revealedAt, undefined);
+  assert.strictEqual(entry.id, data.entries[0].id);
+  assert.strictEqual(countByPhase(data.entries)[0], 1);
+});
+
+test("reveal stamps revealedAt and refuses unknown ids", () => {
+  const dir = tmpProject(sampleProgress());
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "200" });
+
+  revealPrediction(dir, sampleProgress(), entry.id, { score: "7/10", gaps: "1/2", strengths: "s", weaknesses: "w", flash: "f" });
+  const stored = readPredictions(dir).data.entries[0];
+  assert.ok(stored.revealedAt >= stored.at);
+  assert.strictEqual(stored.score, "7/10");
+  assert.strictEqual(stored.flash, "f");
+
+  const before = fs.readFileSync(predictionsPath(dir), "utf8");
+  assert.throws(() => revealPrediction(dir, sampleProgress(), "nope", { score: "1/10" }), /No prediction nope/);
+  assert.strictEqual(fs.readFileSync(predictionsPath(dir), "utf8"), before);
+});
+
+test("a one-step entry (feedback given with the prediction) keeps at == revealedAt", () => {
+  const dir = tmpProject(sampleProgress());
+  recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "200", score: "5/10" });
+  const stored = readPredictions(dir).data.entries[0];
+
+  assert.strictEqual(stored.revealedAt, stored.at);
+});
+
+test("a reveal is final and needs feedback", () => {
+  const dir = tmpProject(sampleProgress());
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "200" });
+
+  assert.throws(() => revealPrediction(dir, sampleProgress(), entry.id, { score: "7/10" }), /needs the full feedback; missing: --gaps/);
+  revealPrediction(dir, sampleProgress(), entry.id, { score: "7/10", gaps: "1/2", strengths: "s", weaknesses: "w", flash: "f" });
+  assert.throws(() => revealPrediction(dir, sampleProgress(), entry.id, { score: "1/10" }), /already revealed/);
+  assert.strictEqual(readPredictions(dir).data.entries[0].score, "7/10");
+});

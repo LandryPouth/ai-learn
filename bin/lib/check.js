@@ -36,7 +36,7 @@ const {
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
-const { guardConfigIssues, loadGuardConfig, isOwnGuardCommand } = require("./guard");
+const { guardConfigIssues, loadGuardConfig, isOwnGuardCommand, hookScriptMissing, hookScriptPath } = require("./guard");
 const { readTutorConfig } = require("./tutor");
 const { MODE_DIRIGEANT, formatLedgerRefusal, requiredTiersStatus } = require("./mode");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
@@ -68,7 +68,7 @@ const HOLE_MARKER_RE = /\[\s*\.\.\.\s*\]|…|\bTODO\b|à (?:compl[ée]ter|finir)
 const READING_WORDS_PER_MINUTE = 200;
 
 function checkProject(dir, { home, now = new Date() } = {}) {
-  const issues = { errors: [], warnings: [] };
+  const issues = { errors: [], warnings: [], infos: [] };
   const { config, exists } = readProgress(dir);
 
   if (!exists) {
@@ -237,6 +237,31 @@ function checkProject(dir, { home, now = new Date() } = {}) {
       surface: "hook-guard",
       expected: "le hook PreToolUse ai-learn guard aurait dû être câblé dans .claude/settings.json par init/update",
       problem: "guard.json existe mais aucun hook PreToolUse pointant vers ai-learn.js guard n'est présent dans .claude/settings.json",
+    });
+  }
+
+  // A hook that points at a script which no longer exists is a guard that is
+  // switched off while looking wired: only exit 2 blocks, so a missing script
+  // lets every write through (story 09.03). A verdict that lies, hence an error.
+  for (const { event, command } of ownHooks(dir)) {
+    if (hookScriptMissing(command, dir)) {
+      issues.errors.push({
+        file: ".claude/settings.json",
+        message: `garde-fou éteint : le hook ${event} pointe vers ${hookScriptPath(command)} qui n'existe plus — ` +
+          "`ai-learn update`",
+      });
+    }
+  }
+
+  // The OpenCode plugin embeds the tool path (`const BINARY = "…"`). Codex's
+  // profile is static permissions with no script path, so there is nothing to check.
+  const openCodeBinary = openCodePluginBinary(dir);
+
+  if (openCodeBinary && !fs.existsSync(openCodeBinary)) {
+    issues.errors.push({
+      file: ".opencode/plugins/ai-learn-guard.js",
+      message: `garde-fou éteint : le plugin OpenCode pointe vers ${openCodeBinary} qui n'existe plus — ` +
+        "`ai-learn update`",
     });
   }
 
@@ -497,6 +522,32 @@ function checkProject(dir, { home, now = new Date() } = {}) {
           message: `${formatPredictionsGap(phase, report)}${legacyHint}`,
         });
       }
+    }
+  }
+
+  // Story 09.03: a prediction is written before the reveal (`predict`, then
+  // `predict --reveal`). Left unrevealed for a week it is forgotten work; a
+  // one-step entry (at == revealedAt) was recorded after the fact, which the
+  // tool cannot tell apart from a late prediction — said, not blocked.
+  if (predictions.valid) {
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const stale = predictions.data.entries.filter((entry) => !entry.revealedAt && Date.parse(entry.at) < weekAgo);
+    const afterTheFact = predictions.data.entries.filter((entry) => entry.revealedAt && entry.revealedAt === entry.at);
+
+    for (const entry of stale) {
+      issues.warnings.push({
+        file: ".ai-learn/predictions.json",
+        message: `prediction ${entry.id} (phase ${entry.phaseId}) has not been revealed for over 7 days — ` +
+          "finish it with `ai-learn predict --reveal <id> …`",
+      });
+    }
+
+    if (afterTheFact.length > 0) {
+      issues.infos.push({
+        file: ".ai-learn/predictions.json",
+        message: `${afterTheFact.length} prediction(s) enregistrée(s) après coup (en un temps) : l'antériorité ` +
+          "n'est pas établie — `ai-learn predict` avant la révélation, puis `--reveal`",
+      });
     }
   }
 
@@ -985,6 +1036,45 @@ function countDogfoodEntries(dogfoodPath) {
   return (content.match(/^###\s+(?:low|medium|high)\s+—/gim) || []).length;
 }
 
+// The tool path embedded in the generated OpenCode plugin, or null.
+function openCodePluginBinary(dir) {
+  try {
+    const source = fs.readFileSync(path.join(dir, ".opencode", "plugins", "ai-learn-guard.js"), "utf8");
+    const match = source.match(/^const BINARY = (".*");$/m);
+    return match ? JSON.parse(match[1]) || null : null;
+  } catch {
+    return null;
+  }
+}
+
+// Every ai-learn hook command wired in .claude/settings.json, with its event.
+function ownHooks(dir) {
+  let settings = null;
+
+  try {
+    settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  } catch {
+    return [];
+  }
+
+  const hooks = (settings && settings.hooks) || {};
+  const found = [];
+
+  for (const [event, pattern] of [["PreToolUse", null], ["PostToolUse", /ai-learn\.js"? norm --hook/]]) {
+    for (const entry of Array.isArray(hooks[event]) ? hooks[event] : []) {
+      for (const h of entry && Array.isArray(entry.hooks) ? entry.hooks : []) {
+        const own = pattern ? h && typeof h.command === "string" && pattern.test(h.command) : h && isOwnGuardCommand(h.command);
+
+        if (own) {
+          found.push({ event, command: h.command });
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
 // Is the `ai-learn guard` PreToolUse hook wired into the project's
 // .claude/settings.json? The block is only real when the hook is installed.
 function guardHookWired(dir) {
@@ -1053,6 +1143,10 @@ function printProjectReport(entry) {
 
   for (const warning of issues.warnings) {
     log(`  ⚠ ${warning.file ? `${warning.file}: ` : ""}${warning.message}`);
+  }
+
+  for (const info of issues.infos || []) {
+    log(`  ℹ ${info.file ? `${info.file}: ` : ""}${info.message}`);
   }
 
   // The learner-file block, when active, reports how many AI writes it has

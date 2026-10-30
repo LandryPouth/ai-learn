@@ -17,15 +17,15 @@ Ce qui règle la sévérité des contrôles (preuve exigée, seuils de norme, p�
 
 ## Acceptance Criteria
 
-- [ ] Given le mode apprenti, when l'IA tente Write sur chacun des 4 fichiers de réglage, then `deny` avec un motif qui nomme le fichier et la voie légitime.
-- [ ] Given `echo x > .ai-learn/tutor.json` via Bash, when le guard décide, then `deny`.
-- [ ] Given `ai-learn predict --phase 1 --prediction "…"`, when on relit `predictions.json`, then l'entrée a `at` et pas de `revealedAt`, et compte pour la phase.
-- [ ] Given `predict --reveal <id> --score 7/10 …`, when on relit, then `revealedAt` ≥ `at` et les champs de feedback sont présents ; un `id` inconnu → exit 1, fichier inchangé.
-- [ ] Given une entrée en un temps (ancienne forme), when `check`, then une information « enregistrée après coup » apparaît, sans erreur.
-- [ ] Given une prédiction non révélée depuis 8 jours, when `check`, then un avertissement la nomme.
-- [ ] Given `.claude/settings.json` dont le hook guard pointe vers un fichier absent, when `check`, then erreur « garde-fou éteint » et `check` échoue.
-- [ ] Given ce même projet, when `ai-learn update`, then le hook pointe vers l'outil courant et `check` repasse.
-- [ ] Given un hook pointant vers une autre installation qui existe, when `update`, then il est conservé.
+- [x] Given le mode apprenti, when l'IA tente Write sur chacun des 4 fichiers de réglage, then `deny` avec un motif qui nomme le fichier et la voie légitime.
+- [x] Given `echo x > .ai-learn/tutor.json` via Bash, when le guard décide, then `deny`.
+- [x] Given `ai-learn predict --phase 1 --prediction "…"`, when on relit `predictions.json`, then l'entrée a `at` et pas de `revealedAt`, et compte pour la phase.
+- [x] Given `predict --reveal <id> --score 7/10 …`, when on relit, then `revealedAt` ≥ `at` et les champs de feedback sont présents ; un `id` inconnu → exit 1, fichier inchangé.
+- [x] Given une entrée en un temps (ancienne forme), when `check`, then une information « enregistrée après coup » apparaît, sans erreur.
+- [x] Given une prédiction non révélée depuis 8 jours, when `check`, then un avertissement la nomme.
+- [x] Given `.claude/settings.json` dont le hook guard pointe vers un fichier absent, when `check`, then erreur « garde-fou éteint » et `check` échoue.
+- [x] Given ce même projet, when `ai-learn update`, then le hook pointe vers l'outil courant et `check` repasse.
+- [x] Given un hook pointant vers une autre installation qui existe, when `update`, then il est conservé.
 
 ## Edge Cases
 

@@ -1713,3 +1713,76 @@ test("re-running verify after a green obtained by the test does not erase the wa
   const entry = checkProject(dir, { home });
   assert.ok(entry.issues.warnings.some((w) => /modifiant le test/.test(w.message)));
 });
+
+// Story 09.03 — predictions in two steps, and a guard hook that points nowhere.
+function backdate(dir, mutate) {
+  const file = path.join(dir, ".ai-learn", "predictions.json");
+  const data = JSON.parse(fs.readFileSync(file, "utf8"));
+  mutate(data.entries);
+  fs.writeFileSync(file, JSON.stringify(data));
+}
+
+test("one-step predictions are reported as recorded after the fact", () => {
+  const dir = tmpProject(sampleProgress());
+  const { recordPrediction } = require("../bin/lib/predictions");
+  recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "x", score: "5/10" });
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.infos.some((i) => /après coup/.test(i.message)));
+  assert.strictEqual(entry.issues.errors.length, 0);
+});
+
+test("a prediction left unrevealed for a week is warned", () => {
+  const dir = tmpProject(sampleProgress());
+  const { recordPrediction } = require("../bin/lib/predictions");
+  const { entry: recorded } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "x" });
+
+  assert.ok(!checkProject(dir).issues.warnings.some((w) => /not been revealed/.test(w.message)));
+
+  backdate(dir, (entries) => {
+    entries[0].at = new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString();
+  });
+  const warning = checkProject(dir).issues.warnings.find((w) => /not been revealed/.test(w.message));
+  assert.ok(warning && warning.message.includes(recorded.id));
+});
+
+test("a hook pointing at a missing script fails check", () => {
+  const dir = tmpProject(sampleProgress());
+  ensureGuardHook(dir);
+  assert.strictEqual(checkProject(dir).issues.errors.length, 0);
+
+  const settingsPath = path.join(dir, ".claude", "settings.json");
+  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  settings.hooks.PreToolUse[0].hooks[0].command = `node "${path.join(dir, "gone", "ai-learn.js")}" guard`;
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+
+  const errors = checkProject(dir).issues.errors;
+  assert.ok(errors.some((e) => /garde-fou éteint/.test(e.message) && /gone/.test(e.message)));
+});
+
+test("hook path forms: unknown or expandable paths are never reported dead; relative paths resolve against the project", () => {
+  const { hookScriptMissing } = require("../bin/lib/guard");
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "my dir/ai-learn.js", "");
+  writeFile(dir, "bin/ai-learn.js", "");
+
+  assert.strictEqual(hookScriptMissing(`node ${path.join(dir, "my dir", "ai-learn.js")} guard`, dir), false);
+  assert.strictEqual(hookScriptMissing('node "$HOME/x/ai-learn.js" guard', dir), false);
+  assert.strictEqual(hookScriptMissing("npx ai-learn guard", dir), false);
+  assert.strictEqual(hookScriptMissing("node ./bin/ai-learn.js guard", dir), false);
+  assert.strictEqual(hookScriptMissing("node ./nope/ai-learn.js guard", dir), true);
+});
+
+test("an OpenCode plugin pointing at a missing tool fails check", () => {
+  const dir = tmpProject(sampleProgress());
+  const pluginDir = path.join(dir, ".opencode", "plugins");
+  fs.mkdirSync(pluginDir, { recursive: true });
+  const plugin = path.join(pluginDir, "ai-learn-guard.js");
+
+  fs.writeFileSync(plugin, `const BINARY = ${JSON.stringify(path.join(dir, "gone", "ai-learn.js"))};\n`);
+  assert.ok(checkProject(dir).issues.errors.some((e) => /plugin OpenCode/.test(e.message) && /gone/.test(e.message)));
+
+  fs.writeFileSync(plugin, `const BINARY = ${JSON.stringify(path.join(dir, "package.json"))};\n`);
+  fs.writeFileSync(path.join(dir, "package.json"), "{}");
+  assert.ok(!checkProject(dir).issues.errors.some((e) => /plugin OpenCode/.test(e.message)));
+});

@@ -97,6 +97,7 @@ const DIRIGEANT_LEARNER_FILES = [
 // Write, so these are denied in both modes, before the learner-path check. The
 // learner edits them by hand; `init`/`update` (the CLI, not the agent) writes
 // them normally.
+const TUNING_FILES = [".ai-learn/tutor.json", ".ai-learn/norm.json", ".ai-learn/mutate.json"];
 const PROTECTED_FILES = [
   ".ai-learn/guard.json",
   ".claude/settings.json",
@@ -117,6 +118,14 @@ const PROTECTED_FILES = [
   // fail-open journal. An AI that can erase them can hide its own unjudged write.
   ".ai-learn/guard.log",
   ".ai-learn/guard-unchecked.jsonl",
+  // The settings that set how strict the checks are (story 09.03): proof
+  // required, norm thresholds, mutation scope, prediction journal. The AI has no
+  // legitimate reason to write them; the learner edits them, and the AI records
+  // predictions through `ai-learn predict` (the CLI, not a Write).
+  ".ai-learn/tutor.json",
+  ".ai-learn/norm.json",
+  ".ai-learn/mutate.json",
+  ".ai-learn/predictions.json",
 ];
 // Directories whose whole subtree is protected. `.ai-learn/runs/*.json` are the
 // verify evidences that feed the test ledger gating `dirigeant`: forging one is
@@ -1128,6 +1137,14 @@ function homeStateReason(target, viaShell) {
 }
 
 function protectedPathReason(rel, viaShell) {
+  if (rel === ".ai-learn/predictions.json") {
+    return `${viaShell ? "cette commande écrit dans " : ""}${rel} est le journal des prédictions : ` +
+      "l'IA ne l'écrit pas à la main. Voie légitime : `ai-learn predict` (puis `predict --reveal`).";
+  }
+  if (TUNING_FILES.includes(rel)) {
+    return `${viaShell ? "cette commande écrit dans " : ""}${rel} règle la sévérité des contrôles : ` +
+      "l'IA ne la modifie pas. Voie légitime : l'apprenant édite ce fichier lui-même.";
+  }
   return viaShell
     ? `cette commande écrit dans ${rel}, un fichier qui configure le garde-fou lui-même. ` +
         "L'IA ne modifie pas sa propre policy (mode, chemins, hooks) : demande à l'apprenant de le faire."
@@ -1393,6 +1410,29 @@ function guardHookCommand(toolBin) {
 
 // Recognizes the hook we own, quoted (current form) or not (older installs), so
 // `update` upgrades a stale command instead of appending a duplicate.
+// The script path a hook command runs (`node <path> guard|norm --hook`), quoted
+// or not (an unquoted path may hold spaces). Null when it cannot be known —
+// another launcher, or a path the shell would expand (`$VAR`, `~`, `%VAR%`):
+// an unknown path is never reported dead.
+function hookScriptPath(command) {
+  const match = typeof command === "string" && command.match(/^\s*node\s+(.+?)\s+(?:guard|norm --hook)\b/);
+
+  if (!match) {
+    return null;
+  }
+
+  const script = match[1].replace(/^(["'])(.*)\1$/, "$2");
+  return /[$~%`]/.test(script) ? null : script;
+}
+
+// A hook whose script no longer exists silently lets everything through
+// (only exit 2 blocks), so it is a dead guard, not a wired one. A relative
+// path is resolved against the project, where the agent runs it.
+function hookScriptMissing(command, dir = process.cwd()) {
+  const script = hookScriptPath(command);
+  return script !== null && !fs.existsSync(path.resolve(dir, script));
+}
+
 function isOwnGuardCommand(command) {
   return typeof command === "string" && /ai-learn(\.js)?["']?\s+guard\b/.test(command);
 }
@@ -1574,6 +1614,11 @@ function ensureGuardHook(dir) {
         if (!h || !isOwnGuardCommand(h.command)) {
           continue;
         }
+        if (hookScriptMissing(h.command, dir)) {
+          h.command = command;
+          changed = true;
+          continue;
+        }
         const match = h.command.match(/^node\s+(.+?)\s+guard\s*$/);
 
         if (match && !/^["']/.test(match[1])) {
@@ -1622,6 +1667,8 @@ module.exports = {
   guardCommand,
   guardHookCommand,
   isOwnGuardCommand,
+  hookScriptPath,
+  hookScriptMissing,
   MODE_APPRENTI,
   MODE_DIRIGEANT,
   ensureGuardHook,
