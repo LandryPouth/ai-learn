@@ -303,3 +303,23 @@ test("predict --type reality records the type end to end and renders it in the j
   const journal = fs.readFileSync(path.join(dir, "docs", "plans", "predictions.md"), "utf8");
   assert.match(journal, /- Type : reality/);
 });
+
+test("commands find the project from a subdirectory", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-sub-"));
+  fs.writeFileSync(path.join(dir, "progress.json"), JSON.stringify({ version: 1, project: "p", technology: "x", phases: [] }));
+  fs.mkdirSync(path.join(dir, "src"));
+  const result = spawnSync(process.execPath, [BIN, "status"], { cwd: path.join(dir, "src"), encoding: "utf8", env: isolatedEnv() });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stderr + result.stdout, /No progress\.json/);
+});
+
+test("a corrupt progress.json is named with its position, never init", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-bad-"));
+  fs.writeFileSync(path.join(dir, "progress.json"), '{\n  "version": 1,\n  "phases": [');
+  const result = spawnSync(process.execPath, [BIN, "status"], { cwd: dir, encoding: "utf8", env: isolatedEnv() });
+  const out = result.stderr + result.stdout;
+  assert.notStrictEqual(result.status, 0);
+  assert.match(out, /illisible/);
+  assert.match(out, /ligne 3, colonne 14/);
+  assert.match(out, /ne pas relancer `init`/);
+});

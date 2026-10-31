@@ -17,7 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, fail, mkdirp, writeJson, normalizePortable, spawnGit } = require("./util");
-const { progressPath, readProgress, findPhase } = require("./progress");
+const { progressPath, readProgress, missingProgressMessage, findPhase } = require("./progress");
 const { parseArgs } = require("./args");
 
 const MAX_SOURCES = 3;
@@ -344,7 +344,7 @@ function addSource({ dir, name, source, online, subpath, regen, secondary }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   assertName(name);
@@ -479,7 +479,7 @@ function removeSource({ dir, name }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const source = findSource(config, name);
@@ -520,7 +520,7 @@ function updateSource({ dir, name, subpath }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const source = findSource(config, name);
@@ -675,7 +675,7 @@ function generateDigest({ dir, phaseId }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const id = Number(phaseId);
@@ -771,7 +771,7 @@ function listSources({ dir }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const sources = docSourceList(config.docSource);

@@ -8,7 +8,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { log, writeJson, mkdirp, normalizePortable } = require("./util");
+const { log, fail, writeJson, mkdirp, normalizePortable } = require("./util");
 const { progressPath } = require("./progress");
 const { ensureGuardHook } = require("./guard");
 const { ensureOpenCodeGuard, usesOpenCode } = require("./platforms/opencode-guard");
@@ -21,6 +21,7 @@ const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
 const { ensureNativeMemoryFile } = require("./platforms/ensure");
 const os = require("os");
+const { ensureGitignore } = require("./gitignore");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
 
@@ -36,6 +37,41 @@ function defaultProgress({ project, technology, docSource, phases }) {
     docSource: docSource || null,
     phases: Array.isArray(phases) && phases.length > 0 ? phases : [],
   };
+}
+
+// Where `init` writes. A `--project` name asked from a non-empty folder of
+// another name (a container such as tech-experiments) gets its own `./<name>/`
+// — never the container itself. Refuses a path that escapes the cwd, and any
+// directory below an existing project (a nested project confuses every
+// "nearest progress.json" lookup).
+function chooseInitDir({ cwd, explicitDir, project }) {
+  let target = path.resolve(cwd);
+
+  if (project && !explicitDir) {
+    if (/[\\/]/.test(project) || project === ".." || project === ".") {
+      fail(`--project "${project}" invalide : un nom simple, sans / ni .. (le projet reste dans le dossier courant)`);
+    }
+
+    const entries = fs.existsSync(target) ? fs.readdirSync(target) : [];
+
+    if (entries.length > 0 && path.basename(target) !== project) {
+      target = path.join(target, project);
+    }
+  }
+
+  const home = path.resolve(os.homedir());
+
+  for (let parent = path.dirname(target); ; parent = path.dirname(parent)) {
+    if (parent !== home && fs.existsSync(progressPath(parent))) {
+      fail(`init refusé : ${target} est dans le projet ${parent} (progress.json) — un projet imbriqué est interdit`);
+    }
+
+    if (parent === home || parent === path.dirname(parent)) {
+      break;
+    }
+  }
+
+  return target;
 }
 
 function scaffold({ dir, project, technology, docSource, phases, platform }) {
@@ -54,6 +90,10 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
   if (!fs.existsSync(checkpointReadme)) {
     fs.writeFileSync(checkpointReadme, fs.readFileSync(templatePath("checkpoint-readme.md"), "utf8"));
     created.push(normalizePortable(path.relative(abs, checkpointReadme)));
+  }
+
+  if (ensureGitignore(abs) === "created") {
+    created.push(".gitignore");
   }
 
   const progressFile = progressPath(abs);
@@ -243,4 +283,4 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
   return { dir: abs, created, platform: platform || null };
 }
 
-module.exports = { scaffold };
+module.exports = { scaffold, chooseInitDir };

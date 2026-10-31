@@ -21,6 +21,7 @@ const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
 const { ensureOpenCodeGuard, usesOpenCode, PLUGIN_RELATIVE } = require("./platforms/opencode-guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
+const { ensureGitignore } = require("./gitignore");
 const { ensureNormConfig, ensureNormHook } = require("./norm");
 const { ensureMutateConfig } = require("./mutate");
 const {
@@ -255,6 +256,7 @@ function updateCommand({ root, platform, home }) {
     const dogfood = syncDogfood(project);
     const checkpointReadme = syncCheckpointReadme(project);
     const commitHook = ensureCommitMsgHook(project);
+    const gitignore = ensureGitignore(project);
 
     // Same real-detected-language sourcing as init.js — see there for why
     // this is not the free-text progress.json `technology` label.
@@ -317,6 +319,7 @@ function updateCommand({ root, platform, home }) {
     }
     log(`  dogfood journal: .ai-learn/dogfood.md ${dogfood}`);
     log(`  checkpoint README: checkpoint/README.md ${checkpointReadme}`);
+    log(`  .gitignore: ${gitignore}`);
     log(
       `  commit-msg hook: ${commitHook.skipped ? "no .git yet — skipped" : `.githooks/commit-msg ${commitHook.file}, core.hooksPath ${commitHook.hooksPath}`}`,
     );

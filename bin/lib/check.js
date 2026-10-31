@@ -19,6 +19,7 @@ const {
   latestAnyEvidenceForPhase,
   phaseVerdict,
   revisitState,
+  missingProgressMessage,
 } = require("./progress");
 const { docSourceList, digestPath, digestCitations, digestCitationProblem } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
@@ -76,7 +77,7 @@ function checkProject(dir, { home, now = new Date() } = {}) {
   }
 
   if (!config) {
-    issues.errors.push({ file: "progress.json", message: "unreadable or invalid JSON" });
+    issues.errors.push({ file: "progress.json", message: missingProgressMessage(dir) });
     return { dir, config: null, issues };
   }
 

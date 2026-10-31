@@ -94,6 +94,61 @@ function allEvidenceForPhase(dir, phaseId) {
   return found;
 }
 
+// Where a malformed JSON text breaks, as "message (ligne L, colonne C)". Node
+// reports an offset only for some errors; a truncated file has none, so the
+// end of the text is the position.
+function jsonErrorDetail(text, error) {
+  const match = /position (\d+)/.exec(error.message);
+  const offset = match ? Math.min(Number(match[1]), text.length) : text.length;
+  const before = text.slice(0, offset).split("\n");
+  const message = error.message.replace(/\s*\(line \d+ column \d+\)/, "");
+  return `${message} (ligne ${before.length}, colonne ${before[before.length - 1].length + 1})`;
+}
+
+// The message every command shows when it finds no usable progress.json. A
+// file that exists but does not parse must never read as "run init": the AI
+// obeys it and scaffolds a second project beside the damaged one.
+function missingProgressMessage(dir) {
+  const filePath = progressPath(dir);
+
+  if (fs.existsSync(filePath)) {
+    const text = fs.readFileSync(filePath, "utf8");
+
+    try {
+      JSON.parse(text);
+    } catch (error) {
+      return `progress.json illisible : ${jsonErrorDetail(text, error)} — corriger le fichier ; ne pas relancer \`init\``;
+    }
+  }
+
+  return `No progress.json in ${dir}. Run \`ai-learn init\` first.`;
+}
+
+// Walks up from `start` to the nearest directory holding a progress.json,
+// stopping before the home directory (a progress.json there is ignored) and at
+// the filesystem root. Falls back to `start` so callers keep their own error.
+function findProjectDir(start, home = require("os").homedir()) {
+  let dir = path.resolve(start);
+
+  for (;;) {
+    if (dir === path.resolve(home)) {
+      return start;
+    }
+
+    if (fs.existsSync(progressPath(dir))) {
+      return dir;
+    }
+
+    const parent = path.dirname(dir);
+
+    if (parent === dir) {
+      return start;
+    }
+
+    dir = parent;
+  }
+}
+
 function readProgress(dir) {
   const filePath = progressPath(dir);
 
@@ -331,6 +386,8 @@ module.exports = {
   progressPath,
   runsDir,
   readProgress,
+  missingProgressMessage,
+  findProjectDir,
   validateProgress,
   findPhase,
   setPhaseStatus,

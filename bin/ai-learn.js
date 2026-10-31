@@ -57,7 +57,14 @@ function main() {
     return;
   }
 
-  const dir = resolveDir(getFlagValue("--dir"));
+  // Commands that act on one project find it from any subfolder; an explicit
+  // --dir (or init/update, which choose their own target) is taken as given.
+  const FROM_SUBDIR = ["status", "next", "verify", "predict", "norm", "mutate", "traps", "docs"];
+  const explicitDir = getFlagValue("--dir");
+  const dir =
+    !explicitDir && FROM_SUBDIR.includes(command)
+      ? require("./lib/progress").findProjectDir(resolveDir(null))
+      : resolveDir(explicitDir);
 
   // Mechanical platform self-heal, on every command but the hot-path guard
   // hook: a learner resuming on a different platform than it was `init`ed on
@@ -71,8 +78,11 @@ function main() {
 
   switch (command) {
     case "init": {
-      const { scaffold } = require("./lib/init");
-      const project = getFlagValue("--project", null) || path.basename(dir);
+      const { scaffold, chooseInitDir } = require("./lib/init");
+      const projectFlag = getFlagValue("--project", null);
+      const target = chooseInitDir({ cwd: dir, explicitDir: Boolean(explicitDir), project: projectFlag });
+      const project = projectFlag || path.basename(target);
+      log(`Dossier du projet : ${target}`);
       const technology = getFlagValue("--technology", null);
       const docSourceRaw = getFlagValue("--doc-source", null);
       const phasesRaw = getFlagValue("--phases", null);
@@ -98,8 +108,8 @@ function main() {
       const { detectPlatform } = require("./lib/platforms/detect");
       const platform = getFlagValue("--platform", null) || detectPlatform();
 
-      const { created } = scaffold({ dir, project, technology, docSource, phases, platform });
-      log(`Initialized learning project "${project}" in ${dir}`);
+      const { created } = scaffold({ dir: target, project, technology, docSource, phases, platform });
+      log(`Initialized learning project "${project}" in ${target}`);
 
       for (const file of created) {
         log(`  created ${file}`);
@@ -154,7 +164,7 @@ function main() {
 
     case "predict": {
       const { recordPrediction, revealPrediction } = require("./lib/predictions");
-      const { readProgress } = require("./lib/progress");
+      const { readProgress, missingProgressMessage } = require("./lib/progress");
       const revealId = getFlagValue("--reveal", null);
       const phaseRaw = getFlagValue("--phase", null);
       const phaseId = phaseRaw !== null ? Number.parseInt(phaseRaw, 10) : NaN;
@@ -166,7 +176,7 @@ function main() {
       const { config, exists } = readProgress(dir);
 
       if (!exists || !config) {
-        fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+        fail(missingProgressMessage(dir));
       }
 
       const fields = {
@@ -219,7 +229,8 @@ function main() {
 
     case "check": {
       const { checkCommand } = require("./lib/check");
-      const root = resolveDir(getFlagValue("--root"));
+      const rootFlag = getFlagValue("--root");
+      const root = rootFlag ? resolveDir(rootFlag) : require("./lib/progress").findProjectDir(resolveDir(null));
       checkCommand({ root, json: flags.has("--json") });
       break;
     }

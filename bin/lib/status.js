@@ -5,7 +5,7 @@
 
 const path = require("path");
 const { log, fail, normalizePortable } = require("./util");
-const { readProgress, validateProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
+const { readProgress, missingProgressMessage, validateProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
@@ -254,7 +254,7 @@ function buildStatusReport(dir) {
     return {
       version: 1,
       dir: normalizePortable(dir),
-      error: `No progress.json in ${dir}. Run \`ai-learn init\` first.`,
+      error: missingProgressMessage(dir),
       uncommitted: uncommittedCount(dir),
     };
   }
@@ -304,7 +304,7 @@ function statusCommand({ dir, home, json }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   printStatus(config, { dir });

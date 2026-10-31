@@ -14,14 +14,14 @@ Un nouveau parcours atterrit dans son propre dossier, ne commit jamais `node_mod
 
 ## Acceptance Criteria
 
-- [ ] Given un dossier sans `.gitignore`, when `init`, then `.gitignore` contient le bloc `# ai-learn` avec `node_modules/` et `.env`.
-- [ ] Given un `.gitignore` existant avec des lignes perso et `node_modules/`, when `update`, then les lignes perso sont intactes, `node_modules/` n'est pas dupliqué, les lignes manquantes sont ajoutées.
-- [ ] Given le dossier `tech-experiments` (non vide, autre nom), when `init --project mini-redis`, then le projet est créé dans `./mini-redis/` et la sortie affiche ce chemin.
-- [ ] Given un dossier vide nommé autrement, when `init --project x`, then le projet est créé dans le dossier courant.
-- [ ] Given un projet existant, when `init` dans son sous-dossier `src/`, then exit 1, message nommant le projet parent, aucun fichier créé.
-- [ ] Given `cd src/`, when `status` / `next` / `verify 1`, then ils agissent sur le projet parent.
-- [ ] Given un `progress.json` tronqué, when `status`, then le message contient « illisible », une position, et pas « init ».
-- [ ] Given `npm pack --dry-run --json`, when le test lit la liste, then `commands/learn.md` y figure.
+- [x] Given un dossier sans `.gitignore`, when `init`, then `.gitignore` contient le bloc `# ai-learn` avec `node_modules/` et `.env`.
+- [x] Given un `.gitignore` existant avec des lignes perso et `node_modules/`, when `update`, then les lignes perso sont intactes, `node_modules/` n'est pas dupliqué, les lignes manquantes sont ajoutées.
+- [x] Given le dossier `tech-experiments` (non vide, autre nom), when `init --project mini-redis`, then le projet est créé dans `./mini-redis/` et la sortie affiche ce chemin.
+- [x] Given un dossier vide nommé autrement, when `init --project x`, then le projet est créé dans le dossier courant.
+- [x] Given un projet existant, when `init` dans son sous-dossier `src/`, then exit 1, message nommant le projet parent, aucun fichier créé.
+- [x] Given `cd src/`, when `status` / `next` / `verify 1`, then ils agissent sur le projet parent.
+- [x] Given un `progress.json` tronqué, when `status`, then le message contient « illisible », une position, et pas « init ».
+- [x] Given `npm pack --dry-run --json`, when le test lit la liste, then `commands/learn.md` y figure.
 
 ## Edge Cases
 

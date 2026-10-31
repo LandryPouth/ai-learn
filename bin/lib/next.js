@@ -6,7 +6,7 @@
 
 const fs = require("fs");
 const { log, fail, normalizePortable } = require("./util");
-const { readProgress, latestEvidenceForPhase, phaseVerdict, revisitState } = require("./progress");
+const { readProgress, missingProgressMessage, latestEvidenceForPhase, phaseVerdict, revisitState } = require("./progress");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { normalizePredictionsRequired } = require("./predictions");
@@ -59,7 +59,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
     return {
       version: 1,
       dir: normalizePortable(dir),
-      error: `No progress.json in ${dir}. Run \`ai-learn init\` first.`,
+      error: missingProgressMessage(dir),
       uncommitted: uncommittedCount(dir),
     };
   }
@@ -130,7 +130,7 @@ function nextCommand({ dir, json, now = new Date() }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const phases = Array.isArray(config.phases) ? config.phases : [];

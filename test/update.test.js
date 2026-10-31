@@ -459,3 +459,27 @@ test("update re-quotes a live unquoted norm hook without repointing it", () => {
 
   assert.ok(hookCommands(dir, "PostToolUse").includes(`node "${other}" norm --hook`));
 });
+
+test("update completes gitignore without touching custom lines", () => {
+  const { ensureGitignore } = require("../bin/lib/gitignore");
+  const dir = fs.mkdtempSync(path.join(require("os").tmpdir(), "ai-learn-gi-"));
+  const file = path.join(dir, ".gitignore");
+  fs.writeFileSync(file, "mon-secret.txt\r\nnode_modules/\r\n");
+  assert.strictEqual(ensureGitignore(dir), "updated");
+  const text = fs.readFileSync(file, "utf8");
+  assert.ok(text.startsWith("mon-secret.txt\r\nnode_modules/\r\n"));
+  assert.strictEqual(text.match(/node_modules\//g).length, 1);
+  assert.match(text, /\.env\r\n/);
+  assert.strictEqual(ensureGitignore(dir), "unchanged");
+});
+
+test("ensureGitignore keeps CRLF line endings", () => {
+  const { ensureGitignore } = require("../bin/lib/gitignore");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-crlf-"));
+  const file = path.join(dir, ".gitignore");
+  fs.writeFileSync(file, "perso\r\n");
+  ensureGitignore(dir);
+  const text = fs.readFileSync(file, "utf8");
+  assert.match(text, /node_modules\/\r\n/);
+  assert.doesNotMatch(text.replace(/\r\n/g, ""), /\n/);
+});

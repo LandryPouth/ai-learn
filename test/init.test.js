@@ -458,3 +458,53 @@ test("the protocol documents the three assistance levels and reads tutor.json be
   assert.match(section1, /indice → question → pseudo-code → solution/);
   assert.match(section1, /`strict`/);
 });
+
+// Story 09.04 — scaffold au bon endroit.
+const { chooseInitDir } = require("../bin/lib/init");
+
+test("init writes the ai-learn gitignore block", () => {
+  const dir = tmpDir();
+  scaffold({ dir, project: "demo", technology: "Node", phases: [] });
+  const text = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
+  assert.match(text, /# ai-learn/);
+  assert.match(text, /^node_modules\/$/m);
+  assert.match(text, /^\.env$/m);
+});
+
+test("init --project in a container creates ./<name>/", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "autre.txt"), "x");
+  assert.strictEqual(chooseInitDir({ cwd: dir, explicitDir: false, project: "mini-redis" }), path.join(dir, "mini-redis"));
+});
+
+test("init --project in an empty dir uses it", () => {
+  const dir = tmpDir();
+  assert.strictEqual(chooseInitDir({ cwd: dir, explicitDir: false, project: "x" }), dir);
+});
+
+test("init --project refuses a name that escapes the folder", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "autre.txt"), "x");
+  assert.throws(() => chooseInitDir({ cwd: dir, explicitDir: false, project: "../evil" }), /invalide/);
+});
+
+test("init refuses inside an existing project", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "progress.json"), "{}");
+  fs.mkdirSync(path.join(dir, "src"));
+  assert.throws(() => chooseInitDir({ cwd: path.join(dir, "src"), explicitDir: false, project: null }), (error) => error.message.includes(dir));
+  assert.ok(!fs.existsSync(path.join(dir, "src", "progress.json")));
+});
+
+test("findProjectDir stops at home and ignores a progress.json there", () => {
+  const { findProjectDir } = require("../bin/lib/progress");
+  const home = tmpDir();
+  const sub = path.join(home, "src");
+  fs.mkdirSync(sub);
+  fs.writeFileSync(path.join(home, "progress.json"), "{}");
+  assert.strictEqual(findProjectDir(sub, home), sub);
+  const project = path.join(home, "p");
+  fs.mkdirSync(path.join(project, "src"), { recursive: true });
+  fs.writeFileSync(path.join(project, "progress.json"), "{}");
+  assert.strictEqual(findProjectDir(path.join(project, "src"), home), project);
+});

@@ -8,7 +8,7 @@
 const fs = require("fs");
 const path = require("path");
 const { log, fail, UsageError, explainCommitCommand } = require("./util");
-const { readProgress, runsDir, findPhase, setPhaseStatus, latestEvidenceForPhase, phaseVerdict } = require("./progress");
+const { readProgress, missingProgressMessage, runsDir, findPhase, setPhaseStatus, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { syncEvidence, formatSyncFailure } = require("./ledgers");
 const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash, computeLearnerHash, computeCheckpointHash } = require("./source-hash");
@@ -153,7 +153,7 @@ function staleCommand({ dir, home }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const stale = findStalePhases(dir, config);
@@ -218,7 +218,7 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const phase = findPhase(config, phaseId);

@@ -22,7 +22,7 @@
 const fs = require("fs");
 const path = require("path");
 const { log, fail, readJson, writeJson } = require("./util");
-const { readProgress, findPhase } = require("./progress");
+const { readProgress, missingProgressMessage, findPhase } = require("./progress");
 const { walkSources, detectStack, detectTests, stackKey, loadStack, ALL_SOURCE_EXTS } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const { stripStringsAndComments } = require("./norm");
@@ -415,7 +415,7 @@ function mutateCommand({ dir, phaseId }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const phase = findPhase(config, phaseId);

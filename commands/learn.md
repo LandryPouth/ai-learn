@@ -165,7 +165,7 @@ git/gh (1-6, voir `AGENTS.md` §3) manquent encore, **tous projets confondus**.
 
 ## 5. Scaffolder avec ai-learn
 
-Exécute, depuis la racine du projet d'apprentissage :
+Exécute, depuis le dossier du projet (ou depuis son dossier parent : avec `--project`, `init` crée alors `./<nom-du-projet>/` quand le dossier courant n'est ni vide-pour-ce-projet ni nommé ainsi — la première ligne affiche le chemin choisi) :
 
 ```bash
 ai-learn init \

@@ -10,6 +10,7 @@
   },
   "files": [
     "bin",
+    "commands",
     "templates",
     "README.md",
     "LICENSE"
