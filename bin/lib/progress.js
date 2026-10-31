@@ -94,6 +94,61 @@ function allEvidenceForPhase(dir, phaseId) {
   return found;
 }
 
+// Where a malformed JSON text breaks, as "message (ligne L, colonne C)". Node
+// reports an offset only for some errors; a truncated file has none, so the
+// end of the text is the position.
+function jsonErrorDetail(text, error) {
+  const match = /position (\d+)/.exec(error.message);
+  const offset = match ? Math.min(Number(match[1]), text.length) : text.length;
+  const before = text.slice(0, offset).split("\n");
+  const message = error.message.replace(/\s*\(line \d+ column \d+\)/, "");
+  return `${message} (ligne ${before.length}, colonne ${before[before.length - 1].length + 1})`;
+}
+
+// The message every command shows when it finds no usable progress.json. A
+// file that exists but does not parse must never read as "run init": the AI
+// obeys it and scaffolds a second project beside the damaged one.
+function missingProgressMessage(dir) {
+  const filePath = progressPath(dir);
+
+  if (fs.existsSync(filePath)) {
+    const text = fs.readFileSync(filePath, "utf8");
+
+    try {
+      JSON.parse(text);
+    } catch (error) {
+      return `progress.json illisible : ${jsonErrorDetail(text, error)} — corriger le fichier ; ne pas relancer \`init\``;
+    }
+  }
+
+  return `Aucun progress.json dans ${dir}. Lance d'abord \`ai-learn init\`.`;
+}
+
+// Walks up from `start` to the nearest directory holding a progress.json,
+// stopping before the home directory (a progress.json there is ignored) and at
+// the filesystem root. Falls back to `start` so callers keep their own error.
+function findProjectDir(start, home = require("os").homedir()) {
+  let dir = path.resolve(start);
+
+  for (;;) {
+    if (dir === path.resolve(home)) {
+      return start;
+    }
+
+    if (fs.existsSync(progressPath(dir))) {
+      return dir;
+    }
+
+    const parent = path.dirname(dir);
+
+    if (parent === dir) {
+      return start;
+    }
+
+    dir = parent;
+  }
+}
+
 function readProgress(dir) {
   const filePath = progressPath(dir);
 
@@ -156,6 +211,15 @@ function validateProgress(config) {
     if (phase.gitTier !== undefined && phase.gitTier !== null) {
       if (typeof phase.gitTier !== "number" || phase.gitTier < 1 || phase.gitTier > 6) {
         issues.push({ level: "warning", message: `phase ${phase.id} has an out-of-range gitTier (${phase.gitTier}) — expected 1-6` });
+      }
+    }
+
+    // Optional: which platform tier (1-7, see bin/lib/tracks/platform.js) this
+    // phase deliberately teaches. Unlike gitTier, an out-of-range value is an
+    // error: `check` must name the phase and the 1-7 range (story 10.03).
+    if (phase.platformTier !== undefined && phase.platformTier !== null) {
+      if (!Number.isInteger(phase.platformTier) || phase.platformTier < 1 || phase.platformTier > 7) {
+        issues.push({ level: "error", message: `phase ${phase.id} has an out-of-range platformTier (${phase.platformTier}) — expected 1-7` });
       }
     }
 
@@ -278,6 +342,15 @@ function phaseVerdict({ phase, evidence, currentHash, checkpointFileExists }) {
       return { state: "unproven" };
     }
 
+    // Story 09.02 — the contract moved: the checkpoint command in the ledger
+    // is no longer the one the proof ran. Stale (re-provable with `verify`),
+    // never red, and named so nobody reads it as "your code changed".
+    const sameCommand = (a, b) => a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+
+    if (typeof evidence.checkpoint === "string" && typeof phase.checkpoint === "string" && !sameCommand(evidence.checkpoint, phase.checkpoint)) {
+      return { state: "stale", reason: "checkpoint-changed" };
+    }
+
     if (!evidence.sourceHash) {
       return { state: "proven-unhashed" };
     }
@@ -317,14 +390,74 @@ function setPhaseStatus(dir, id, status) {
   return true;
 }
 
+// `reviewAfterDays` is written by `verify`/`revisit` only (story 09.06): the
+// interval grows from proof, never from a hand edit.
+function setPhaseReviewAfterDays(dir, id, days) {
+  const { config, exists } = readProgress(dir);
+  const phase = exists && config ? findPhase(config, id) : null;
+
+  if (!phase) {
+    return false;
+  }
+
+  phase.reviewAfterDays = days;
+  writeJson(progressPath(dir), config);
+  return true;
+}
+
+// Story 09.07 — the tool version a project was last scaffolded/updated with.
+// `outdated` is true when it is absent or older; a project written by a newer
+// tool is reported as `ahead` and never downgraded.
+const TOOL_VERSION = require("../../package.json").version;
+
+function compareVersions(a, b) {
+  const left = String(a).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = String(b).split(".").map((part) => Number.parseInt(part, 10) || 0);
+
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const diff = (left[i] || 0) - (right[i] || 0);
+
+    if (diff !== 0) {
+      return diff < 0 ? -1 : 1;
+    }
+  }
+
+  return 0;
+}
+
+function scaffoldState(config) {
+  const have = config && typeof config.toolVersion === "string" ? config.toolVersion : null;
+  const order = have === null ? -1 : compareVersions(have, TOOL_VERSION);
+
+  return { outdated: order < 0, ahead: order > 0, toolVersion: have };
+}
+
+function stampToolVersion(dir) {
+  const { config, exists } = readProgress(dir);
+
+  if (!exists || !config || scaffoldState(config).ahead) {
+    return false;
+  }
+
+  config.toolVersion = TOOL_VERSION;
+  writeJson(progressPath(dir), config);
+  return true;
+}
+
 module.exports = {
+  TOOL_VERSION,
+  scaffoldState,
+  stampToolVersion,
   PHASE_STATUSES,
   progressPath,
   runsDir,
   readProgress,
+  missingProgressMessage,
+  findProjectDir,
   validateProgress,
   findPhase,
   setPhaseStatus,
+  setPhaseReviewAfterDays,
   latestEvidenceForPhase,
   latestAnyEvidenceForPhase,
   allEvidenceForPhase,

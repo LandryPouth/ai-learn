@@ -6,10 +6,13 @@
 
 const fs = require("fs");
 const { log, fail, normalizePortable } = require("./util");
-const { readProgress, latestEvidenceForPhase, phaseVerdict, revisitState } = require("./progress");
+const { readProgress, missingProgressMessage, latestEvidenceForPhase, phaseVerdict, revisitState, scaffoldState } = require("./progress");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { normalizePredictionsRequired } = require("./predictions");
+const { normProject, formatViolation } = require("./norm");
+const { revisitStatus, revisitNotice } = require("./revisit");
+const { incidentFact, incidentNotice, incidentDue } = require("./incident");
 
 // The done phases, split into the two ways one stops being actionable proof:
 // `broken` (never proven, or stale) and `revisits` (proven, but old enough to
@@ -52,20 +55,42 @@ function analyzeDonePhases(dir, phases, now) {
 // becomes an `error` field instead of a stack (see spec.md's edge cases).
 // When no phase remains, `done: true` is the dedicated field an agent reads
 // instead of parsing the "All N/N phases done." sentence.
-function buildNextReport(dir, { now = new Date() } = {}) {
+// Learner-file norm violations, as the `file:line — message [rule]` strings
+// `ai-learn norm` prints. Never throws: a norm failure must not break `next`.
+const MAX_NORM_LINES = 5;
+
+function learnerNorm(dir) {
+  try {
+    return { violations: normProject(dir).violations.map(formatViolation) };
+  } catch {
+    return { violations: [] };
+  }
+}
+
+// The one place `next` writes anything: an incident draw is recorded (outside
+// the project) so each proven phase is rolled for exactly once. `random` and
+// `home` are injectable for tests.
+function incidentOffer(dir, { random, home } = {}) {
+  const fact = incidentFact(dir);
+  return { ...fact, due: !fact.active && incidentDue(dir, { random, home }) };
+}
+
+function buildNextReport(dir, { now = new Date(), random, home } = {}) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
     return {
       version: 1,
       dir: normalizePortable(dir),
-      error: `No progress.json in ${dir}. Run \`ai-learn init\` first.`,
+      error: missingProgressMessage(dir),
       uncommitted: uncommittedCount(dir),
     };
   }
 
   const phases = Array.isArray(config.phases) ? config.phases : [];
   const { broken: brokenDone, revisits } = analyzeDonePhases(dir, phases, now);
+  const pending = revisitStatus(dir);
+  const revisitPending = pending.state === "none" ? null : { state: pending.state, phaseId: pending.lock ? pending.lock.phaseId : null };
   const broken = brokenDone.map(({ phase, verdict }) => ({ id: phase.id, name: phase.name, verdict: verdict.state }));
   // Stale proofs no longer replace the real next action (story 04.02): they are
   // reported separately so a consumer sees "where the learner goes next" and
@@ -81,11 +106,15 @@ function buildNextReport(dir, { now = new Date() } = {}) {
     return {
       version: 1,
       dir: normalizePortable(dir),
+      outdated: scaffoldState(config).outdated,
       done: true,
       phasesTotal: phases.length,
+      revisitPending,
+      incident: incidentOffer(dir, { random, home }),
       broken,
       stale,
       revisit,
+      norm: learnerNorm(dir),
       uncommitted: uncommittedCount(dir),
     };
   }
@@ -95,10 +124,14 @@ function buildNextReport(dir, { now = new Date() } = {}) {
   return {
     version: 1,
     dir: normalizePortable(dir),
+    outdated: scaffoldState(config).outdated,
     done: false,
+    revisitPending,
+    incident: incidentOffer(dir, { random, home }),
     broken,
     stale,
     revisit,
+    norm: learnerNorm(dir),
     uncommitted: uncommittedCount(dir),
     next: {
       id: next.id,
@@ -116,9 +149,9 @@ function buildNextReport(dir, { now = new Date() } = {}) {
   };
 }
 
-function nextCommand({ dir, json, now = new Date() }) {
+function nextCommand({ dir, json, now = new Date(), random, home }) {
   if (json) {
-    const report = buildNextReport(dir, { now });
+    const report = buildNextReport(dir, { now, random, home });
     log(JSON.stringify(report));
 
     if (report.error) {
@@ -130,7 +163,7 @@ function nextCommand({ dir, json, now = new Date() }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const phases = Array.isArray(config.phases) ? config.phases : [];
@@ -141,17 +174,41 @@ function nextCommand({ dir, json, now = new Date() }) {
   // where the learner actually goes, then lists what must be re-proven.
   const { broken: brokenDone, revisits } = analyzeDonePhases(dir, phases, now);
   const staleDone = brokenDone.filter((entry) => entry.verdict.state === "stale");
+  const notice = revisitNotice(dir);
   const next = phases.find((phase) => phase && phase.status !== "done");
 
   const logBroken = (entries) => {
     for (const { phase, verdict } of entries) {
-      if (verdict.state === "stale") {
-        log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but its proof is stale — re-prove it: \`ai-learn verify --stale\`.`);
+      if (verdict.state === "stale" && verdict.reason === "checkpoint-changed") {
+        log(`⚠ Phase ${phase.id} — ${phase.name} est marquée done mais son checkpoint a changé depuis la preuve — re-prouve-la : \`ai-learn verify ${phase.id}\`.`);
+      } else if (verdict.state === "stale") {
+        log(`⚠ Phase ${phase.id} — ${phase.name} est marquée done mais sa preuve est périmée — re-prouve-la : \`ai-learn verify --stale\`.`);
       } else {
-        log(`⚠ Phase ${phase.id} — ${phase.name} is marked done but has no passing evidence (unproven).`);
+        log(`⚠ Phase ${phase.id} — ${phase.name} est marquée done mais n'a aucune preuve qui passe (non prouvée).`);
       }
     }
   };
+
+  // Story 09.06 — a revisit under way outranks everything: the learner's files
+  // are in a half-removed state until it ends.
+  if (notice) {
+    log(notice);
+    log("");
+  }
+
+  const incident = incidentNotice(dir);
+
+  if (incident) {
+    log(`${incident}\n`);
+  }
+
+  const scaffold = scaffoldState(config);
+
+  if (scaffold.outdated) {
+    log("⚠ Projet en retard sur l'outil — lance `ai-learn update` avant de continuer.\n");
+  } else if (scaffold.ahead) {
+    log(`⚠ Ce projet vient d'une version plus récente de l'outil (${scaffold.toolVersion}) — mets l'outil à jour, rien n'est rétrogradé.\n`);
+  }
 
   // No stale proof: keep the pre-04.02 output order byte-for-byte (warnings
   // first, then the next action) — this story only moves stale re-proofs.
@@ -164,9 +221,9 @@ function nextCommand({ dir, json, now = new Date() }) {
   }
 
   if (next) {
-    log(`Next: Phase ${next.id} — ${next.name}`);
-    log(`  Status: ${next.status}`);
-    log(`  Checkpoint: ${next.checkpoint || "(no checkpoint defined)"}`);
+    log(`Suivant : Phase ${next.id} — ${next.name}`);
+    log(`  Statut : ${next.status}`);
+    log(`  Checkpoint : ${next.checkpoint || "(aucun checkpoint défini)"}`);
 
     const predictionRequirement = normalizePredictionsRequired(next.predictionsRequired);
 
@@ -175,25 +232,25 @@ function nextCommand({ dir, json, now = new Date() }) {
         ? ` (${Object.entries(predictionRequirement.byType).map(([type, count]) => `${type} ${count}`).join(", ")})`
         : "";
 
-      log(`  Predictions required: ${predictionRequirement.total}${byType}`);
+      log(`  Prédictions exigées : ${predictionRequirement.total}${byType}`);
       log("  Protocole : AGENTS.md § « prédire avant de révéler » — une prédiction par écrit, dans le chat,");
-      log("  AVANT chaque révélation ; puis consignée dans docs/plans/predictions.md (format en tête du fichier).");
+      log(`  AVANT chaque révélation, enregistrée en deux temps : \`ai-learn predict --phase ${next.id} --prediction "..."\`, puis \`--reveal\`.`);
     }
 
     if (Array.isArray(next.artifacts) && next.artifacts.length > 0) {
-      log(`  Artifact: ${next.artifacts.join(", ")}`);
+      log(`  Artefact : ${next.artifacts.join(", ")}`);
     }
 
     log("");
-    log("When it passes, prove it:");
+    log("Quand ça passe, prouve-le :");
     log(`  ai-learn verify ${next.id}`);
   } else if (staleDone.length === 0) {
-    log(`All ${phases.length}/${phases.length} phases done.`);
-    log("Run `ai-learn check` to confirm the whole track is proven, then ship it.");
+    log(`Les ${phases.length}/${phases.length} phases sont terminées.`);
+    log("Lance `ai-learn check` pour confirmer que tout le parcours est prouvé.");
   } else {
     // Every phase is marked done, but at least one proof does not hold — never
     // claim the track is finished. The actionable list follows below.
-    log(`All ${phases.length}/${phases.length} phases are marked done, but ${brokenDone.length} proof(s) do not hold.`);
+    log(`Les ${phases.length}/${phases.length} phases sont marquées done, mais ${brokenDone.length} preuve(s) ne tiennent pas.`);
   }
 
   // A stale proof is real, but it does not outrank the next action: it is an
@@ -212,7 +269,19 @@ function nextCommand({ dir, json, now = new Date() }) {
 
     for (const { phase, lastProvenAt: provenAt, reviewAfterDays } of revisits) {
       log(`  Phase ${phase.id} — ${phase.name} — prouvée le ${provenAt.slice(0, 10)}, revisite conseillée après ${reviewAfterDays} jour(s).`);
-      log(`    Rejouez son checkpoint de mémoire : \`ai-learn verify ${phase.id}\`.`);
+      log(`    Lancez \`ai-learn revisit ${phase.id}\` : le code de la phase est retiré, vous le retapez de mémoire.`);
+    }
+  }
+
+  const { violations: normViolations } = learnerNorm(dir);
+
+  if (normViolations.length > 0) {
+    log("");
+    log(`Norme : ${normViolations.length} violation${normViolations.length > 1 ? "s" : ""} dans ton code — à expliquer, pas à corriger à ta place :`);
+    normViolations.slice(0, MAX_NORM_LINES).forEach((v) => log(`  ${v}`));
+
+    if (normViolations.length > MAX_NORM_LINES) {
+      log(`  … et ${normViolations.length - MAX_NORM_LINES} autre(s) — \`ai-learn norm\` pour la liste complète.`);
     }
   }
 

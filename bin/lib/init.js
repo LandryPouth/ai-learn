@@ -8,8 +8,8 @@
 
 const fs = require("fs");
 const path = require("path");
-const { log, writeJson, mkdirp, normalizePortable } = require("./util");
-const { progressPath } = require("./progress");
+const { log, fail, writeJson, mkdirp, normalizePortable } = require("./util");
+const { progressPath, TOOL_VERSION } = require("./progress");
 const { ensureGuardHook } = require("./guard");
 const { ensureOpenCodeGuard, usesOpenCode } = require("./platforms/opencode-guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
@@ -21,24 +21,64 @@ const { detectDomainKey } = require("./tracks/domain");
 const { PLATFORMS, INSTALLERS } = require("./install");
 const { ensureNativeMemoryFile } = require("./platforms/ensure");
 const os = require("os");
+const { ensureGitignore } = require("./gitignore");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
+
+const PERTINENCE_PATH = "docs/plans/pertinence.md";
 
 function templatePath(name) {
   return path.join(TEMPLATES_DIR, name);
 }
 
-function defaultProgress({ project, technology, docSource, phases }) {
+function defaultProgress({ project, technology, docSource, phases, pertinence }) {
   return {
     version: 1,
+    toolVersion: TOOL_VERSION,
     project,
     technology: technology || "",
     docSource: docSource || null,
     phases: Array.isArray(phases) && phases.length > 0 ? phases : [],
+    ...(pertinence ? { pertinence } : {}),
   };
 }
 
-function scaffold({ dir, project, technology, docSource, phases, platform }) {
+// Where `init` writes. A `--project` name asked from a non-empty folder of
+// another name (a container such as tech-experiments) gets its own `./<name>/`
+// — never the container itself. Refuses a path that escapes the cwd, and any
+// directory below an existing project (a nested project confuses every
+// "nearest progress.json" lookup).
+function chooseInitDir({ cwd, explicitDir, project }) {
+  let target = path.resolve(cwd);
+
+  if (project && !explicitDir) {
+    if (/[\\/]/.test(project) || project === ".." || project === ".") {
+      fail(`--project "${project}" invalide : un nom simple, sans / ni .. (le projet reste dans le dossier courant)`);
+    }
+
+    const entries = fs.existsSync(target) ? fs.readdirSync(target) : [];
+
+    if (entries.length > 0 && path.basename(target) !== project) {
+      target = path.join(target, project);
+    }
+  }
+
+  const home = path.resolve(os.homedir());
+
+  for (let parent = path.dirname(target); ; parent = path.dirname(parent)) {
+    if (parent !== home && fs.existsSync(progressPath(parent))) {
+      fail(`init refusé : ${target} est dans le projet ${parent} (progress.json) — un projet imbriqué est interdit`);
+    }
+
+    if (parent === home || parent === path.dirname(parent)) {
+      break;
+    }
+  }
+
+  return target;
+}
+
+function scaffold({ dir, project, technology, docSource, phases, platform, pertinenceFile }) {
   const abs = path.resolve(dir);
   const created = [];
 
@@ -56,13 +96,42 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     created.push(normalizePortable(path.relative(abs, checkpointReadme)));
   }
 
-  const progressFile = progressPath(abs);
+  if (ensureGitignore(abs) === "created") {
+    created.push(".gitignore");
+  }
 
-  if (!fs.existsSync(progressFile)) {
-    writeJson(progressFile, defaultProgress({ project, technology, docSource, phases }));
+  // The relevance analysis (story 10.06) is written by the agent; the engine
+  // only guarantees it exists next to the plan and is referenced.
+  const progressFile = progressPath(abs);
+  const isNewProject = !fs.existsSync(progressFile);
+  let pertinence = null;
+
+  if (pertinenceFile) {
+    if (!fs.existsSync(pertinenceFile)) {
+      fail(`--pertinence : fichier introuvable : ${pertinenceFile}`);
+    }
+
+    // An existing project keeps its progress.json untouched, so copying here
+    // would leave an unreferenced file: skip it and say so.
+    if (isNewProject) {
+      pertinence = PERTINENCE_PATH;
+      const dest = path.join(abs, PERTINENCE_PATH);
+
+      if (path.resolve(pertinenceFile) !== dest) {
+        fs.copyFileSync(pertinenceFile, dest);
+      }
+
+      created.push(PERTINENCE_PATH);
+    } else {
+      log(`  ignoré --pertinence (le projet existe déjà)`);
+    }
+  }
+
+  if (isNewProject) {
+    writeJson(progressFile, defaultProgress({ project, technology, docSource, phases, pertinence }));
     created.push(normalizePortable(path.relative(abs, progressFile)));
   } else {
-    log(`  kept    ${normalizePortable(path.relative(abs, progressFile))} (already exists)`);
+    log(`  conservé ${normalizePortable(path.relative(abs, progressFile))} (existe déjà)`);
   }
 
   const planFile = path.join(abs, "docs", "plans", "plan-apprentissage.md");
@@ -75,7 +144,7 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     fs.writeFileSync(planFile, plan);
     created.push(normalizePortable(path.relative(abs, planFile)));
   } else {
-    log(`  kept    ${normalizePortable(path.relative(abs, planFile))} (already exists)`);
+    log(`  conservé ${normalizePortable(path.relative(abs, planFile))} (existe déjà)`);
   }
 
   const journalFile = path.join(abs, "docs", "plans", "predictions.md");
@@ -84,7 +153,7 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     fs.writeFileSync(journalFile, fs.readFileSync(templatePath("predictions.md"), "utf8"));
     created.push(normalizePortable(path.relative(abs, journalFile)));
   } else {
-    log(`  kept    ${normalizePortable(path.relative(abs, journalFile))} (already exists)`);
+    log(`  conservé ${normalizePortable(path.relative(abs, journalFile))} (existe déjà)`);
   }
 
   // The learning protocol travels with the tool: it is written into the project
@@ -243,4 +312,4 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
   return { dir: abs, created, platform: platform || null };
 }
 
-module.exports = { scaffold };
+module.exports = { scaffold, chooseInitDir };

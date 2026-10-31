@@ -59,6 +59,7 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 - **Problème** : `place` a résolu le checkout courant pour la story 08.01, mais `lock` refuse : « checkout is occupied by story-07-02 », une story dont le `verify` est vert et le statut `done`. Le verrou est resté d'un run précédent ; le message propose d'isoler la *nouvelle* story (`worktree add`) au lieu de dire que le verrou de l'ancienne est périmé et peut être levé (`worktree unlock --story …`).
 - **Workaround** : `worktree unlock --story …/story-07-02-…` (statut `done`, preuve verte relue dans `.coding-flow/runs/`), puis `lock` sur 08.01.
 - **Résolution** : ouverte (paquet `coding-flow`). Piste : `place`/`lock` devraient détecter qu'une story verrouillée est `done` et soit lever le verrou, soit le nommer comme tel dans le message.
+- **Récidive 2026-10-30** : même refus pour la story 09.01, verrou laissé par la 08.03 (`done`, fusionnée dans `main` par la PR #11) depuis le 2026-10-24. Même contournement (`unlock` de la 08.03 puis `lock`). Deux occurrences : à remonter au paquet.
 
 ### `low` — `worktree place` crée une branche/worktree alors que la consigne explicite est « sur main »
 - **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
@@ -74,19 +75,23 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 - **Workaround** : après `verify` vert, `unlock` la story et ne pas `land` tant que la chaîne n'est pas finie ; atterrir à la main (`ai-flow worktree land --story …`) une fois s3/s4 livrées.
 - **Résolution** : ouverte (paquet `coding-flow`). Piste : `autoland` devrait distinguer « arbre non supporté » de « chaîne non terminée » et nommer le `land` manuel quand c'est la suite, au lieu de recopier le remède de `place`.
 
-### Remontées du projet `fastify-traducteur-api` (outil 0.4.0, triées le 2026-10-16)
-Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées déjà `résolu` côté outil n'y figurent pas. Détail complet : ce fichier-là.
+### Remontées du projet `fastify-traducteur-api` (outil 0.4.0, clos le 2026-10-31)
+Chaque entrée du `.ai-learn/dogfood.md` de l'apprenant porte désormais une ligne `Statut`. Les entrées résolues par les epics 04-07 ont été rejouées sur une copie mise à jour (`update`, puis `next`, `verify --stale`, `status`, `check`). Détail complet : ce fichier-là.
 
-- `high` — `AGENTS.md` n'est chargé par aucune session généraliste (aucun fichier mémoire natif). **Surface** : init/update. **Résolution** : planifiée, story-04-01.
-- `medium` — `next`/`status` répondent par une phase périmée avant la vraie suite. **Surface** : next, status. **Résolution** : planifiée, story-04-02.
-- `medium` — `stale` recouvre faux positif et régression réelle, sans moyen de les distinguer. **Surface** : verify, check. **Résolution** : résolue, story-04-03 (`verify --stale`).
-- `medium` — aucun rappel de commit entre deux réponses ; commande git donnée sans explication. **Surface** : status, verify. **Résolution** : planifiée, story-04-04.
-- `medium` — commandes `/…` sans préfixe commun, non découvrables. **Surface** : install. **Résolution** : planifiée, story-04-05.
-- `high` — règles de session dictées à la main : synthèse ciblée, relecture de `src/**`, cas d'échec, pas de solution avant la frappe, révélation dans le chat. **Surface** : AGENTS.md §1-§3. **Résolution** : planifiée, stories 05-02 à 05-04.
-- `low` — le reality check n'a pas de compteur (déjà listé ci-dessous) ; aide et preuve non configurables par apprenant. **Surface** : predictions, verify. **Résolution** : planifiée, stories 05-01, 05-05.
-- `high` — pré-lecture : 2-3 jours pour 1 h budgétée, ~1 % réutilisé ; plafond de 3 sources de `docs add`. **Surface** : docs, plan. **Résolution** : planifiée, epic-06.
-- `medium` — `norm` jamais déclenché au fil de l'eau. **Surface** : norm. **Résolution** : planifiée, story-07-03.
+- `high` — `AGENTS.md` non chargé par les sessions généralistes. **Résolution** : résolue, story-04-01.
+- `medium` — `next`/`status` répondent par une phase périmée avant la vraie suite. **Résolution** : résolue, story-04-02 (rejeu : « Suivant : Phase 6 »).
+- `medium` — `stale` recouvre faux positif et régression réelle. **Résolution** : résolue, story-04-03 (rejeu : 0 phase périmée).
+- `medium` — aucun rappel de commit ; commande git sans explication. **Résolution** : résolue, story-04-04 (rejeu : rappel expliqué).
+- `medium` — commandes `/…` sans préfixe commun. **Résolution** : résolue, story-04-05.
+- `high` — règles de session dictées à la main (synthèse, relecture, cas d'échec, pas de solution avant la frappe). **Résolution** : résolue, stories 05-02 à 05-04.
+- `high` — pré-lecture disproportionnée ; plafond de 3 sources. **Résolution** : résolue, stories 06-01 et 06-02.
+- `medium` — `norm` jamais déclenché au fil de l'eau. **Résolution** : story-07-03 rouverte (le hook ne voit pas les frappes de l'apprenant en mode apprenti), fermée par story-09-05.
+- `low` — format `docs/solutions` jugé inutile. **Résolution** : ouverte, préférence d'apprenant, rien à corriger côté outil.
 
+### Remontées des projets `mini-redis-cpp` et `tradelog-postgres-lab` (clos le 2026-10-31)
+
+- `medium` — `init --project` scaffolde dans le dossier courant (`mini-redis-cpp`). **Résolution** : résolue, story-09-04.
+- `medium` — `docs add` en clone git échoue sans étape ni cause (`tradelog-postgres-lab`). **Résolution** : résolue, story-09-07 (étape, délai de 180 s, `--regen`).
 
 ### `medium` — aucun mécanisme de reprise espacée : une phase prouvée n'est jamais rejouée
 - **Repo** : ai-learn (revue externe du protocole, pas un incident d'exécution)
@@ -407,3 +412,48 @@ Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées
   dépendances, comme `bin/lib/source-hash.js#sourceHashScope` le fait déjà ici
   pour l'évidence d'une phase ; à défaut, ne traiter la péremption comme une
   alerte qu'au moment de `ship`/`land`, pas à chaque commit.
+
+### `medium` — `ai-flow worktree place` refuse la forme d'arbre de l'epic 10, et `lock` passe quand même
+
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `ai-flow worktree place` / `ai-flow worktree lock`
+- **Constaté** : le 2026-10-31, `/flow-run` sur la story 10-01 (racine `s1` de
+  `epics/epic-10-…/index.md`). `ai-flow worktree place` s'arrête sur `dependency
+  tree line does not resolve to exactly one story label: "├── s2 ── s3 ──┬── s6"` :
+  une ligne qui enchaîne deux stories avant un embranchement n'est pas une forme
+  qu'il sait lire. Aucune sortie ne dit quoi faire ensuite pour la story racine
+  (qui n'a rien à paralléliser).
+- **Contournement** : la story 10-01 est la racine, l'epic impose l'exécution en
+  séquence ; elle a tourné dans le checkout courant (`plan/epics-09-10`), le
+  `lock` a réussi tout de même. Aucune exemption de contrôle de test.
+- **Piste** : accepter `sA ── sB` sur une ligne (ou ne lire que la story
+  demandée), et, quand `place` échoue, dire explicitement si la story peut
+  continuer dans le checkout courant.
+- **Récurrence** : même refus le 2026-10-31 sur la story 10-02 ; exécutée en séquence dans le checkout courant, `lock` réussi. Aucune exemption de contrôle.
+- **Récurrence** : même refus le 2026-10-31 sur la story 10-03 (`├── s2 ── s3 ──┬── s6`) ; exécutée en séquence dans le checkout courant, `lock` réussi. Aucune exemption de contrôle.
+
+## 2026-10-31 — story 10-04 : `worktree place` et `autoland` refusent encore l'arbre de l'epic 10
+
+- **Friction** : même erreur que pour 10-01 (`dependency tree line does not resolve to exactly one story label: "├── s2 ── s3 ──┬── s6"`), cette fois sur `place` puis sur `autoland` après un verify vert. La story ne peut donc ni être placée ni atterrir automatiquement.
+- **Contournement** : worktree créé à la main (`ai-flow worktree add --story …`), à la demande explicite de l'utilisateur ; aucun contrôle relâché ni exempté.
+- **Piste** : tolérer les lignes `sA ── sB ──┬── sC`, ou ignorer les lignes qui ne concernent pas la story demandée.
+
+## 2026-10-31 — story 10-05 : coding-flow ne voit pas les dépendances de données entre stories
+
+- **Friction** : `ai-flow worktree add --story …10-05… --from story-10-04-incident-de-code` a créé le worktree sans broncher, alors que 10-05 ne peut pas être faite : elle lit le ledger plateforme (`~/.ai-learn/tracks/platform.json`, paliers 4 et 6) que crée 10-03, et 10-03 était `planned`. Rien dans `place`, `worktree add`, `lock`, `status` ni `/flow-run` ne l'a signalé ; je m'en suis aperçu en lisant la spec à la main.
+- **Pourquoi l'outil est passé à côté** :
+  1. L'arbre de l'epic (`index.md`) n'exprime pas la dépendance : `s3` y est une branche qui se referme sur `s6` (`├── s2 ── s3 ──┬── s6`), et l'arête `s5` → `s3` n'existe que dans la prose sous l'arbre (« `s5` lit le ledger plateforme (arête vers `s3`) »). L'outil ne lit que l'arbre, et il ne sait même pas parser cette ligne : `place` et `autoland` échouent dessus (voir les deux entrées précédentes).
+  2. `worktree add` avec `--from` ne vérifie que la ref, pas que les stories dont la story dépend sont `done`. Il n'y a pas de notion « story bloquée par une autre » dans `status`/`next` : 10-05 apparaît `planned`, comme si elle était prête.
+  3. Le dos de l'arbre (10-04 → 10-05) donne une fausse impression : la chaîne `s4 ── s5` était valide, la dépendance transversale `s3` → `s5` ne l'était pas.
+- **Contournement** : worktree 10-05 supprimé sans aucun commit (branche vide supprimée aussi). 10-03 est implémentée dans le projet principal par le mainteneur ; 10-04 sera landée ensuite, puis 10-05 démarrera à partir de l'état qui contient les deux. Aucun contrôle relâché ni exempté.
+- **Piste** : (a) accepter un champ explicite `Depends on: s3, s4` par story (spec.md ou index) et le lire ; (b) `worktree add`/`place`/`/flow-run` refusent une story dont une dépendance n'est pas `done`, en la nommant ; (c) `status` et `next` affichent `blocked by 10-03` plutôt que `planned` ; (d) tolérer les arbres à embranchement dans le parseur.
+- **Suite** : l'`index.md` de l'epic 10 a été corrigé (arbre + table des arêtes avec leur justification) : `s5` a désormais deux parents, `s3` et `s4`. `ai-flow worktree place` lit ce nouvel arbre mais refuse désormais, honnêtement, le point de fusion (« not supported for automatic placement yet ») : `s5` se place à la main une fois `s3` et `s4` `done`.
+### `low` — 10-05 : `place` et `autoland` refusent à nouveau le point de fusion (récurrence)
+- **Repo** : ai-learn (`@landry_pouth/coding-flow` 0.14.0) — **Surface** : `/flow-run`
+- **Problème** : `place` puis `autoland` de la story 10-05 (fusion `s3`+`s4`, `┴`) ont refusé, comme en epic 03. Les deux parents étant `done` dans le checkout principal, la story y a été exécutée directement ; le `autoland` n'avait rien à atterrir.
+- **Résolution** : ouverte, voir la ligne « `place`/`autoland` refusent la même arbre à point de fusion ».
+
+### `low` — 10-07 : « assertions removed » sur un diff qui ne retire aucune assertion
+- **Repo** : ai-learn (`@landry_pouth/coding-flow` 0.14.0) — **Surface** : `/flow-run` (`verify`)
+- **Problème** : `verify` a averti « assertions removed in 1 test file » alors que le diff de `test/` ne retirait que deux lignes d'`import`/`export` (ajout d'un helper à la liste). Aucune assertion supprimée ; l'avertissement n'indique ni le fichier ni la ligne, donc impossible à vérifier sans lire le diff.
+- **Résolution** : ouverte (avertissement seulement, aucun verdict changé).

@@ -17,7 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { log, fail, mkdirp, writeJson, normalizePortable, spawnGit } = require("./util");
-const { progressPath, readProgress, findPhase } = require("./progress");
+const { progressPath, readProgress, missingProgressMessage, findPhase } = require("./progress");
 const { parseArgs } = require("./args");
 
 const MAX_SOURCES = 3;
@@ -237,6 +237,20 @@ function flattenSubpath(target, subpath) {
   }
 }
 
+const CLONE_TIMEOUT_MS = 180000;
+
+// Story 09.07 — a failed sparse clone names its step and its cause. A process
+// killed by the delay has a null status and an empty stderr: the message says
+// so instead of printing nothing, and always offers `--regen`.
+function cloneFailureMessage(url, stepName, result) {
+  const stderr = (result.stderr || "").trim().slice(-800);
+  const cause =
+    stderr ||
+    (result.status === null ? `délai de ${CLONE_TIMEOUT_MS / 1000} s dépassé (processus tué sans sortie)` : `code de sortie ${result.status}`);
+
+  return `clone git partiel échoué à l'étape « ${stepName} » pour ${url} :\n${cause}\nRéessaie avec --regen pour recréer la source localement.`;
+}
+
 // Clone a repo. With a `path` filter we use a sparse checkout so only that
 // subdirectory is downloaded — cloning the whole repo just to grab docs/
 // would pull megabytes of tests and deps the learner never opens.
@@ -260,17 +274,21 @@ function gitClone(url, target, pathFilter = null) {
 
     const fetch = spawnGit(["-C", target, "fetch", "--depth", "1", "--filter=blob:none", "origin", "HEAD"], {
       encoding: "utf8",
-      timeout: 180000,
+      timeout: CLONE_TIMEOUT_MS,
     });
 
-    if ([remote, config, sparse, set, fetch].some((r) => r.status !== 0)) {
-      const msg = [remote, config, sparse, set, fetch]
-        .map((r) => (r.stderr || "").trim())
-        .filter(Boolean)
-        .join("\n")
-        .slice(-800);
+    const steps = [
+      ["remote", remote],
+      ["config", config],
+      ["sparse-checkout", sparse],
+      ["sparse-checkout set", set],
+      ["fetch", fetch],
+    ];
+    const failedStep = steps.find(([, r]) => r.status !== 0);
+
+    if (failedStep) {
       removePath(target); // clean partial clone
-      fail(`git sparse clone failed for ${url}:\n${msg}`);
+      fail(cloneFailureMessage(url, failedStep[0], failedStep[1]));
     }
 
     // The checkout lazily downloads blobs of the sparse cone from origin — on a
@@ -281,7 +299,7 @@ function gitClone(url, target, pathFilter = null) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       checkout = spawnGit(["-C", target, "checkout", "-b", "ai-learn-docs", "FETCH_HEAD"], {
         encoding: "utf8",
-        timeout: 180000,
+        timeout: CLONE_TIMEOUT_MS,
       });
 
       if (checkout.status === 0) {
@@ -293,7 +311,7 @@ function gitClone(url, target, pathFilter = null) {
 
     if (checkout.status !== 0) {
       removePath(target); // clean partial clone
-      fail(`git sparse clone failed for ${url}${lastErr ? `:\n${lastErr.slice(-500)}` : ""}`);
+      fail(cloneFailureMessage(url, "checkout", { status: checkout.status, stderr: lastErr }));
     }
 
     flattenSubpath(target, pathFilter);
@@ -344,7 +362,7 @@ function addSource({ dir, name, source, online, subpath, regen, secondary }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   assertName(name);
@@ -479,7 +497,7 @@ function removeSource({ dir, name }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const source = findSource(config, name);
@@ -520,7 +538,7 @@ function updateSource({ dir, name, subpath }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const source = findSource(config, name);
@@ -675,7 +693,7 @@ function generateDigest({ dir, phaseId }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const id = Number(phaseId);
@@ -771,7 +789,7 @@ function listSources({ dir }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const sources = docSourceList(config.docSource);
@@ -875,6 +893,7 @@ function docsCommand({ dir, args }) {
 }
 
 module.exports = {
+  cloneFailureMessage,
   MAX_SOURCES,
   SOURCE_PRESETS,
   docsCommand,

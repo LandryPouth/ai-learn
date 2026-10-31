@@ -43,16 +43,7 @@ test("opencode actually discovers the skills ai-learn install generates", { skip
     "learn",
     "learn-next",
     "learn-status",
-    "learn-scan",
-    "learn-propose",
-    "learn-check",
-    "learn-docs",
-    "next",
-    "status",
-    "check",
-    "docs",
-    "scan",
-    "propose",
+    "learn-break",
   ]) {
     assert.ok(byName.has(name), `opencode did not discover the ${name} skill`);
   }
@@ -63,9 +54,12 @@ test("opencode actually discovers the skills ai-learn install generates", { skip
     learnNext.location,
     path.join(home, ".config", "opencode", "skills", "learn-next", "SKILL.md"),
   );
-  assert.match(byName.get("next").description, /Prochaine phase/);
-  assert.strictEqual(byName.get("next").location, path.join(home, ".config", "opencode", "skills", "next", "SKILL.md"));
-  assert.match(byName.get("next").content, /Nom déprécié/);
+  for (const retired of ["learn-scan", "learn-propose", "learn-check", "learn-docs", "next", "status", "check", "docs", "scan", "propose"]) {
+    assert.ok(!byName.has(retired), `opencode must not discover the retired ${retired} skill`);
+  }
+  for (const flow of ["scan", "propose", "check", "docs"]) {
+    assert.ok(!byName.has(flow) && skills.every((skill) => !skill.location.includes(`${path.sep}references${path.sep}`)), `references/${flow}.md is not a skill`);
+  }
   assert.strictEqual(byName.get("learn").name, "learn");
   assert.strictEqual(skills.filter((skill) => skill.name === "learn-next").length, 1, "no duplicate from external skill paths");
 });

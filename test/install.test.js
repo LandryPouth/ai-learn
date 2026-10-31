@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { parseCommandFile, listCommandFiles, listCommands } = require("../bin/lib/platforms/commands");
+const { parseCommandFile, listCommandFiles, listCommands, listReferences, listLegacyCommands } = require("../bin/lib/platforms/commands");
 const { parseSkillFrontmatter } = require("../bin/lib/platforms/skills");
 const { renderLegacyCommand: renderClaudeLegacy } = require("../bin/lib/platforms/claude");
 const { renderLegacyCommand: renderCodexLegacy } = require("../bin/lib/platforms/codex");
@@ -29,7 +29,7 @@ function tmpHome() {
 }
 
 function commandByName(name) {
-  return listCommands(COMMANDS_DIR).find((command) => command.name === name);
+  return listLegacyCommands(COMMANDS_DIR).find((command) => command.name === name);
 }
 
 function skillFile(home, platform, name) {
@@ -69,25 +69,22 @@ test("parseCommandFile reads frontmatter and body from a real command file", () 
   assert.doesNotMatch(parsed.body, /^---/);
 });
 
-test("listCommandFiles finds all 7 source commands", () => {
+test("listCommandFiles finds the 4 visible source commands, references are not commands", () => {
   const files = listCommandFiles(COMMANDS_DIR);
-  assert.strictEqual(files.length, 7);
-  assert.ok(files.every((f) => f.endsWith(".md")));
+  assert.deepStrictEqual(files.map((f) => path.basename(f)), ["learn-break.md", "learn-next.md", "learn-status.md", "learn.md"]);
+  assert.deepStrictEqual(listReferences(COMMANDS_DIR).map((r) => r.name), ["check", "docs", "propose", "scan"]);
 });
 
-test("listCommands derives one deprecated alias per old name, from the canonical body", () => {
-  const commands = listCommands(COMMANDS_DIR);
-  const byName = new Map(commands.map((command) => [command.name, command]));
+test("listCommands returns only the visible commands; legacy names are rebuilt for migration only", () => {
+  assert.deepStrictEqual(listCommands(COMMANDS_DIR).map((c) => c.name).sort(), ["learn", "learn-break", "learn-next", "learn-status"]);
 
-  for (const name of ["learn", "learn-next", "learn-status", "learn-scan", "learn-propose", "learn-check", "learn-docs"]) {
-    assert.ok(byName.has(name), `${name} is a canonical command`);
-    assert.strictEqual(byName.get(name).aliasOf, undefined);
+  const legacy = new Map(listLegacyCommands(COMMANDS_DIR).map((c) => [c.name, c]));
+  for (const name of ["learn-scan", "learn-propose", "learn-check", "learn-docs", "next", "scan", "check"]) {
+    assert.ok(legacy.has(name), `${name} is rebuilt for legacy migration`);
   }
-
-  const alias = byName.get("next");
+  const alias = legacy.get("next");
   assert.strictEqual(alias.aliasOf, "learn-next");
-  assert.match(alias.body, /^> ⚠ Nom déprécié — cette commande s'appelle désormais `\/learn-next`\.$/m);
-  assert.ok(alias.body.endsWith(byName.get("learn-next").body), "alias forwards the canonical body verbatim");
+  assert.ok(alias.body.endsWith(legacy.get("learn-next").body));
 });
 
 test("install claude and opencode produce a strict SKILL.md for every command", () => {
@@ -115,10 +112,9 @@ test("install claude symlinks the binary and writes skills, idempotently", () =>
 
   const binLink = path.join(home, ".local", "bin", "ai-learn");
   assert.ok(fs.lstatSync(binLink).isSymbolicLink());
-  assert.strictEqual(first.created.filter((file) => file.endsWith("SKILL.md")).length, 13);
+  assert.strictEqual(first.created.filter((file) => file.endsWith("SKILL.md")).length, 4);
   assert.ok(fs.existsSync(skillFile(home, "claude", "learn-next")));
-  assert.ok(fs.existsSync(skillFile(home, "claude", "next")));
-  assert.match(fs.readFileSync(skillFile(home, "claude", "next"), "utf8"), /Nom déprécié/);
+  assert.ok(!fs.existsSync(skillFile(home, "claude", "next")));
   assert.ok(!fs.existsSync(path.join(home, ".claude", "commands")));
 
   const before = fs.statSync(skillFile(home, "claude", "learn-next")).mtimeMs;
@@ -169,12 +165,12 @@ test("install claude keeps a user's own command at an old path and names it", ()
   assert.strictEqual(fs.readFileSync(userFile, "utf8"), "ma commande perso\n");
   assert.match(output, /Conservés/);
   assert.ok(output.includes(userFile));
-  assert.ok(fs.existsSync(skillFile(home, "claude", "status")));
+  assert.ok(fs.existsSync(skillFile(home, "claude", "learn-status")));
 });
 
-test("install claude keeps a learner's own skill at a generic alias name", () => {
+test("unrelated user skill named check is untouched", () => {
   const home = tmpHome();
-  const userSkill = skillFile(home, "claude", "next");
+  const userSkill = skillFile(home, "claude", "check");
   fs.mkdirSync(path.dirname(userSkill), { recursive: true });
   const content = '---\nname: next\ndescription: "my own next"\n---\n# my own skill\n';
   fs.writeFileSync(userSkill, content);
@@ -184,10 +180,9 @@ test("install claude keeps a learner's own skill at a generic alias name", () =>
     result = installCommand({ platform: "claude", home });
   });
 
-  assert.ok(result.kept.includes(userSkill));
   assert.strictEqual(fs.readFileSync(userSkill, "utf8"), content);
-  assert.match(output, /Conservés/);
-  assert.ok(output.includes(userSkill));
+  assert.ok(!result.retired.includes(userSkill) && !result.keptModified.includes(userSkill));
+  assert.ok(!output.includes(userSkill), "an unrelated skill is not even named");
   assert.ok(fs.existsSync(skillFile(home, "claude", "learn-next")));
 });
 
@@ -226,8 +221,8 @@ test("install claude replaces a pre-04.05 alias symlink instead of writing throu
 
   assert.ok(!fs.existsSync(staleLink), "the stale symlink is removed");
   assert.ok(!fs.existsSync(staleSource), "removing the link does not resurrect the old source file");
-  assert.ok(fs.existsSync(skillFile(home, "claude", "next")));
-  assert.match(fs.readFileSync(skillFile(home, "claude", "next"), "utf8"), /Nom déprécié/);
+  assert.ok(fs.existsSync(skillFile(home, "claude", "learn-next")));
+  assert.ok(!fs.existsSync(skillFile(home, "claude", "next")));
 });
 
 test("install opencode migrates old commands, removes unmodified ones and keeps edited ones", () => {
@@ -270,7 +265,7 @@ test("install gemini and codex migrate their old command formats", () => {
     assert.ok(!fs.existsSync(legacy));
     assert.ok(!fs.existsSync(legacyAlias));
     assert.ok(fs.existsSync(skillFile(home, platform, "ai-learn-learn-next")));
-    assert.ok(fs.existsSync(skillFile(home, platform, "ai-learn-next")));
+    assert.ok(!fs.existsSync(skillFile(home, platform, "ai-learn-next")), "no alias skill is installed");
   }
 });
 
@@ -386,14 +381,15 @@ test("linkOrCopy re-throws errors unrelated to symlink permissions", () => {
   }
 });
 
-test("README documents the /learn-* names and their legacy aliases", () => {
+test("README documents the three commands and the removal of the old names", () => {
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
-  for (const name of ["learn", "learn-status", "learn-next", "learn-scan", "learn-propose", "learn-check", "learn-docs"]) {
+  for (const name of ["learn", "learn-status", "learn-next", "learn-break"]) {
     assert.match(readme, new RegExp(`\`/${name}\``), `README lists /${name}`);
   }
 
-  assert.match(readme, /restent des \*\*alias\*\*/);
+  assert.match(readme, /n'existent plus/);
+  assert.match(readme, /conservé \(modifié\)/);
 });
 
 test("install claude backs up an edited skill that kept our header before rewriting it", () => {
@@ -427,4 +423,185 @@ test("install claude removes a legacy symlink into a moved ai-learn checkout", (
 
   assert.ok(result.removed.includes(link));
   assert.ok(!fs.existsSync(link) && !(() => { try { fs.lstatSync(link); return true; } catch { return false; } })());
+});
+
+// --- Story 10.01: retiring the skills that used to be commands --------------
+
+const { RETIRED_SKILLS } = require("../bin/lib/platforms/retired");
+const { PLATFORMS } = require("../bin/lib/install");
+
+// Writes a retired skill as it was published: the render of a pre-10.01 command
+// by the platform's own adapter (the 08.03 shape, unchanged since).
+// commands/ exactly as published at f1227fb (the last release before 10.01),
+// kept as a fixture: learn-next.md has changed since, the published bytes have not.
+const PUBLISHED_DIR = path.join(__dirname, "fixtures", "published-f1227fb");
+
+function writePublishedRetired(home, platform, name) {
+  const { renderCommand } = require(`../bin/lib/platforms/${platform}`);
+  const source = listLegacyCommands(PUBLISHED_DIR).find((c) => c.name === name);
+  const { filename, content } = renderCommand(source);
+  const file = path.join(SKILL_DIRS[platform](home), filename);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content);
+  return file;
+}
+
+const RETIRED_NAMES = ["learn-scan", "learn-propose", "learn-check", "learn-docs", "next", "status", "check", "docs", "scan", "propose"];
+
+test("fresh install writes only the visible skills and references", () => {
+  for (const platform of Object.keys(PLATFORMS)) {
+    const home = tmpHome();
+    capture(() => installCommand({ platform, home }));
+
+    const dir = SKILL_DIRS[platform](home);
+    const prefix = platform === "claude" || platform === "opencode" ? "" : "ai-learn-";
+    const skills = fs.readdirSync(dir).sort();
+
+    assert.deepStrictEqual(skills, ["learn", "learn-break", "learn-next", "learn-status"].map((n) => `${prefix}${n}`).sort(), platform);
+
+    const references = fs.readdirSync(path.join(dir, `${prefix}learn`, "references")).sort();
+    assert.deepStrictEqual(references, ["check.md", "docs.md", "propose.md", "scan.md"], platform);
+    assert.ok(!fs.existsSync(path.join(dir, `${prefix}learn-next`, "references")), "only learn carries references");
+
+    const scan = fs.readFileSync(path.join(dir, `${prefix}learn`, "references", "scan.md"), "utf8");
+    assert.ok(!scan.startsWith("---"), "a reference is a plain file, not a skill");
+    assert.strictEqual(scan, listReferences(COMMANDS_DIR).find((r) => r.name === "scan").body);
+  }
+});
+
+test("retired skills removed by published fingerprint, on every platform", () => {
+  for (const platform of Object.keys(PLATFORMS)) {
+    const home = tmpHome();
+    const written = RETIRED_NAMES.map((name) => writePublishedRetired(home, platform, name));
+
+    let result;
+    const output = capture(() => {
+      result = installCommand({ platform, home });
+    });
+
+    assert.deepStrictEqual([...result.retired].sort(), [...written].sort(), platform);
+    for (const file of written) {
+      assert.ok(!fs.existsSync(file), `${platform}: ${file} removed`);
+      assert.ok(!fs.existsSync(path.dirname(file)), `${platform}: empty skill folder removed`);
+    }
+    assert.match(output, /Skills retirés/);
+    assert.ok(output.includes(written[0]));
+  }
+});
+
+test("every published fingerprint covers all four reference flows on all platforms", () => {
+  for (const platform of Object.keys(PLATFORMS)) {
+    const prefix = platform === "claude" || platform === "opencode" ? "" : "ai-learn-";
+    const names = Object.keys(RETIRED_SKILLS[platform]).sort();
+    assert.deepStrictEqual(names, RETIRED_NAMES.map((n) => `${prefix}${n}`).sort(), platform);
+  }
+});
+
+test("modified retired skill is kept and named", () => {
+  const home = tmpHome();
+  const file = writePublishedRetired(home, "claude", "learn-scan");
+  const edited = `${fs.readFileSync(file, "utf8")}\nMa note perso.\n`;
+  fs.writeFileSync(file, edited);
+
+  let result;
+  const output = capture(() => {
+    result = installCommand({ platform: "claude", home });
+  });
+
+  assert.deepStrictEqual(result.keptModified, [file]);
+  assert.deepStrictEqual(result.retired, []);
+  assert.strictEqual(fs.readFileSync(file, "utf8"), edited);
+  assert.match(output, /conservé \(modifié\)/);
+  assert.ok(output.includes(file));
+});
+
+test("a CRLF checkout of a published retired skill is still recognised", () => {
+  const home = tmpHome();
+  const file = writePublishedRetired(home, "claude", "learn-docs");
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/\n/g, "\r\n"));
+
+  let result;
+  capture(() => {
+    result = installCommand({ platform: "claude", home });
+  });
+
+  assert.deepStrictEqual(result.retired, [file]);
+  assert.ok(!fs.existsSync(file));
+});
+
+test("dry-run lists retirements without touching disk", () => {
+  const home = tmpHome();
+  const file = writePublishedRetired(home, "opencode", "scan");
+
+  let result;
+  const output = capture(() => {
+    result = installCommand({ platform: "opencode", home, dryRun: true });
+  });
+
+  assert.deepStrictEqual(result.retired, [file]);
+  assert.ok(fs.existsSync(file), "the skill is still on disk");
+  assert.match(output, /\[dry-run\] − /);
+  assert.ok(!fs.existsSync(path.join(SKILL_DIRS.opencode(home), "learn")));
+});
+
+test("retirement is idempotent: a second install retires nothing", () => {
+  const home = tmpHome();
+  writePublishedRetired(home, "claude", "check");
+  capture(() => installCommand({ platform: "claude", home }));
+
+  let second;
+  const output = capture(() => {
+    second = installCommand({ platform: "claude", home });
+  });
+
+  assert.strictEqual(second.created.length, 0);
+  assert.strictEqual(second.retired.length, 0);
+  assert.match(output, /already installed/);
+});
+
+test("a retired skill folder that holds other files is emptied of SKILL.md only", () => {
+  const home = tmpHome();
+  const file = writePublishedRetired(home, "claude", "scan");
+  const note = path.join(path.dirname(file), "mes-notes.md");
+  fs.writeFileSync(note, "à moi\n");
+
+  capture(() => installCommand({ platform: "claude", home }));
+
+  assert.ok(!fs.existsSync(file));
+  assert.strictEqual(fs.readFileSync(note, "utf8"), "à moi\n");
+});
+
+test("a learner symlink at a retired skill folder is never traversed or removed", () => {
+  const home = tmpHome();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-retire-outside-"));
+  const published = writePublishedRetired(home, "claude", "scan");
+  fs.copyFileSync(published, path.join(outside, "SKILL.md"));
+  fs.rmSync(path.dirname(published), { recursive: true });
+  fs.symlinkSync(outside, path.dirname(published));
+
+  capture(() => installCommand({ platform: "claude", home }));
+
+  assert.ok(fs.lstatSync(path.dirname(published)).isSymbolicLink());
+  assert.ok(fs.existsSync(path.join(outside, "SKILL.md")), "the target of the learner's link is untouched");
+});
+
+test("a learner-edited reference file is kept, an ours-but-stale one is refreshed", () => {
+  const home = tmpHome();
+  capture(() => installCommand({ platform: "claude", home }));
+  const dir = path.join(SKILL_DIRS.claude(home), "learn", "references");
+
+  fs.writeFileSync(path.join(dir, "scan.md"), "# Mes notes\n");
+  fs.writeFileSync(path.join(dir, "check.md"), "# ai-learn: vieille version\n");
+
+  let result;
+  capture(() => {
+    result = installCommand({ platform: "claude", home });
+  });
+
+  assert.strictEqual(fs.readFileSync(path.join(dir, "scan.md"), "utf8"), "# Mes notes\n");
+  assert.ok(result.kept.includes(path.join(dir, "scan.md")));
+  assert.strictEqual(
+    fs.readFileSync(path.join(dir, "check.md"), "utf8"),
+    listReferences(COMMANDS_DIR).find((r) => r.name === "check").body,
+  );
 });

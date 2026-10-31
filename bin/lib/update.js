@@ -16,11 +16,12 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { log, findLearningProjects, normalizePortable } = require("./util");
-const { readProgress } = require("./progress");
+const { readProgress, scaffoldState, stampToolVersion } = require("./progress");
 const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
 const { ensureOpenCodeGuard, usesOpenCode, PLUGIN_RELATIVE } = require("./platforms/opencode-guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
+const { ensureGitignore } = require("./gitignore");
 const { ensureNormConfig, ensureNormHook } = require("./norm");
 const { ensureMutateConfig } = require("./mutate");
 const {
@@ -28,6 +29,8 @@ const {
   journalPath: predictionsJournalPath,
 } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
+const { isFinished, generateBilan } = require("./bilan");
+const { syncProjectLedgers, formatSyncFailure, ledgerHealth } = require("./ledgers");
 const { PLATFORMS, INSTALLERS } = require("./install");
 const {
   ensureNativeMemoryFile,
@@ -184,7 +187,7 @@ function ensurePlatformCommands(platform) {
 
   try {
     const result = INSTALLERS[platform]({ home: os.homedir() });
-    return { platform, created: result.created.length, removed: result.removed.length, kept: result.kept.length, keptFiles: result.kept };
+    return { platform, created: result.created.length, removed: result.removed.length + result.retired.length, retiredFiles: result.retired, kept: result.kept.length + result.keptModified.length, keptFiles: result.kept.concat(result.keptModified) };
   } catch (error) {
     log(
       `  ⚠ installation des skills ${platform} a échoué : ${error.message}`,
@@ -193,7 +196,7 @@ function ensurePlatformCommands(platform) {
   }
 }
 
-function updateCommand({ root, platform }) {
+function updateCommand({ root, platform, home }) {
   const projects = findLearningProjects(root);
 
   if (projects.length === 0) {
@@ -207,6 +210,10 @@ function updateCommand({ root, platform }) {
     log(
       `Platform ${platformResult.platform}: skills synchronisés (${platformResult.created} fichier(s) créé/rafraîchi, ${platformResult.removed} ancien(s) retiré(s), ${platformResult.kept} conservé(s)).`,
     );
+
+    for (const file of platformResult.retiredFiles) {
+      log(`  − ${file}`);
+    }
 
     for (const file of platformResult.keptFiles) {
       log(`  = ${file}`);
@@ -225,6 +232,10 @@ function updateCommand({ root, platform }) {
     }
 
     const protocol = syncProtocol(project, config);
+    const stamped = stampToolVersion(project);
+    const stampLine = stamped
+      ? null
+      : `  ⚠ ce projet vient d'une version plus récente de l'outil (${scaffoldState(config).toolVersion}) — rien n'est rétrogradé, mets l'outil à jour`;
 
     // Native memory backfill (story 04.01). With no --platform, every platform
     // that needs a stub AND is installed on this machine gets one: `update`
@@ -254,6 +265,7 @@ function updateCommand({ root, platform }) {
     const dogfood = syncDogfood(project);
     const checkpointReadme = syncCheckpointReadme(project);
     const commitHook = ensureCommitMsgHook(project);
+    const gitignore = ensureGitignore(project);
 
     // Same real-detected-language sourcing as init.js — see there for why
     // this is not the free-text progress.json `technology` label.
@@ -269,6 +281,10 @@ function updateCommand({ root, platform }) {
 
     log(`\n${path.basename(project)}`);
     log(`  protocol: ${protocol.file} ${protocol.action}`);
+
+    if (stampLine) {
+      log(stampLine);
+    }
 
     for (const memory of nativeMemory) {
       const detail =
@@ -316,6 +332,7 @@ function updateCommand({ root, platform }) {
     }
     log(`  dogfood journal: .ai-learn/dogfood.md ${dogfood}`);
     log(`  checkpoint README: checkpoint/README.md ${checkpointReadme}`);
+    log(`  .gitignore: ${gitignore}`);
     log(
       `  commit-msg hook: ${commitHook.skipped ? "no .git yet — skipped" : `.githooks/commit-msg ${commitHook.file}, core.hooksPath ${commitHook.hooksPath}`}`,
     );
@@ -325,6 +342,41 @@ function updateCommand({ root, platform }) {
     log(
       `  mutate config: .ai-learn/mutate.json ${mutateConfig.created ? "created" : "already present — not touched"}`,
     );
+
+    // Story 09.01 — a project no ledger knows (verify's sync failed in a
+    // sandbox, or predates the ledgers) is caught up here. Only those: a
+    // replay re-reads git/gh signals and walks the sources, too costly to run
+    // on every project at every update. Never aborts the remaining projects.
+    let ledgerLine;
+    try {
+      const { missing, unreadable } = ledgerHealth({ dir: project, home });
+      if (missing.length === 0) {
+        ledgerLine = "  ledgers: à jour";
+      } else {
+        const ledgers = syncProjectLedgers({ dir: project, home });
+        ledgerLine = `  ledgers: ${ledgers.replayed} preuve(s) rejouée(s)`;
+        for (const failure of ledgers.failures) {
+          ledgerLine += `\n    ${formatSyncFailure(failure)}`;
+        }
+      }
+      if (unreadable.length > 0) {
+        ledgerLine += `\n    ⚠ ledger illisible, laissé intact : ${unreadable.join(", ")} — le corriger ou le retirer`;
+      }
+    } catch (error) {
+      ledgerLine = `  ⚠ ledgers non synchronisés : ${error.code || error.message}`;
+    }
+    log(ledgerLine);
+
+    // Story 10.07 — a track finished before the bilan existed owes one too:
+    // prepare it here so `check` never asks for a file nothing generated.
+    try {
+      const { config } = readProgress(project);
+      if (isFinished(config) && generateBilan({ dir: project, config, home }).created) {
+        log("  bilan: docs/bilan.md préparé — à compléter avec /learn-next");
+      }
+    } catch (error) {
+      log(`  ⚠ bilan non généré : ${error.message}`);
+    }
 
     if (predictionsData.action === "created") {
       log(

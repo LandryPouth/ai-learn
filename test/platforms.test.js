@@ -79,7 +79,7 @@ test("antigravity renderCommand quotes a description containing a bare colon (re
   // mid-sentence ":", which breaks YAML plain-scalar parsing when emitted
   // unquoted — validated with Python's PyYAML against the actual generated
   // file before this was fixed.
-  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "learn-docs.md"));
+  const parsed = parseCommandFile(path.join(COMMANDS_DIR, "references", "docs.md"));
   assert.match(parsed.description, /:/); // sanity: the fixture still has the colon
 
   const { filename, content } = renderAntigravity(parsed);
@@ -96,15 +96,16 @@ test("renderSkill escapes embedded double quotes in the description", () => {
   }
 });
 
-test("install antigravity writes one flat skill directory per command and alias, all YAML-parseable", () => {
+test("install antigravity writes one flat skill directory per visible command, all YAML-parseable", () => {
   const home = tmpDir("ai-learn-antigravity-");
   capture(() => installCommand({ platform: "antigravity", home }));
 
   const skillsDir = path.join(home, ".gemini", "antigravity", "skills");
   const entries = fs.readdirSync(skillsDir, { withFileTypes: true }).filter((e) => e.isDirectory());
   assert.strictEqual(entries.length, listCommands(COMMANDS_DIR).length);
+  assert.strictEqual(entries.length, 4);
   assert.ok(fs.existsSync(path.join(skillsDir, "ai-learn-learn-next", "SKILL.md")));
-  assert.ok(fs.existsSync(path.join(skillsDir, "ai-learn-next", "SKILL.md")));
+  assert.ok(!fs.existsSync(path.join(skillsDir, "ai-learn-next")));
 
   for (const entry of entries) {
     const file = path.join(skillsDir, entry.name, "SKILL.md");
@@ -119,9 +120,9 @@ test("install gemini writes one namespaced SKILL.md per command", () => {
 
   const dir = path.join(home, ".gemini", "skills");
   const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  assert.strictEqual(entries.length, 13);
+  assert.strictEqual(entries.length, 4);
   assert.ok(fs.existsSync(path.join(dir, "ai-learn-learn-next", "SKILL.md")));
-  assert.ok(fs.existsSync(path.join(dir, "ai-learn-next", "SKILL.md")), "the legacy /next alias still ships");
+  assert.ok(!fs.existsSync(path.join(dir, "ai-learn-next")), "no alias ships");
 });
 
 test("install opencode writes one SKILL.md per command", () => {
@@ -130,9 +131,9 @@ test("install opencode writes one SKILL.md per command", () => {
 
   const dir = path.join(home, ".config", "opencode", "skills");
   const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  assert.strictEqual(entries.length, 13);
+  assert.strictEqual(entries.length, 4);
   assert.ok(fs.existsSync(path.join(dir, "learn-next", "SKILL.md")));
-  assert.ok(fs.existsSync(path.join(dir, "next", "SKILL.md")), "the legacy /next alias still ships");
+  assert.ok(!fs.existsSync(path.join(dir, "next")), "no alias ships");
 });
 
 test("install codex writes one namespaced SKILL.md per command", () => {
@@ -141,9 +142,9 @@ test("install codex writes one namespaced SKILL.md per command", () => {
 
   const dir = path.join(home, ".codex", "skills");
   const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  assert.strictEqual(entries.length, 13);
+  assert.strictEqual(entries.length, 4);
   assert.ok(fs.existsSync(path.join(dir, "ai-learn-learn-next", "SKILL.md")));
-  assert.ok(fs.existsSync(path.join(dir, "ai-learn-next", "SKILL.md")), "the legacy /next alias still ships");
+  assert.ok(!fs.existsSync(path.join(dir, "ai-learn-next")), "no alias ships");
 });
 
 test("codex-guard renderConfig emits only literal paths (no aborting dir + dir/** pair)", () => {

@@ -57,7 +57,14 @@ function main() {
     return;
   }
 
-  const dir = resolveDir(getFlagValue("--dir"));
+  // Commands that act on one project find it from any subfolder; an explicit
+  // --dir (or init/update, which choose their own target) is taken as given.
+  const FROM_SUBDIR = ["status", "next", "verify", "predict", "break", "norm", "mutate", "traps", "docs"];
+  const explicitDir = getFlagValue("--dir");
+  const dir =
+    !explicitDir && FROM_SUBDIR.includes(command)
+      ? require("./lib/progress").findProjectDir(resolveDir(null))
+      : resolveDir(explicitDir);
 
   // Mechanical platform self-heal, on every command but the hot-path guard
   // hook: a learner resuming on a different platform than it was `init`ed on
@@ -71,11 +78,15 @@ function main() {
 
   switch (command) {
     case "init": {
-      const { scaffold } = require("./lib/init");
-      const project = getFlagValue("--project", null) || path.basename(dir);
+      const { scaffold, chooseInitDir } = require("./lib/init");
+      const projectFlag = getFlagValue("--project", null);
+      const target = chooseInitDir({ cwd: dir, explicitDir: Boolean(explicitDir), project: projectFlag });
+      const project = projectFlag || path.basename(target);
+      log(`Dossier du projet : ${target}`);
       const technology = getFlagValue("--technology", null);
       const docSourceRaw = getFlagValue("--doc-source", null);
       const phasesRaw = getFlagValue("--phases", null);
+      const pertinenceRaw = getFlagValue("--pertinence", null);
       let phases = [];
 
       if (phasesRaw) {
@@ -87,7 +98,7 @@ function main() {
       }
 
       if (!technology) {
-        fail("init requires --technology <name>, ex: ai-learn init --technology Rust");
+        fail("init exige --technology <nom>, ex : ai-learn init --technology Rust");
       }
 
       const docSource = docSourceRaw
@@ -98,11 +109,11 @@ function main() {
       const { detectPlatform } = require("./lib/platforms/detect");
       const platform = getFlagValue("--platform", null) || detectPlatform();
 
-      const { created } = scaffold({ dir, project, technology, docSource, phases, platform });
-      log(`Initialized learning project "${project}" in ${dir}`);
+      const { created } = scaffold({ dir: target, project, technology, docSource, phases, platform, pertinenceFile: pertinenceRaw ? path.resolve(dir, pertinenceRaw) : null });
+      log(`Projet d'apprentissage "${project}" initialisé dans ${target}`);
 
       for (const file of created) {
-        log(`  created ${file}`);
+        log(`  créé ${file}`);
       }
       break;
     }
@@ -139,6 +150,20 @@ function main() {
       break;
     }
 
+    case "revisit": {
+      const { revisitCommand } = require("./lib/revisit");
+      const { parseArgs } = require("./lib/args");
+      const { positionals } = parseArgs(commandArgs, { valueFlags: ["--dir"] });
+      const phaseId = Number.parseInt(positionals[0] || "", 10);
+
+      if (!Number.isFinite(phaseId)) {
+        fail("revisit requires a phase id, ex: ai-learn revisit 2 [--giveup]");
+      }
+
+      revisitCommand({ dir, phaseId, giveup: flags.has("--giveup") });
+      break;
+    }
+
     case "mutate": {
       const { mutateCommand } = require("./lib/mutate");
       const phaseRaw = getFlagValue("--phase", null);
@@ -152,36 +177,56 @@ function main() {
       break;
     }
 
+    case "break": {
+      const { breakCommand, resolveCommand, giveupCommand } = require("./lib/incident");
+
+      if (flags.has("--resolve")) {
+        resolveCommand({ dir });
+      } else if (flags.has("--giveup")) {
+        giveupCommand({ dir });
+      } else {
+        const level = flags.has("--auto") ? "auto" : Number.parseInt(getFlagValue("--level", "1"), 10);
+        breakCommand({ dir, level });
+      }
+
+      break;
+    }
+
     case "predict": {
-      const { recordPrediction } = require("./lib/predictions");
-      const { readProgress } = require("./lib/progress");
+      const { recordPrediction, revealPrediction } = require("./lib/predictions");
+      const { readProgress, missingProgressMessage } = require("./lib/progress");
+      const revealId = getFlagValue("--reveal", null);
       const phaseRaw = getFlagValue("--phase", null);
       const phaseId = phaseRaw !== null ? Number.parseInt(phaseRaw, 10) : NaN;
 
-      if (!Number.isFinite(phaseId)) {
+      if (!revealId && !Number.isFinite(phaseId)) {
         fail('predict requires --phase <id>, ex: ai-learn predict --phase 0 --prediction "..."');
       }
 
       const { config, exists } = readProgress(dir);
 
       if (!exists || !config) {
-        fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+        fail(missingProgressMessage(dir));
       }
 
-      const { entry, render } = recordPrediction(dir, config, {
+      const fields = {
         phaseId,
         type: getFlagValue("--type", null),
         prediction: getFlagValue("--prediction", null),
+        file: getFlagValue("--file", null),
+        line: getFlagValue("--line", null),
         gaps: getFlagValue("--gaps", null),
         score: getFlagValue("--score", null),
         strengths: getFlagValue("--strengths", null),
         weaknesses: getFlagValue("--weaknesses", null),
         flash: getFlagValue("--flash", null),
         corrected: getFlagValue("--corrected", null),
-        correctedBy: getFlagValue("--corrected-by", "apprenant"),
-      });
+        cause: getFlagValue("--cause", null),
+        correctedBy: getFlagValue("--corrected-by", revealId ? null : "apprenant"),
+      };
+      const { entry, render } = revealId ? revealPrediction(dir, config, revealId, fields) : recordPrediction(dir, config, fields);
 
-      log(`Recorded prediction ${entry.id} for phase ${phaseId} (.ai-learn/predictions.json).`);
+      log(`${revealId ? "Revealed" : "Recorded"} prediction ${entry.id} for phase ${entry.phaseId} (.ai-learn/predictions.json).`);
 
       if (render.action === "kept-customized") {
         log("docs/plans/predictions.md is customized (no generated marker) — left untouched.");
@@ -217,7 +262,8 @@ function main() {
 
     case "check": {
       const { checkCommand } = require("./lib/check");
-      const root = resolveDir(getFlagValue("--root"));
+      const rootFlag = getFlagValue("--root");
+      const root = rootFlag ? resolveDir(rootFlag) : require("./lib/progress").findProjectDir(resolveDir(null));
       checkCommand({ root, json: flags.has("--json") });
       break;
     }
@@ -270,10 +316,41 @@ function main() {
       break;
     }
 
+    case "profile": {
+      // Machinery (story 10.02): the agent reads and writes the learner profile.
+      const { profileCommand } = require("./lib/profile");
+      const { parseArgs } = require("./lib/args");
+      const { positionals, flags } = parseArgs(commandArgs, { valueFlags: ["--json"] });
+      const raw = flags["--json"];
+      profileCommand({ args: positionals, json: "--json" in flags, jsonValue: typeof raw === "string" ? raw : "" });
+      break;
+    }
+
     case "update": {
       const { updateCommand } = require("./lib/update");
       const platform = getFlagValue("--platform", null);
       updateCommand({ root: resolveDir(getFlagValue("--root")), platform });
+      break;
+    }
+
+    case "ledgers": {
+      // Machinery (story 09.01): called by `update` and by the agent, never
+      // one of the learner's commands.
+      const { ledgersCommand } = require("./lib/ledgers");
+      const { parseArgs } = require("./lib/args");
+      const { flags, positionals } = parseArgs(commandArgs, { valueFlags: ["--dir", "--platform"] });
+      // A typo'd `--dryrun` must not silently turn a simulation into a repair.
+      const known = new Set(["--dir", "--platform", "--repair", "--sync", "--dry-run"]);
+      const unknown = [...Object.keys(flags).filter((flag) => !known.has(flag)), ...positionals];
+      if (unknown.length > 0) {
+        throw new UsageError(`ledgers : argument inconnu ${unknown.join(", ")} — attendu --repair [--dry-run] | --sync [--dir <dir>]`);
+      }
+      process.exitCode = ledgersCommand({
+        dir,
+        repair: Boolean(flags["--repair"]),
+        sync: Boolean(flags["--sync"]),
+        dryRun: Boolean(flags["--dry-run"]),
+      });
       break;
     }
 
@@ -299,7 +376,7 @@ function main() {
 
 Usage:
   ai-learn version | --version | -v
-  ai-learn init --technology <name> [--project <name>] [--doc-source <path|url>] [--phases '<json>']
+  ai-learn init --technology <name> [--project <name>] [--dir <dir>] [--doc-source <path|url>] [--pertinence <fichier>] [--phases '<json>']
              [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn status [--dir <dir>] [--json]
   ai-learn next [--dir <dir>] [--json]
@@ -307,11 +384,14 @@ Usage:
   ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark] [--revisit]
+  ai-learn revisit <phase-id> [--giveup] [--dir <dir>]
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality>]
-             [--gaps <text>] [--score <text>] [--strengths <text>] [--weaknesses <text>]
-             [--flash <text>] [--corrected <text>] [--corrected-by <apprenant|IA>] [--dir <dir>]
+  ai-learn break [--level 1|2|3 | --auto] [--dir <dir>]
+  ai-learn break --resolve | --giveup [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--file <f> --line <n> | --cause <text>] [--dir <dir>]
+  ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]
+             [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--secondary] [--path <subdir>]
              docs presets: build-your-own-x, developer-roadmap, conventional-commits, gh-manual
@@ -320,6 +400,8 @@ Usage:
   ai-learn mode <apprenti|dirigeant> [--dir <dir>]
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
+  ai-learn ledgers --repair [--dry-run] | --sync [--dir <dir>]   (machinerie : ledgers ~/.ai-learn)
+  ai-learn profile [--json] | profile set --json '<objet>'   (machinerie : profil ~/.ai-learn/profile.json)
   ai-learn upgrade
   ai-learn install [claude|codex|gemini|opencode|antigravity] [--home <dir>] [--dry-run]
 
@@ -348,11 +430,16 @@ Commands:
   verify   Run a phase checkpoint, record executed evidence, mark it done on success.
            --stale re-proves every done phase whose proof went stale, and separates
            "toujours vert" (fresh proof) from "régression" (the checkpoint now fails)
-           --revisit replays a proven phase from memory: it refreshes lastProvenAt on
-           success, never demotes on failure, and never rewrites the ledger status
+           --revisit proves a phase retyped from memory after "ai-learn revisit": it
+           refreshes lastProvenAt and doubles the interval on success, never demotes on
+           failure, and never rewrites the ledger status; refused without a removal
+  revisit  Remove from your files what a done phase added (reverse of its feat(phase-N)
+           commits) so you retype it from memory; --giveup restores your files exactly
   mutate   Mutation testing: break the learner's code one way, run the phase
            checkpoint against it, report SURVÉCU (the test missed it) or TUÉ
            (the test caught it) per site — the file is always restored after
+  break    Incident de code : casse ton code sans dire où ; tu prédis le site (predict
+           --type debug), tu répares, --resolve prouve. --giveup restaure et révèle.
   predict  Record a prediction for a phase in .ai-learn/predictions.json (source of
            truth) and regenerate docs/plans/predictions.md from it — unless that
            file has been customized (no generated marker), in which case it is left

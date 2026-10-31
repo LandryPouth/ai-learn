@@ -18,7 +18,7 @@ const VERSION = 1;
 // Story 05.01 — a prediction carries a type so `verify` can require them
 // separately (`predictionsRequired: { code: 2, reality: 1 }`). Entries written
 // before this story have no `type` and count as `code` — no migration needed.
-const PREDICTION_TYPES = ["code", "casse", "reality", "transfert"];
+const PREDICTION_TYPES = ["code", "casse", "reality", "transfert", "debug"];
 const DEFAULT_PREDICTION_TYPE = "code";
 
 // `predictionsRequired` accepts an integer (legacy: any type combined) or an
@@ -207,7 +207,7 @@ function renderJournal(dir, config, data) {
       `- Explication flash : ${escapeField(entry.flash)}`,
       `- Corrigé : ${escapeField(entry.corrected)}`,
       `- Corrigé par : ${escapeField(entry.correctedBy || "apprenant")}`,
-      `- Révélé le : ${entry.revealedAt || entry.at}`,
+      `- Révélé le : ${entry.revealedAt || "pas encore révélée"}`,
     ].join("\n");
   });
 
@@ -237,17 +237,15 @@ function syncJournalRender(dir, config, data) {
   return { action: existing === null ? "created" : "refreshed" };
 }
 
+const REVEAL_FIELDS = ["gaps", "score", "strengths", "weaknesses", "flash", "corrected"];
 const VALID_CORRECTED_BY = ["apprenant", "IA"];
 
-// Records one entry and (re)renders the `.md` from it in the same call — the
-// command an agent runs "at the moment of the protocol" (story goal), not a
-// two-step API. `at`/`revealedAt` are both stamped "now": this story stores
-// both fields faithfully (schema below) but does not itself demonstrate a
-// gap between them — story 01.04 is what will make that gap meaningful, by
-// calling this at prediction time and again at reveal time.
+// Records one entry and (re)renders the `.md` from it in the same call. With no
+// feedback field it is the first step (unrevealed); `revealPrediction` is the
+// second. Feedback given here is the legacy one-step form (`at == revealedAt`).
 function recordPrediction(dir, config, fields) {
   if (!findPhase(config, fields.phaseId)) {
-    fail(`No phase ${fields.phaseId} in progress.json — cannot record a prediction for it.`);
+    fail(`Phase ${fields.phaseId} introuvable dans progress.json — impossible d'y enregistrer une prédiction.`);
   }
 
   if (!fields.prediction) {
@@ -266,6 +264,17 @@ function recordPrediction(dir, config, fields) {
     fail(`--type must be one of ${PREDICTION_TYPES.join(", ")}, got: ${type}`);
   }
 
+  // Story 10.04 — a `debug` prediction names the site it bets on, so `break
+  // --resolve` can compare it with the real one.
+  const line = /^\d+$/.test(String(fields.line).trim()) ? Number.parseInt(fields.line, 10) : NaN;
+
+  // Story 10.05 — an environment fault has no file: the learner names its cause.
+  const cause = typeof fields.cause === "string" && fields.cause.trim() ? fields.cause.trim() : null;
+
+  if (type === "debug" && !cause && (!fields.file || !Number.isFinite(line) || line < 1)) {
+    fail("a debug prediction needs --file <path> and --line <n> (ex: --file src/a.js --line 12), or --cause <text> for an environment fault");
+  }
+
   const existing = readPredictions(dir);
 
   if (existing.exists && !existing.valid) {
@@ -274,11 +283,17 @@ function recordPrediction(dir, config, fields) {
 
   const data = existing.data || { version: VERSION, entries: [] };
   const now = new Date().toISOString();
+  // Two steps (story 09.03): a bare prediction is stored unrevealed, so its
+  // `at` provably precedes the reveal. Any feedback field makes it the legacy
+  // one-step form (`at == revealedAt`), which `check` reports as after-the-fact.
+  const oneStep = REVEAL_FIELDS.some((key) => fields[key]);
   const entry = {
     id: crypto.randomUUID(),
     phaseId: fields.phaseId,
     at: now,
     type,
+    ...(type === "debug" && cause ? { cause } : {}),
+    ...(type === "debug" && !cause ? { file: path.posix.normalize(String(fields.file).replace(/\\/g, "/")), line } : {}),
     prediction: fields.prediction,
     gaps: fields.gaps || null,
     score: fields.score || null,
@@ -287,7 +302,7 @@ function recordPrediction(dir, config, fields) {
     flash: fields.flash || null,
     corrected: fields.corrected || null,
     correctedBy,
-    revealedAt: now,
+    revealedAt: oneStep ? now : undefined,
   };
 
   data.entries.push(entry);
@@ -296,6 +311,51 @@ function recordPrediction(dir, config, fields) {
 
   const render = syncJournalRender(dir, config, data);
   return { entry, render };
+}
+
+// Completes a prediction recorded earlier: stamps `revealedAt` and stores the
+// feedback. Unknown id → fail before touching the file.
+function revealPrediction(dir, config, id, fields) {
+  const existing = readPredictions(dir);
+
+  if (!existing.exists || !existing.valid) {
+    fail(`No usable predictions.json to reveal ${id} in${existing.issues.length ? `: ${existing.issues.join("; ")}` : ""}.`);
+  }
+
+  const entry = existing.data.entries.find((candidate) => candidate.id === id);
+
+  if (!entry) {
+    fail(`No prediction ${id} in predictions.json.`);
+  }
+
+  if (fields.correctedBy && !VALID_CORRECTED_BY.includes(fields.correctedBy)) {
+    fail(`--corrected-by must be one of ${VALID_CORRECTED_BY.join(", ")}, got: ${fields.correctedBy}`);
+  }
+
+  if (entry.revealedAt) {
+    fail(`Prediction ${id} is already revealed — a reveal is final.`);
+  }
+
+  const missing = REVEAL_FIELDS.filter((key) => key !== "corrected" && !fields[key]);
+
+  if (missing.length > 0) {
+    fail(`predict --reveal needs the full feedback; missing: ${missing.map((key) => `--${key}`).join(", ")}.`);
+  }
+
+  for (const key of REVEAL_FIELDS) {
+    if (fields[key]) {
+      entry[key] = fields[key];
+    }
+  }
+
+  if (fields.correctedBy) {
+    entry.correctedBy = fields.correctedBy;
+  }
+
+  entry.revealedAt = new Date().toISOString();
+  fs.writeFileSync(predictionsPath(dir), `${JSON.stringify(existing.data, null, 2)}\n`);
+
+  return { entry, render: syncJournalRender(dir, config, existing.data) };
 }
 
 // Story 01.04 — the single source `verify` and `check` both consume so a
@@ -392,13 +452,35 @@ function missingPerType(requiredByType, countByType) {
   return gaps;
 }
 
+// Story 09.07 — « À revoir » : the flash notes of the most recent revealed
+// predictions the learner scored under 7/10. A deterministic threshold, not a
+// grouping of free-text weaknesses (they never repeat word for word).
+const REVIEW_BELOW = 7;
+const REVIEW_MAX = 3;
+
+function predictionsToReview(dir) {
+  const read = readPredictions(dir);
+
+  if (!read.valid) {
+    return [];
+  }
+
+  return read.data.entries
+    .filter((entry) => entry.revealedAt && entry.flash)
+    .map((entry) => ({ entry, score: Number.parseFloat(String(entry.score || "").split("/")[0]) }))
+    .filter(({ score }) => Number.isFinite(score) && score < REVIEW_BELOW)
+    .sort((a, b) => Date.parse(b.entry.revealedAt) - Date.parse(a.entry.revealedAt))
+    .slice(0, REVIEW_MAX)
+    .map(({ entry }) => ({ phaseId: entry.phaseId, flash: entry.flash }));
+}
+
 // Shared by `verify` and `check` so a phase's missing-predictions warning
 // never reads different counts in two places (plan.md Decisions) — the one
 // divergence this story exists to close. A ventilated requirement names the
 // short type with its real/expected count, so "which prediction is missing"
 // is never left to guesswork.
 function formatPredictionsGap(phase, report) {
-  const base = `phase ${phase.id}: ${report.count}/${report.required} recorded predictions; ${report.missing} missing`;
+  const base = `phase ${phase.id}: ${report.count}/${report.required} prédictions enregistrées ; ${report.missing} manquante(s)`;
   const details = Object.entries(report.missingByType || {})
     .map(([type, gap]) => `${type} ${gap.actual}/${gap.expected}`)
     .join(", ");
@@ -420,7 +502,9 @@ module.exports = {
   countByPhase,
   countIATyped,
   recordPrediction,
+  revealPrediction,
   renderJournal,
   predictionsReport,
   formatPredictionsGap,
+  predictionsToReview,
 };

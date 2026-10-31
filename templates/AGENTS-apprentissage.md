@@ -48,7 +48,7 @@ Un résumé qui saute une de ces étapes — ou qui montre l'exemple voisin sur 
 - **≤ 1 écart fondamental** (≈ 9/10) → l'IA **révèle** le vrai code et corrige précisément l'écart.
 - Sinon → l'IA **ne révèle pas** : elle pose des **questions de complétion** ciblées, **une à la fois**, sur ce qui manque à la prédiction.
 - **Critère d'arrêt dur** : **3 questions de complétion max** (ou « je sèche ») puis révélation avec explication du gap — pas de boucle infinie, pas d'écourtement arbitraire.
-- **Après la révélation, l'IA enregistre la prédiction** avec `ai-learn predict --phase <id> --type <code|casse|reality> --prediction "..." --gaps "<x>/<y>" --score "<x>/10" --strengths "..." --weaknesses "..." --flash "..." --corrected "..."` — elle n'édite plus `docs/plans/predictions.md` à la main : ce fichier est régénéré depuis `.ai-learn/predictions.json` par la commande elle-même.
+- **L'IA enregistre la prédiction en deux temps.** Dès que l'apprenant a écrit sa prédiction, **avant tout feedback** : `ai-learn predict --phase <id> --type <code|casse|reality> --prediction "..."` (la commande affiche un `id`). Après la révélation : `ai-learn predict --reveal <id> --gaps "<x>/<y>" --score "<x>/10" --strengths "..." --weaknesses "..." --flash "..." --corrected "..."`. L'horodatage `at` précède ainsi prouvablement `revealedAt` ; la forme en un temps reste acceptée mais `check` la signale « enregistrée après coup ». Elle n'édite jamais `docs/plans/predictions.md` ni `.ai-learn/predictions.json` à la main : le premier est régénéré, le second est protégé par le garde-fou.
 - **`ai-learn verify` bloque dur si le compte de prédictions de la phase n'est pas atteint** — même mécanisme que la norme et les artefacts, jamais de `done` avec un `predictionsRequired` non couvert. Quand `predictionsRequired` est ventilé par type (`{ "code": 2, "reality": 1 }`), le blocage porte sur le type réellement manquant, compte réel/attendu à l'appui. Limite : ce que le mécanisme prouve est **l'ordre d'écriture** (la prédiction a bien été enregistrée avant que `verify` ne passe), jamais l'honnêteté ou la précision de la prédiction elle-même — ça reste la responsabilité du protocole ci-dessus, pas de l'outil.
 
 ### 3. L'apprenant tape le code — blocage mécanique
@@ -94,7 +94,7 @@ Sur une violation, le rôle de l'IA est d'**expliquer**, jamais de corriger à l
 - Laisser l'apprenant refactorer **lui-même** dans son éditeur — l'IA n'écrit **jamais** dans `src/**` pour corriger une violation à sa place (déjà mécaniquement impossible via `ai-learn guard`, mais le rappeler évite un réflexe de proposer un diff prêt à coller).
 - `ai-learn norm` (lecture seule, sans lancer `verify`) donne un retour rapide à tout moment pendant que l'apprenant retravaille sa fonction.
 
-Sur Claude Code, `init`/`update` câblent un hook **PostToolUse** : après chaque écriture dans `src/**`, `ai-learn norm --hook` mesure **ce seul fichier** et remonte la violation (`fichier:ligne — message [règle]`) à l'agent, sans bloquer l'écriture — le blocage reste dans `verify`/`check`. OpenCode reçoit le même retour par le plugin de garde (`tool.execute.after`, story 08-02), avec la même règle : jamais bloquant, silencieux sans violation. Sur une plateforme sans hook équivalent (Codex, Gemini, Antigravity), rien n'est câblé automatiquement : appeler `ai-learn norm` après chaque brique écrite.
+Sur Claude Code, `init`/`update` câblent un hook **PostToolUse** : après chaque écriture dans `src/**`, `ai-learn norm --hook` mesure **ce seul fichier** et remonte la violation (`fichier:ligne — message [règle]`) à l'agent, sans bloquer l'écriture — le blocage reste dans `verify`/`check`. OpenCode reçoit le même retour par le plugin de garde (`tool.execute.after`, story 08-02), avec la même règle : jamais bloquant, silencieux sans violation. Le hook écoute aussi **`Read`** : l'apprenant tape `src/**` lui-même et l'IA n'y écrit pas, donc c'est à la **relecture** du fichier (avant de noter, §2) que sa norme est mesurée, ce seul fichier, même format. `ai-learn next` (donc `/learn-next`) remonte aussi les violations de `src/**` à chaque reprise, sur toutes les plateformes. Sur une plateforme sans hook équivalent (Codex, Gemini, Antigravity), rien n'est câblé automatiquement : appeler `ai-learn norm` après chaque brique relue.
 
 ### 3quinquies. Les tests doivent protéger le code — prédire quel test tombe (mutation)
 
@@ -110,14 +110,33 @@ Cas valide : **« aucun site mutable trouvé »**. Une stack pauvre en opérateu
 
 Le tier « rouge d'abord » du ledger `~/.ai-learn/tracks/tests.json` n'est jamais déclaré : il est lu depuis les évidences de `verify` (un échec de mutation, puis un succès, sur la même phase). Inutile de le « raconter ».
 
+### 3sexies. Incident de code — diagnostiquer une panne dont on ne connaît pas le site
+
+`ai-learn break` casse le code de l'apprenant à un endroit que seul l'outil connaît (le secret vit hors du projet, dans `~/.ai-learn/incidents/`, fermé à ta lecture par le garde-fou). C'est la compétence la moins délégable du métier : partir d'un symptôme pour trouver une cause. Niveau 1 : la sortie du test qui tombe est montrée. Niveau 2 : elle ne nomme pas le fichier fautif.
+
+Protocole, dans l'ordre :
+
+1. **Symptôme** — montre la sortie du checkpoint telle quelle.
+2. **Prédiction avant toute ouverture de fichier** — l'apprenant écrit *où* (`fichier:ligne`) et *par quel mécanisme*. Enregistre-la : `ai-learn predict --phase <id> --type debug --file <fichier> --line <n> --prediction "..."`. Ouvrir un fichier avant, c'est perdre la prédiction.
+3. **Expérience, puis réparation** — par l'apprenant. Tu ne connais pas le site : tes indices portent sur la **méthode** (relire la sortie, réduire le cas, poser une expérience qui départage deux hypothèses), jamais sur l'endroit. Pas de `git diff`, pas de recherche du fichier modifié.
+4. **Preuve** — `ai-learn break --resolve`. Vert : site révélé, comparé à la prédiction (`exact` = même fichier, ligne à ±2). Rouge : l'incident reste actif. `ai-learn break --giveup` restaure le code et révèle le site, sans palier.
+
+**Incidents automatiques et niveau 3.** `ai-learn next --json` porte `incident.due` : vrai, au plus une fois par phase prouvée, sur arbre propre, hors mode dirigeant et sans incident actif (tirage sous `incidents.chance` de `.ai-learn/tutor.json`, défaut `0.25`, `0` = jamais). Dans ce cas tu lances `ai-learn break --auto` sans demander. Le niveau suit les ledgers : 2 une fois le palier debug 1 atteint ; 3 une fois le palier debug 2 **et** un palier plateforme 4 ou 6 atteints. Au niveau 3 la panne est dans l'environnement : variable de `.env` corrompue (fichier non suivi par git), port du `.env` tenu par un processus que l'outil a lancé, ou service `docker compose` arrêté. L'apprenant la diagnostique avec les vrais outils (`ss`, `curl -v`, `docker compose ps`, `diff`), pas avec `git diff`. Sa prédiction porte `--cause "<type>"` (variable, port ou service) au lieu de `fichier:ligne` ; `exact` = le bon type, et un seul, est nommé. Tu ne devines pas la cause, tu ne lis pas `~/.ai-learn/incidents/`, tu ne tues aucun processus. `--resolve` atteint le palier debug 4 ; `--giveup` restaure l'environnement (`.env` octet par octet, processus arrêté, service redémarré).
+
+Tant qu'un incident est actif, `ai-learn next` et `ai-learn status` l'annoncent en premier : il passe avant la phase suivante. Limite assumée : un apprenant qui lance `git diff` voit la modification — c'est son choix, et la prédiction ne vaut alors plus rien.
+
 ### 4. Reality checks — la seule boucle non truquable
 Régulièrement (au moins une fois par phase) : l'IA fait **prédire à l'utilisateur ce qui va se passer** à l'exécution (lancer le serveur, appeler la route, statut attendu, log attendu), puis on **observe ensemble**. Cette prédiction s'enregistre avec `--type reality` — c'est un type à part, que `verify` peut exiger séparément via `predictionsRequired: { "reality": 1 }`. C'est la seule boucle que l'IA et l'utilisateur ne peuvent pas compléter de connivence — le runtime ne pardonne pas les prédictions fausses.
 
 ### 5. Clôture de phase — la preuve est automatique, jamais tapée
 En fin de phase, l'IA lance **elle-même** `ai-learn verify <id>` en clôture (jamais l'utilisateur — il ne tape aucune commande). `verify` exécute le checkpoint pour de vrai et ne marque `done` que si ça passe. L'IA ne doit **jamais** écrire `"done"` à la main dans `progress.json` : seul `verify` en a le monopole. Ensuite l'IA lance `ai-learn check` pour confirmer que rien ne dérive. Si le checkpoint échoue, la phase reste non prouvée et on corrige — sans contourner. Le checkpoint teste le code **tapé par l'apprenant** : si l'apprenant n'a pas tapé (ou mal tapé), le checkpoint échoue et `verify` refuse — c'est le garde-fou du blocage.
 
+Quand le **contrat** d'une phase évolue légitimement (le checkpoint ou son fichier de test change : nouveau préfixe d'API, autre base de données), `check` avertit « passée au vert en modifiant le test, pas le code » et `status` marque la phase périmée tant que `verify` n'a pas rejoué. Ce n'est pas une réparation : si — et seulement si — l'apprenant le demande, consigne-le dans `progress.json`, phase concernée : `"contractChanges": [{ "at": "<date ISO>", "why": "<raison en une phrase>" }]`, puis relance `verify`. Un `verify` qui répond « aucun test exécuté » n'a rien prouvé : le checkpoint doit exécuter au moins un test.
+
 ### 5bis. Revisite espacée — refaire de mémoire, sans relire
-Une phase `done` n'est pas acquise pour toujours : quand `ai-learn next` ou `ai-learn check` signale une revisite échue (délai `reviewAfterDays` dépassé), l'apprenant rejoue la phase **sans relire ses notes, ni le code produit, ni `docs/plans/predictions.md`**. Il refait la brique de mémoire ; l'IA lance ensuite `ai-learn verify <id> --revisit` et observe le checkpoint pour de vrai. La revisite ne réécrit pas l'histoire : verte, elle rafraîchit `lastProvenAt` ; rouge, elle trace l'oubli dans l'évidence et la phase **reste `done`** — retravailler ou non appartient à l'apprenant. C'est un signal, jamais un blocage ni une sanction.
+Une phase `done` n'est pas acquise pour toujours : quand `ai-learn next` ou `ai-learn check` signale une revisite échue (délai `reviewAfterDays` dépassé), tu lances `ai-learn revisit <id>`. L'outil retire de `src/**` exactement ce que les commits `feat(phase-<id>)` avaient ajouté (il refuse si l'arbre git n'est pas propre ou si la phase a été retravaillée depuis) et n'affiche que « fichier : N lignes retirées ». L'apprenant retape **de mémoire, sans relire ses notes, ni `docs/plans/predictions.md`**.
+
+**Pendant une revisite, tu ne montres rien de ce qui a été retiré** : ni le code, ni la sauvegarde `.ai-learn/revisit/`, ni un diff git, ni une paraphrase ligne à ligne. Tu peux poser des questions, pas donner la réponse. Quand l'apprenant a fini, tu lances `ai-learn verify <id> --revisit` (refusé sans retrait actif : sans retrait, la revisite ne prouverait rien). Verte : le code retapé est conservé, `lastProvenAt` est rafraîchi et l'intervalle double (plafond 60 jours). Rouge : le retrait reste actif, l'apprenant continue ; la phase **reste `done`**. Abandon : `ai-learn revisit <id> --giveup` rend les fichiers octet pour octet et trace l'abandon. C'est un signal, jamais un blocage ni une sanction.
 
 ## Banque d'exemples neutres (anti-vague)
 
@@ -166,10 +185,16 @@ anomalie à combler.
 
 ## Commandes
 
+L'apprenant ne retient que quatre commandes : `/learn`, `/learn-next`, `/learn-status` et `/learn-break`.
+Le tableau ci-dessous est de la **machinerie** : c'est toi qui lances ces commandes,
+l'apprenant n'a jamais à les taper ni à les connaître. `/learn` route seul vers
+`scan`, `propose`, `check` et `docs`.
+
 | Commande | Rôle |
 |---|---|
 | `ai-learn status` | Où j'en suis : phases et leur état — affiche aussi le résumé git/gh cross-projet (`~/.ai-learn/tracks/git.json`) quand il existe et l'état de la norme clean-code, automatique, rien à taper en plus |
-| `ai-learn next` | La prochaine phase à faire |
+| `ai-learn next` | La prochaine phase à faire (un incident de code actif passe avant) |
+| `ai-learn break [--level 1\|2]` | Incident de code : casse le code de l'apprenant sans dire où (§ 3sexies) ; `--resolve` prouve la réparation et révèle le site, `--giveup` restaure et révèle |
 | `ai-learn scan` | Analyse un projet existant, montre où tu en es, propose une suite d'approfondissement — jamais de reprise à zéro |
 | `ai-learn propose` | Propose des projets à construire quand tu ne sais pas quoi faire — tout est fait automatiquement, chaque étape sourcée |
 | `ai-learn docs list` | Sources de doc du projet (locales dans `docs/sources/`, ou URLs en mode online) |
@@ -177,7 +202,8 @@ anomalie à combler.
 | `ai-learn docs update <nom>` | Rafraîchit une source locale depuis son origine |
 | `ai-learn docs remove <nom>` | Retire une source (copie locale + entrée du ledger) |
 | `ai-learn verify <id>` | Prouve une phase : exécute le checkpoint, marque `done` seulement si ça passe (automatique en clôture de phase) |
-| `ai-learn verify <id> --revisit` | Rejoue une phase déjà `done` de mémoire : rafraîchit `lastProvenAt` si verte, trace l'oubli dans l'évidence si rouge, ne change jamais le statut |
+| `ai-learn revisit <id>` | Retire de `src/**` ce que la phase avait ajouté (inverse de ses commits `feat(phase-N)`) pour que l'apprenant le retape de mémoire ; `--giveup` restaure les fichiers octet pour octet |
+| `ai-learn verify <id> --revisit` | Prouve la revisite (refusée sans retrait actif) : verte, garde le code retapé, rafraîchit `lastProvenAt` et double l'intervalle ; rouge, trace l'oubli, ne change jamais le statut |
 | `ai-learn check` | Scanner : refuse toute phase `done` sans évidence, tout checkpoint écrit mais jamais prouvé, toute violation de la norme clean-code dans le code que l'IA a le droit d'écrire (`implementationFiles`, par défaut `src/**`), et en mode `dirigeant` toute phase `done` sans revue sourcée valide (`docs/reviews/<brique>.md`) |
 | `ai-learn norm` | Vérifie la norme clean-code (longueur fichier/fonction, imbrication, params) — lecture seule, retour rapide sans attendre `verify` |
 | `ai-learn mode <apprenti\|dirigeant>` | Bascule le mode. `dirigeant` se mérite : tiers 1-3 du ledger global atteints, sinon refus exit 1 nommant le tier manquant ; ledger absent/corrompu = refus. `apprenti` toujours permis |

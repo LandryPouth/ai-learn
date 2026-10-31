@@ -145,7 +145,7 @@ test("trapsCommand prints a report and never touches progress.json", () => {
 
 test("trapsCommand fails without a ledger", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-test-"));
-  assert.throws(() => trapsCommand({ dir }), /No progress\.json/);
+  assert.throws(() => trapsCommand({ dir }), /Aucun progress\.json/);
 });
 
 test("docs add regenerates the traps bank automatically", () => {

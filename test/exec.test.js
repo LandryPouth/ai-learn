@@ -3,7 +3,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 
-const { portabilityHint } = require("../bin/lib/exec");
+const { portabilityHint, runCommand, zeroTestsRan } = require("../bin/lib/exec");
 
 function failed(overrides = {}) {
   return {
@@ -61,4 +61,50 @@ test("portabilityHint stays silent for a normal failing checkpoint on Windows", 
 test("portabilityHint is a no-op outside Windows and on a green run", () => {
   assert.strictEqual(portabilityHint(failed({ exitCode: 127 }), "linux"), null);
   assert.strictEqual(portabilityHint(failed({ ok: true, exitCode: 0 }), "win32"), null);
+});
+
+
+test("zeroTestsRan recognises each runner and nothing else", () => {
+  const zero = [
+    "# tests 0\n# pass 0",
+    "No tests found, exiting with code 1",
+    "No test files found",
+    "===== no tests ran in 0.01s =====",
+    "?   \tmod\t[no test files]",
+    "running 0 tests\n\ntest result: ok. 0 passed",
+    "No tests were found!!!",
+  ];
+
+  for (const out of zero) {
+    assert.strictEqual(zeroTestsRan({ stdoutTail: out, stderrTail: "" }), true, out);
+  }
+
+  assert.strictEqual(zeroTestsRan({ stdoutTail: "", stderrTail: "No tests found" }), true);
+
+  const real = ["# tests 3\n# pass 3", "running 0 tests\nrunning 4 tests\n", "3 passed in 0.1s", ""];
+
+  for (const out of real) {
+    assert.strictEqual(zeroTestsRan({ stdoutTail: out, stderrTail: "" }), false, out);
+  }
+});
+
+test("a backgrounded server does not hold verify until the timeout", () => {
+  const started = Date.now();
+  const result = runCommand('node -e "setTimeout(() => {}, 6000)" & echo started', process.cwd(), { timeoutMs: 20000 });
+
+  assert.strictEqual(result.ok, true);
+  assert.match(result.stdoutTail, /started/);
+  assert.ok(Date.now() - started < 4000, `took ${Date.now() - started}ms`);
+});
+
+test("zeroTestsRan never refuses a run that shows tests passing", () => {
+  const passing = [
+    "?   \tx/cmd\t[no test files]\nok  \tx/pkg\t0.01s",
+    "✓ shows 'No tests found' message\n1 passed",
+    "running 0 tests\n" + "x".repeat(4000),
+  ];
+
+  for (const out of passing) {
+    assert.strictEqual(zeroTestsRan({ stdoutTail: out, stderrTail: "" }), false, out.slice(0, 40));
+  }
 });

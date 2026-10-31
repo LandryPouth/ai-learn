@@ -7,7 +7,10 @@ const os = require("os");
 const path = require("path");
 
 const { updateCommand } = require("../bin/lib/update");
-const { tmpProject, writeFile, capture, withHome } = require("./helpers");
+const { tmpProject, writeFile, capture, withHome, sampleProgress } = require("./helpers");
+const { verifyCommand } = require("../bin/lib/verify");
+const { projectKey } = require("../bin/lib/ledgers");
+const { tracksPath: testsLedgerPath } = require("../bin/lib/tracks/tests");
 
 const MARKER = "Instructions pour les agents IA — projet d'apprentissage";
 
@@ -37,7 +40,11 @@ test("update refreshes a generated AGENTS.md with the current template", () => {
   assert.match(agents, /Fastify/); // {{technology}} replaced
   assert.doesNotMatch(agents, /OLD PROTOCOL/);
 
-  assert.strictEqual(fs.readFileSync(path.join(dir, "progress.json"), "utf8"), before);
+  // Story 09.07: `update` only adds `toolVersion` — the phases are untouched.
+  assert.deepStrictEqual(
+    { ...JSON.parse(fs.readFileSync(path.join(dir, "progress.json"), "utf8")), toolVersion: undefined },
+    { ...JSON.parse(before), toolVersion: undefined },
+  );
 });
 
 test("update never overwrites a customized AGENTS.md", () => {
@@ -205,14 +212,14 @@ test("update --platform installs that platform's slash commands into an isolated
   }
 });
 
-test("update --platform migrates a pre-04.05 install to skills, keeping the old name as a deprecated skill", () => {
+test("update --platform migrates a pre-04.05 install to skills, without any alias skill", () => {
   const dir = tmpProject(project());
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-migration-"));
   const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   // A project scaffolded before story 04.05: only the old codex prompt exists,
   // carrying the old canonical body. Its bytes predate the current legacy
   // renderer, so install.js conservatively keeps it (it cannot prove it is
-  // ours); the new alias skill carries the explicit deprecation.
+  // ours). Since story 10.01 no alias skill is installed at all.
   writeFile(home, ".codex/prompts/ai-learn-next.md", "---\ndescription: \"Prochaine phase à faire\"\n---\n\nExécute `ai-learn next`.\n");
   process.env.HOME = home;
   process.env.USERPROFILE = home;
@@ -223,10 +230,7 @@ test("update --platform migrates a pre-04.05 install to skills, keeping the old 
     const skills = path.join(home, ".codex", "skills");
     assert.ok(fs.existsSync(path.join(skills, "ai-learn-learn-next", "SKILL.md")), "the new name is installed");
 
-    const alias = fs.readFileSync(path.join(skills, "ai-learn-next", "SKILL.md"), "utf8");
-    assert.match(alias, /Nom déprécié/);
-    assert.match(alias, /learn-next/);
-    assert.match(alias, /ai-learn next/, "the alias forwards the canonical body, not the stale old one");
+    assert.ok(!fs.existsSync(path.join(skills, "ai-learn-next")), "the deprecated alias is gone");
 
     assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")), "an unrecognised old file is kept, never silently deleted");
   } finally {
@@ -369,4 +373,143 @@ test("update does not create docs/solutions/ on a project that has none", () => 
   capture(() => updateCommand({ root: dir }));
 
   assert.ok(!fs.existsSync(path.join(dir, "docs", "solutions")));
+});
+
+// Story 09.01 — update catches up a proven project that no ledger knows (its
+// verify ran where the ledgers could not be written), once.
+function provenElsewhere() {
+  const dir = tmpProject(sampleProgress());
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-elsewhere-"));
+  capture(() => verifyCommand({ dir, phaseId: 0, home: elsewhere }));
+  return dir;
+}
+
+test("update replays a proven project missing from the ledgers, then leaves it alone", () => {
+  const dir = provenElsewhere();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-home-"));
+
+  const first = capture(() => updateCommand({ root: dir, home }));
+  assert.match(first, /ledgers: 1 preuve\(s\) rejouée\(s\)/);
+  assert.ok(JSON.parse(fs.readFileSync(testsLedgerPath({ home }), "utf8")).projects[projectKey(dir)]);
+
+  const second = capture(() => updateCommand({ root: dir, home }));
+  assert.match(second, /ledgers: à jour/);
+});
+
+test("update never overwrites an unreadable ledger and says so", () => {
+  const dir = provenElsewhere();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-home-"));
+  writeFile(home, ".ai-learn/tracks/tests.json", "{ not json");
+
+  const out = capture(() => updateCommand({ root: dir, home }));
+
+  assert.strictEqual(fs.readFileSync(testsLedgerPath({ home }), "utf8"), "{ not json");
+  assert.match(out, /ledger illisible, laissé intact : tracks\/tests\.json/);
+});
+
+function setHook(dir, event, command) {
+  const file = path.join(dir, ".claude", "settings.json");
+  const settings = JSON.parse(fs.readFileSync(file, "utf8"));
+  const entry = settings.hooks[event].find((e) => e.hooks.some((h) => /ai-learn\.js/.test(h.command)));
+  entry.hooks.find((h) => /ai-learn\.js/.test(h.command)).command = command;
+  fs.writeFileSync(file, JSON.stringify(settings));
+}
+
+function hookCommands(dir, event) {
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  return settings.hooks[event].flatMap((e) => e.hooks).map((h) => h.command);
+}
+
+test("update repoints a dead hook to the current tool", () => {
+  const dir = tmpProject(project());
+  capture(() => updateCommand({ root: dir }));
+  const dead = path.join(dir, "gone", "ai-learn.js");
+  setHook(dir, "PreToolUse", `node "${dead}" guard`);
+  setHook(dir, "PostToolUse", `node "${dead}" norm --hook`);
+
+  capture(() => updateCommand({ root: dir }));
+
+  const tool = path.join(__dirname, "..", "bin", "ai-learn.js");
+  assert.ok(hookCommands(dir, "PreToolUse").includes(`node "${tool}" guard`));
+  assert.ok(hookCommands(dir, "PostToolUse").includes(`node "${tool}" norm --hook`));
+  assert.ok(!JSON.stringify(hookCommands(dir, "PreToolUse")).includes("gone"));
+});
+
+test("update keeps a hook pointing at another live install", () => {
+  const dir = tmpProject(project());
+  capture(() => updateCommand({ root: dir }));
+  const other = path.join(dir, "other-install", "ai-learn.js");
+  writeFile(dir, "other-install/ai-learn.js", "");
+  setHook(dir, "PreToolUse", `node "${other}" guard`);
+  setHook(dir, "PostToolUse", `node "${other}" norm --hook`);
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.ok(hookCommands(dir, "PreToolUse").includes(`node "${other}" guard`));
+  assert.ok(hookCommands(dir, "PostToolUse").includes(`node "${other}" norm --hook`));
+});
+
+test("update re-quotes a live unquoted norm hook without repointing it", () => {
+  const dir = tmpProject(project());
+  capture(() => updateCommand({ root: dir }));
+  const other = path.join(dir, "other install", "ai-learn.js");
+  writeFile(dir, "other install/ai-learn.js", "");
+  setHook(dir, "PostToolUse", `node ${other} norm --hook`);
+
+  capture(() => updateCommand({ root: dir }));
+
+  assert.ok(hookCommands(dir, "PostToolUse").includes(`node "${other}" norm --hook`));
+});
+
+test("update completes gitignore without touching custom lines", () => {
+  const { ensureGitignore } = require("../bin/lib/gitignore");
+  const dir = fs.mkdtempSync(path.join(require("os").tmpdir(), "ai-learn-gi-"));
+  const file = path.join(dir, ".gitignore");
+  fs.writeFileSync(file, "mon-secret.txt\r\nnode_modules/\r\n");
+  assert.strictEqual(ensureGitignore(dir), "updated");
+  const text = fs.readFileSync(file, "utf8");
+  assert.ok(text.startsWith("mon-secret.txt\r\nnode_modules/\r\n"));
+  assert.strictEqual(text.match(/node_modules\//g).length, 1);
+  assert.match(text, /\.env\r\n/);
+  assert.strictEqual(ensureGitignore(dir), "unchanged");
+});
+
+test("ensureGitignore keeps CRLF line endings", () => {
+  const { ensureGitignore } = require("../bin/lib/gitignore");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-crlf-"));
+  const file = path.join(dir, ".gitignore");
+  fs.writeFileSync(file, "perso\r\n");
+  ensureGitignore(dir);
+  const text = fs.readFileSync(file, "utf8");
+  assert.match(text, /node_modules\/\r\n/);
+  assert.doesNotMatch(text.replace(/\r\n/g, ""), /\n/);
+});
+
+test("update adds Read to the norm hook matcher", () => {
+  const dir = tmpProject(project());
+  capture(() => updateCommand({ root: dir }));
+  const settingsPath = path.join(dir, ".claude", "settings.json");
+  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  const ours = settings.hooks.PostToolUse.find((e) => /norm --hook/.test(JSON.stringify(e)));
+  ours.matcher = "Write|Edit|MultiEdit";
+  settings.hooks.PostToolUse.push({ matcher: "Bash", hooks: [{ type: "command", command: "other-post" }] });
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+
+  capture(() => updateCommand({ root: dir }));
+
+  const after = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  assert.strictEqual(after.hooks.PostToolUse.find((e) => /norm --hook/.test(JSON.stringify(e))).matcher, "Write|Edit|MultiEdit|Read");
+  assert.ok(after.hooks.PostToolUse.some((e) => e.matcher === "Bash"));
+});
+
+test("update prepares the bilan of a track finished before it existed, once", () => {
+  const dir = tmpProject(project({ phases: [{ id: 0, name: "Zero", status: "done", checkpoint: "node -e 0", artifacts: [], predictionsRequired: 0 }] }));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-bilan-"));
+
+  capture(() => updateCommand({ root: dir, home }));
+  assert.match(fs.readFileSync(path.join(dir, "docs", "bilan.md"), "utf8"), /## Recommandation/);
+
+  fs.writeFileSync(path.join(dir, "docs", "bilan.md"), "# à moi\n");
+  capture(() => updateCommand({ root: dir, home }));
+  assert.strictEqual(fs.readFileSync(path.join(dir, "docs", "bilan.md"), "utf8"), "# à moi\n");
 });

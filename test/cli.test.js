@@ -91,7 +91,7 @@ test("predict records an entry and reports it, end to end through the CLI", () =
 test("init requires --technology", () => {
   const result = spawnSync(process.execPath, [BIN, "init"], { encoding: "utf8", env: isolatedEnv() });
   assert.strictEqual(result.status, 1);
-  assert.match(result.stderr, /requires --technology/);
+  assert.match(result.stderr, /exige --technology/);
 });
 
 test("any command with --platform mechanically installs that platform's commands first", () => {
@@ -103,7 +103,8 @@ test("any command with --platform mechanically installs that platform's commands
 
   assert.strictEqual(result.status, 0);
   assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-learn-next", "SKILL.md")));
-  assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-learn", "references", "scan.md")));
+  assert.ok(!fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next")), "no alias skill is installed");
 });
 
 test("a command with CLAUDECODE=1 in its env self-heals Claude Code's commands, unprompted", () => {
@@ -143,7 +144,7 @@ test("verify accepts --dir before the positional phase id (story 01.05)", () => 
   const result = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0"], { encoding: "utf8", env: isolatedEnv() });
 
   assert.strictEqual(result.status, 0);
-  assert.match(result.stdout, /Phase 0 marked done/);
+  assert.match(result.stdout, /Phase 0 validée \(done\)/);
 });
 
 test("verify --revisit replays a proven phase via the CLI (story 07.02)", () => {
@@ -160,6 +161,7 @@ test("verify --revisit replays a proven phase via the CLI (story 07.02)", () => 
   const first = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0"], { encoding: "utf8", env: isolatedEnv() });
   assert.strictEqual(first.status, 0);
 
+  require("./helpers").activeRevisitLock(dir, 0);
   const replay = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0", "--revisit"], { encoding: "utf8", env: isolatedEnv() });
 
   assert.strictEqual(replay.status, 0);
@@ -180,7 +182,7 @@ test("verify --revisit on a pending phase fails cleanly (story 07.02)", () => {
   const result = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0", "--revisit"], { encoding: "utf8", env: isolatedEnv() });
 
   assert.strictEqual(result.status, 1);
-  assert.match(result.stderr, /Revisit is only for a proven phase/);
+  assert.match(result.stderr, /Une revisite ne vaut que pour une phase prouvée/);
   assert.doesNotMatch(result.stderr, /at Object/);
 });
 
@@ -222,7 +224,8 @@ test("install --home <path> claude retains claude as the platform, not the path 
 
   assert.strictEqual(result.status, 0);
   assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "learn-next", "SKILL.md")));
-  assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "learn", "references", "check.md")));
+  assert.ok(!fs.existsSync(path.join(home, ".claude", "skills", "next")), "no alias skill is installed");
 });
 
 test("install --dry-run reports actions through the CLI without writing", () => {
@@ -302,4 +305,31 @@ test("predict --type reality records the type end to end and renders it in the j
   assert.strictEqual(data.entries[0].type, "reality");
   const journal = fs.readFileSync(path.join(dir, "docs", "plans", "predictions.md"), "utf8");
   assert.match(journal, /- Type : reality/);
+});
+
+test("commands find the project from a subdirectory", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-sub-"));
+  fs.writeFileSync(path.join(dir, "progress.json"), JSON.stringify({ version: 1, project: "p", technology: "x", phases: [] }));
+  fs.mkdirSync(path.join(dir, "src"));
+  const result = spawnSync(process.execPath, [BIN, "status"], { cwd: path.join(dir, "src"), encoding: "utf8", env: isolatedEnv() });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stderr + result.stdout, /Aucun progress\.json/);
+});
+
+test("a corrupt progress.json is named with its position, never init", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-bad-"));
+  fs.writeFileSync(path.join(dir, "progress.json"), '{\n  "version": 1,\n  "phases": [');
+  const result = spawnSync(process.execPath, [BIN, "status"], { cwd: dir, encoding: "utf8", env: isolatedEnv() });
+  const out = result.stderr + result.stdout;
+  assert.notStrictEqual(result.status, 0);
+  assert.match(out, /illisible/);
+  assert.match(out, /ligne 3, colonne 14/);
+  assert.match(out, /ne pas relancer `init`/);
+});
+
+test("help lists transfert and init --dir", () => {
+  const result = spawnSync(process.execPath, [BIN, "--help"], { encoding: "utf8", env: isolatedEnv() });
+
+  assert.match(result.stdout, /reality\|transfert/);
+  assert.match(result.stdout, /init --technology <name>.*\[--dir <dir>\]/);
 });

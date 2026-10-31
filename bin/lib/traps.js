@@ -13,7 +13,7 @@
 const fs = require("fs");
 const path = require("path");
 const { log, fail, writeJson, mkdirp, normalizePortable } = require("./util");
-const { readProgress } = require("./progress");
+const { readProgress, missingProgressMessage } = require("./progress");
 const { docSourceList, sourceKind } = require("./docs");
 
 const MAX_FILES = 500;
@@ -346,7 +346,7 @@ function trapsCommand({ dir }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const { traps, sources, possibleMisses } = regenerateTraps(dir);

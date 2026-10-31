@@ -17,14 +17,19 @@
 const fs = require("fs");
 const path = require("path");
 const { log, fail, writeJson } = require("./util");
+const { missingPlatformTiers } = require("./tracks/platform");
 
 // Banque de projets (standards codecrafters). `stack` : null = n'importe quel
 // langage, sinon un tableau de clés de stack (c, javascript, python, go…).
 // Chaque `stage` relie un pas d'apprentissage à un checkpoint concret et à une
 // ressource vérifiable — c'est cette ressource qui permettra de citer le plan.
+// Les projets d'infrastructure sont indépendants du langage : toutes les stacks de la banque.
+const ANY_STACK = ["c", "javascript", "typescript", "python", "go", "rust"];
+
 const PROJECTS = [
   {
     id: "http-server",
+    platformTiers: [2],
     title: "Serveur HTTP from scratch (parser + keep-alive)",
     difficulty: 3,
     stack: ["c", "javascript", "python", "go", "rust"],
@@ -38,6 +43,7 @@ const PROJECTS = [
   },
   {
     id: "shell",
+    platformTiers: [1],
     title: "Shell minimal : tokenizer, builtins, pipes",
     difficulty: 3,
     stack: ["c", "go"],
@@ -51,6 +57,7 @@ const PROJECTS = [
   },
   {
     id: "redis",
+    platformTiers: [2, 3],
     title: "Mini-Redis : RESP, SET/GET, persistance",
     difficulty: 4,
     stack: ["javascript", "python", "go", "rust"],
@@ -64,6 +71,7 @@ const PROJECTS = [
   },
   {
     id: "grep",
+    platformTiers: [],
     title: "Moteur regex (grep) : littéral, classes, quantifieurs",
     difficulty: 4,
     stack: ["c", "rust", "javascript"],
@@ -77,6 +85,7 @@ const PROJECTS = [
   },
   {
     id: "git",
+    platformTiers: [],
     title: "Mini-git : objets, refs, commits",
     difficulty: 5,
     stack: ["c", "javascript", "python", "go"],
@@ -90,6 +99,7 @@ const PROJECTS = [
   },
   {
     id: "sqlite",
+    platformTiers: [3],
     title: "Petite base : format de fichier, B-tree, SQL simple",
     difficulty: 5,
     stack: ["c", "go"],
@@ -103,6 +113,7 @@ const PROJECTS = [
   },
   {
     id: "docker",
+    platformTiers: [1, 4],
     title: "Conteneur minimal : namespaces, cgroups, couches",
     difficulty: 5,
     stack: ["c", "go", "rust"],
@@ -116,6 +127,7 @@ const PROJECTS = [
   },
   {
     id: "rest-api",
+    platformTiers: [2],
     title: "API REST avec validation : routes, JSON Schema, erreurs",
     difficulty: 2,
     stack: ["javascript", "typescript"],
@@ -129,6 +141,7 @@ const PROJECTS = [
   },
   {
     id: "frontend-reactive",
+    platformTiers: [],
     title: "Mini-framework réactif : rendu, state, diff",
     difficulty: 4,
     stack: ["javascript", "typescript"],
@@ -142,6 +155,7 @@ const PROJECTS = [
   },
   {
     id: "websocket",
+    platformTiers: [2],
     title: "Chat temps réel : serveur WebSocket (RFC 6455)",
     difficulty: 4,
     stack: ["javascript", "typescript", "python", "go"],
@@ -152,6 +166,92 @@ const PROJECTS = [
       { title: "Broadcast + fermeture propre (close frame)", checkpoint: "le message de l'un des deux clients arrive chez l'autre", resource: { name: "RFC 6455 §7 (close)", ref: "https://www.rfc-editor.org/rfc/rfc6455#section-7" } },
     ],
     doc: "RFC 6455",
+  },
+  {
+    id: "task-queue",
+    platformTiers: [3, 7],
+    title: "File de tâches sur Postgres : retries, idempotence, SKIP LOCKED",
+    difficulty: 4,
+    stack: ANY_STACK,
+    why: "Une file de travail fiable tient dans une table : verrouillage de lignes, nouvelle tentative avec attente, tâche rejouable sans double effet. Le cœur de toute infrastructure asynchrone.",
+    stages: [
+      { title: "Table de tâches + prise d'une tâche dans une transaction", checkpoint: "deux workers lancés ensemble ne prennent jamais la même tâche (FOR UPDATE SKIP LOCKED)", resource: { name: "PostgreSQL — SELECT … FOR UPDATE / SKIP LOCKED", ref: "https://www.postgresql.org/docs/current/sql-select.html" } },
+      { title: "Atomicité : une tâche est terminée ou rendue, jamais perdue", checkpoint: "tuer un worker en pleine tâche la remet disponible après le timeout", resource: { name: "PostgreSQL — transactions", ref: "https://www.postgresql.org/docs/current/tutorial-transactions.html" } },
+      { title: "Retries avec attente exponentielle et jitter", checkpoint: "une tâche qui échoue 3 fois est rejouée à des intervalles croissants puis marquée morte", resource: { name: "Timeouts, retries and backoff with jitter", ref: "https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/" } },
+      { title: "Idempotence : rejouer une tâche n'a pas d'effet double", checkpoint: "soumettre deux fois la même clé d'idempotence ne crée qu'une exécution", resource: { name: "RFC 9110 § méthodes idempotentes", ref: "https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2" } },
+    ],
+    doc: "postgresql.org/docs (SELECT, transactions); aws builders library",
+  },
+  {
+    id: "graceful-shutdown",
+    platformTiers: [1, 6],
+    title: "Service qui s'arrête proprement : signaux, drain, health checks",
+    difficulty: 3,
+    stack: ANY_STACK,
+    why: "Un service en production reçoit SIGTERM à chaque déploiement : le comprendre évite les requêtes coupées en plein vol. Signaux, codes de sortie et état de santé en un seul petit service.",
+    stages: [
+      { title: "Réagir à SIGTERM / SIGINT", checkpoint: "kill -TERM <pid> fait afficher une ligne d'arrêt et sortir avec le code 0", resource: { name: "man 7 signal", ref: "https://man7.org/linux/man-pages/man7/signal.7.html" } },
+      { title: "Drainer : finir les requêtes en cours avant de sortir", checkpoint: "une requête lente lancée avant le signal reçoit sa réponse complète, puis le processus sort", resource: { name: "Node.js — http.Server.close", ref: "https://nodejs.org/api/http.html" } },
+      { title: "Health check : 200 quand prêt, 503 pendant l'arrêt", checkpoint: "curl -i /health répond 200, puis 503 dès que le signal est reçu", resource: { name: "RFC 9110 § 503 Service Unavailable", ref: "https://www.rfc-editor.org/rfc/rfc9110#section-15.6.4" } },
+    ],
+    doc: "man 7 signal; nodejs.org/api/process.html (événements de signal)",
+  },
+  {
+    id: "observability",
+    platformTiers: [6],
+    title: "Observabilité d'un service : logs structurés, métriques, traces",
+    difficulty: 3,
+    stack: ANY_STACK,
+    why: "Quand ça tombe en panne, on ne lit plus le code : on lit ce que le service dit de lui. On instrumente un petit service avec les trois signaux et on s'en sert pour répondre à une question.",
+    stages: [
+      { title: "Logs structurés (une ligne JSON par événement, sur stdout)", checkpoint: "chaque requête produit une ligne JSON avec niveau, horodatage et identifiant de requête", resource: { name: "The Twelve-Factor App — Logs", ref: "https://12factor.net/logs" } },
+      { title: "Métriques : compteur et durée au format texte", checkpoint: "curl /metrics expose un compteur de requêtes qui augmente à chaque appel", resource: { name: "Prometheus — exposition formats", ref: "https://prometheus.io/docs/instrumenting/exposition_formats/" } },
+      { title: "Trace : propager un identifiant de bout en bout", checkpoint: "l'en-tête traceparent reçu se retrouve dans les logs du service et de l'appel sortant", resource: { name: "W3C Trace Context", ref: "https://www.w3.org/TR/trace-context/" } },
+      { title: "Lire un parcours de requête comme une trace", checkpoint: "une requête lente est localisée dans la trace : quel appel, quelle durée", resource: { name: "OpenTelemetry — traces", ref: "https://opentelemetry.io/docs/concepts/signals/traces/" } },
+    ],
+    doc: "12factor.net/logs; prometheus.io; opentelemetry.io; W3C Trace Context",
+  },
+  {
+    id: "rate-limiter",
+    platformTiers: [2, 7],
+    title: "Limiteur de débit : token bucket, 429, Retry-After",
+    difficulty: 2,
+    stack: ANY_STACK,
+    why: "Protéger un service de ses propres clients : un algorithme court, un code de statut précis, et la question de ce que doit faire un client poli quand on lui dit d'attendre.",
+    stages: [
+      { title: "Token bucket en mémoire", checkpoint: "10 requêtes d'affilée avec un seau de 5 : 5 passent, 5 sont refusées", resource: { name: "Token bucket", ref: "https://en.wikipedia.org/wiki/Token_bucket" } },
+      { title: "Répondre 429 avec Retry-After", checkpoint: "curl -i sur une requête refusée montre 429 et un en-tête Retry-After en secondes", resource: { name: "RFC 6585 § 429 Too Many Requests", ref: "https://www.rfc-editor.org/rfc/rfc6585#section-4" } },
+      { title: "Un client qui respecte Retry-After", checkpoint: "le client attend la durée indiquée puis réussit sans être refusé de nouveau", resource: { name: "RFC 9110 § Retry-After", ref: "https://www.rfc-editor.org/rfc/rfc9110#section-10.2.3" } },
+    ],
+    doc: "RFC 6585; RFC 9110; Token bucket",
+  },
+  {
+    id: "reverse-proxy",
+    platformTiers: [2, 7],
+    title: "Reverse proxy : routage, en-têtes transmis, timeouts",
+    difficulty: 3,
+    stack: ANY_STACK,
+    why: "Le composant qui se trouve devant presque tout service : il relaie, ajoute l'identité du client d'origine et décide quoi faire quand l'amont ne répond plus.",
+    stages: [
+      { title: "Relayer une requête vers un serveur amont", checkpoint: "curl via le proxy renvoie exactement la réponse du serveur amont", resource: { name: "RFC 9110 § intermédiaires", ref: "https://www.rfc-editor.org/rfc/rfc9110#section-3.7" } },
+      { title: "Transmettre l'origine : en-tête Forwarded", checkpoint: "le serveur amont reçoit un en-tête Forwarded avec l'adresse du client", resource: { name: "RFC 7239 — Forwarded HTTP Extension", ref: "https://www.rfc-editor.org/rfc/rfc7239" } },
+      { title: "Amont lent ou arrêté : 504 / 502 plutôt qu'un blocage", checkpoint: "avec l'amont arrêté, curl reçoit 502 ; avec l'amont lent, 504 au bout du timeout", resource: { name: "RFC 9110 § 504 Gateway Timeout", ref: "https://www.rfc-editor.org/rfc/rfc9110#section-15.6.5" } },
+    ],
+    doc: "RFC 9110 (intermédiaires, 502/504); RFC 7239",
+  },
+  {
+    id: "ci-pipeline",
+    platformTiers: [5],
+    title: "Pipeline CI : lancer les tests et bloquer un échec",
+    difficulty: 2,
+    stack: ANY_STACK,
+    why: "Un pipeline ne sert que s'il peut dire non : on le construit, puis on le voit refuser un changement cassé avant qu'il n'atteigne la branche principale.",
+    stages: [
+      { title: "Un workflow qui lance les tests à chaque push", checkpoint: "un push déclenche un run qui exécute la commande de test du projet", resource: { name: "GitHub Actions — syntaxe des workflows", ref: "https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions" } },
+      { title: "Plusieurs jobs ordonnés (tests puis build)", checkpoint: "le job build ne démarre que si le job de tests réussit", resource: { name: "GitHub Actions — jobs d'un workflow", ref: "https://docs.github.com/en/actions/using-jobs/using-jobs-in-a-workflow" } },
+      { title: "Bloquer : un test rouge empêche la fusion", checkpoint: "une branche avec un test cassé ne peut pas être fusionnée (contrôle de statut requis)", resource: { name: "GitHub — branches protégées", ref: "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches" } },
+    ],
+    doc: "docs.github.com/actions; branches protégées",
   },
 ];
 
@@ -247,7 +347,14 @@ function printProposals(projects, dir) {
   });
 }
 
-function proposeCommand({ dir, stack = null, level = null, limit = 5 }) {
+// Projects covering platform tiers the learner has not proved yet come first
+// (the most missing tiers covered, then the usual order). No ledger, or a
+// corrupt one, leaves the order untouched.
+function platformGain(project, missing) {
+  return (project.platformTiers || []).filter((tier) => missing.includes(tier)).length;
+}
+
+function proposeCommand({ dir, stack = null, level = null, limit = 5, home }) {
   const filtered = PROJECTS.filter(
     (project) =>
       (stack ? project.stack === null || project.stack.includes(stack) : true) &&
@@ -258,7 +365,10 @@ function proposeCommand({ dir, stack = null, level = null, limit = 5 }) {
   // ne peut pas produire de plan sourcé.
   const complete = filtered.filter((project) => stageCoverage(project, dir) === 1);
 
-  complete.sort((a, b) => a.difficulty - b.difficulty || (a.id < b.id ? -1 : 1));
+  const missing = missingPlatformTiers({ home }) || [];
+  complete.sort(
+    (a, b) => platformGain(b, missing) - platformGain(a, missing) || a.difficulty - b.difficulty || (a.id < b.id ? -1 : 1),
+  );
   const picked = complete.slice(0, limit);
 
   log("Projets à construire : un vrai artefact, un format précis, des étapes vérifiables.");

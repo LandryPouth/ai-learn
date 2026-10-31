@@ -5,8 +5,35 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+// Story 09.01 — every test process runs with its own throwaway home. About 90
+// calls (verify, check, next, status) reached `os.homedir()` without an
+// injected `home` and filled the real `~/.ai-learn` ledgers with `/tmp`
+// projects. Redirecting HOME/USERPROFILE once, where every test file starts,
+// covers today's calls and tomorrow's; the production safety net in
+// bin/lib/tracks/store.js still refuses the real home for any test that does
+// not load this file. CLIs spawned with `process.env` inherit it too.
+const ISOLATED_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-home-"));
+process.env.HOME = ISOLATED_HOME;
+process.env.USERPROFILE = ISOLATED_HOME;
+
+// `npm test` runs under `node --test`, which sets NODE_TEST_CONTEXT; a nested
+// `node --test` checkpoint then reports differently (no TAP, failures exit 0).
+// Tests that run a real `node --test` checkpoint must drop it.
+function withoutNodeTestContext(fn) {
+  const saved = process.env.NODE_TEST_CONTEXT;
+  delete process.env.NODE_TEST_CONTEXT;
+
+  try {
+    return fn();
+  } finally {
+    if (saved !== undefined) {
+      process.env.NODE_TEST_CONTEXT = saved;
+    }
+  }
+}
+
 function tmpProject(progress) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-test-"));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-test-")));
   fs.writeFileSync(path.join(dir, "progress.json"), `${JSON.stringify(progress, null, 2)}\n`);
   return dir;
 }
@@ -92,4 +119,26 @@ function withHome(home, fn) {
   }
 }
 
-module.exports = { tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit };
+// Story 09.06 — a revisit lock as `ai-learn revisit` leaves it once the code is
+// removed, for tests that exercise `verify --revisit` on its own.
+function activeRevisitLock(dir, phaseId, extra = {}) {
+  const backup = path.join(dir, ".ai-learn", "revisit", String(phaseId));
+  fs.mkdirSync(backup, { recursive: true });
+  fs.writeFileSync(path.join(backup, "manifest.json"), "[]\n");
+  fs.writeFileSync(
+    path.join(dir, ".ai-learn", "revisit.lock.json"),
+    `${JSON.stringify({ phaseId, startedAt: new Date().toISOString(), state: "active", files: [], ...extra })}\n`,
+  );
+}
+
+// Story 10.07 — a finished track owes its bilan (`check` errors without one).
+// Tests whose subject is something else fill it so they stay about that subject.
+function writeCompleteBilan(dir) {
+  const sections = ["Encore fragile", "Erreurs marquantes", "Compromis d'architecture", "Réutilisable dans mes projets"]
+    .map((title) => `## ${title}\n\nRéponse.\n`)
+    .join("\n");
+
+  writeFile(dir, "docs/bilan.md", `# Bilan\n\n${sections}\n## Recommandation\n\nlabo\n`);
+}
+
+module.exports = { writeCompleteBilan, activeRevisitLock, ISOLATED_HOME, tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit, withoutNodeTestContext };

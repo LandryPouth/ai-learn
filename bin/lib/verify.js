@@ -8,16 +8,16 @@
 const fs = require("fs");
 const path = require("path");
 const { log, fail, UsageError, explainCommitCommand } = require("./util");
-const { readProgress, runsDir, findPhase, setPhaseStatus, latestEvidenceForPhase, phaseVerdict } = require("./progress");
-const { syncGitTrack } = require("./tracks/git");
-const { syncTestsTrack } = require("./tracks/tests");
-const { syncDomainLedger } = require("./tracks/domain");
+const { readProgress, missingProgressMessage, runsDir, findPhase, setPhaseStatus, latestEvidenceForPhase, phaseVerdict } = require("./progress");
+const { syncEvidence, formatSyncFailure } = require("./ledgers");
 const { normProject, formatViolation } = require("./norm");
-const { checkpointFilePath, computeSourceHash } = require("./source-hash");
+const { checkpointFilePath, computeSourceHash, computeLearnerHash, computeCheckpointHash } = require("./source-hash");
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
 const { readTutorConfig, masteryLevel } = require("./tutor");
+const { requireActiveRevisit, completeRevisit, refuseDuringRevisit } = require("./revisit");
+const { generateBilan, isFinished } = require("./bilan");
 const { mutationReport, formatMutationGap, emptyMutationReport, recoverOrphanLockAndLog } = require("./mutate");
-const { runCommand, portabilityHint } = require("./exec");
+const { runCommand, portabilityHint, zeroTestsRan } = require("./exec");
 
 function captureEnvironment() {
   return { node: process.version, platform: process.platform, arch: process.arch };
@@ -92,6 +92,21 @@ function findStalePhases(dir, config) {
   return stale;
 }
 
+// Story 10.07 — proving the last phase prepares the end-of-project bilan from
+// the data on disk. Best-effort like the ledger syncs: the phase proof is the
+// contract, and an existing bilan is never touched.
+function announceBilan({ dir, home }) {
+  try {
+    const { config } = readProgress(dir);
+
+    if (isFinished(config) && generateBilan({ dir, config, home }).created) {
+      log("Parcours terminé — docs/bilan.md est préparé : complète-le avec /learn-next.");
+    }
+  } catch (error) {
+    log(`Bilan non généré : ${error.message}`);
+  }
+}
+
 // The real reason a re-proof failed, for the bulk summary: the failing
 // checkpoint's own last output when there is one, otherwise the non-command
 // gate that blocked it (norm, artifacts, predictions, mutation) — never a
@@ -113,6 +128,10 @@ function failureDetail(outcome) {
   }
 
   const evidence = outcome.evidence || {};
+
+  if (evidence.zeroTests) {
+    return "aucun test exécuté";
+  }
 
   if (Array.isArray(evidence.missingArtifacts) && evidence.missingArtifacts.length > 0) {
     return `artefacts manquants : ${evidence.missingArtifacts.join(", ")}`;
@@ -141,6 +160,47 @@ function failureDetail(outcome) {
   return "échec sans détail";
 }
 
+// Story 09.07 — the last line of a red verify: the remedy of the first failing
+// check, in the order the checks are reported above. Reuses the evidence the
+// run just built, so it can never disagree with the lines before it.
+function nextAction(phase, evidence, { transfertMissing }) {
+  const failed = (evidence.results || []).find((result) => !result.ok);
+
+  if (failed) {
+    return `relis la sortie du checkpoint ci-dessus et corrige ton code, puis \`ai-learn verify ${phase.id}\``;
+  }
+
+  if (evidence.zeroTests) {
+    return "écris au moins un test que le checkpoint exécute vraiment";
+  }
+
+  if (evidence.norm && evidence.norm.ok === false) {
+    return "explique chaque violation avec `ai-learn norm`, puis corrige ton code";
+  }
+
+  if (evidence.missingArtifacts.length > 0) {
+    return `écris l'artefact manquant (${evidence.missingArtifacts.join(", ")})`;
+  }
+
+  if (evidence.proof.configInvalid) {
+    return "corrige `.ai-learn/tutor.json`";
+  }
+
+  if (evidence.predictions.missing > 0) {
+    return `\`ai-learn predict --phase ${phase.id} --prediction "..."\`, puis \`--reveal\``;
+  }
+
+  if (transfertMissing) {
+    return `\`ai-learn predict --phase ${phase.id} --type transfert --prediction "..."\``;
+  }
+
+  if (evidence.mutation.ok === false) {
+    return `\`ai-learn mutate --phase ${phase.id}\` pour voir quels mutants survivent`;
+  }
+
+  return null;
+}
+
 // `ai-learn verify --stale` — re-prove every done phase whose proof is stale,
 // one phase at a time through the normal `verifyCommand` path, then separate
 // "toujours vert" (the proof no longer covered the code, but the checkpoint
@@ -151,8 +211,10 @@ function staleCommand({ dir, home }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
+
+  refuseDuringRevisit(dir);
 
   const stale = findStalePhases(dir, config);
 
@@ -216,13 +278,13 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const phase = findPhase(config, phaseId);
 
   if (!phase) {
-    fail(`No phase ${phaseId} in progress.json.`);
+    fail(`Phase ${phaseId} introuvable dans progress.json.`);
   }
 
   // A revisit redoes a phase the learner already proved, from memory (story
@@ -231,13 +293,21 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   // untouched.
   if (revisit && phase.status !== "done") {
     fail(
-      `Revisit is only for a proven phase: phase ${phase.id} is "${phase.status}". ` +
-        `Prove it first with \`ai-learn verify ${phase.id}\`.`,
+      `Une revisite ne vaut que pour une phase prouvée : la phase ${phase.id} est "${phase.status}". ` +
+        `Prouve-la d'abord avec \`ai-learn verify ${phase.id}\`.`,
     );
   }
 
+  // Story 09.06 — a revisit without a removal proves nothing: the checkpoint
+  // would just replay on the unchanged code.
+  if (revisit) {
+    requireActiveRevisit(dir, phase.id);
+  } else {
+    refuseDuringRevisit(dir);
+  }
+
   if (!phase.checkpoint) {
-    fail(`Phase ${phase.id} ("${phase.name}") has no checkpoint command. Add "checkpoint" to progress.json.`);
+    fail(`Phase ${phase.id} ("${phase.name}") n'a pas de commande de checkpoint. Ajoute "checkpoint" dans progress.json.`);
   }
 
   // `verifyCommand` itself now mutates and restores files one mutant at a
@@ -250,8 +320,8 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   // (review finding, story 02.03).
   recoverOrphanLockAndLog(dir);
 
-  log(`Verifying phase ${phase.id} — ${phase.name}`);
-  log(`Command: ${phase.checkpoint}\n`);
+  log(`Vérification de la phase ${phase.id} — ${phase.name}`);
+  log(`Commande : ${phase.checkpoint}\n`);
 
   const result = runCommand(phase.checkpoint, dir);
   const results = [result];
@@ -272,6 +342,15 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
     stressResult = runCommand(phase.stressCheckpoint, dir);
     results.push(stressResult);
     logResult(phase.stressCheckpoint, stressResult);
+  }
+
+  // Story 09.02 — a checkpoint that exits 0 without running one test proves
+  // nothing. Applies to every command (stress included); never inferred for a
+  // runner the patterns do not know.
+  const zeroTests = results.some(zeroTestsRan);
+
+  if (zeroTests) {
+    log("\nAucun test exécuté — le checkpoint ne prouve rien.");
   }
 
   // The clean-code norm (ai-learn norm — file/function length, nesting,
@@ -380,8 +459,12 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   // consistency and debugging.
   const sourceHash = computeSourceHash(dir, { checkpointFile: checkpointFilePath(dir, phase.checkpoint) });
 
+  const learnerHash = computeLearnerHash(dir);
+  const checkpointHash = computeCheckpointHash(dir, phase.checkpoint);
+
   const ok =
     result.ok &&
+    !zeroTests &&
     (!stressResult || stressResult.ok) &&
     normReport.violations.length === 0 &&
     missingArtifacts.length === 0 &&
@@ -416,6 +499,11 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
     results,
     missingArtifacts,
     sourceHash,
+    // Story 09.02 — the same empreinte split in two, so `check` can tell a
+    // green obtained by fixing the code from one obtained by editing the test.
+    learnerHash,
+    checkpointHash,
+    zeroTests,
     // Whether this run touched the ledger. `check` uses it to tell a
     // deliberate `--no-mark` observation run apart from a real drift (a
     // passing evidence that never got marked done) — see story 01.02. A
@@ -466,32 +554,26 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
       // The phase is already `done`; this run only records fresh proof of
       // retention. No status write, no track sync, no commit nudge — the
       // learner is not closing a phase, they are remembering one.
-      log(`Revisite prouvée — lastProvenAt rafraîchi, phase ${phase.id} reste done.`);
+      // `--no-mark` is an observation: the lock stays and the interval is kept.
+      if (noMark) {
+        log(`Revisite verte (--no-mark) — verrou conservé, relancez sans --no-mark pour la clore.`);
+      } else {
+        completeRevisit(dir, phase.id);
+        log(`Revisite prouvée — code retapé conservé, lastProvenAt rafraîchi, prochain rappel espacé, phase ${phase.id} reste done.`);
+      }
     } else if (!noMark) {
       setPhaseStatus(dir, phase.id, "done");
 
-      // Best-effort, secondary tracking feature — must never entangle with
-      // or break verify's own load-bearing contract (mark done only on a
-      // real pass), hence its own isolated try/catch.
-      try {
-        syncGitTrack({ dir, phase, verifyEvidence: evidence, home });
-      } catch {
-        // ledger sync failing is never a reason to fail verify itself
+      // Best-effort, secondary tracking: a ledger sync failing is never a
+      // reason to fail verify (the phase proof is the contract), but it is
+      // no longer silent either — story 09.01 found real progress missing
+      // from every ledger because these failures were swallowed.
+      for (const failure of syncEvidence({ dir, phase, evidence, home })) {
+        log(formatSyncFailure(failure));
       }
 
-      try {
-        syncDomainLedger({ dir, verifyEvidence: evidence, home });
-      } catch {
-        // same isolated failure domain as the git ledger sync above
-      }
-
-      try {
-        syncTestsTrack({ dir, phase, verifyEvidence: evidence, home });
-      } catch {
-        // same isolated failure domain as the git ledger sync above
-      }
-
-      log(`Phase ${phase.id} marked done.`);
+      log(`Phase ${phase.id} validée (done).`);
+      announceBilan({ dir, home });
 
       // AGENTS.md §3bis forbids the AI from running git itself — only the
       // human learner types it. Without a nudge here, nothing prompts a
@@ -521,14 +603,19 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
     // (never `pending`, see plan.md Decisions).
     setPhaseStatus(dir, phase.id, "in_progress");
     log("");
-    log(`Phase ${phase.id} demoted: done → in_progress — the checkpoint or its checks no longer pass.`);
-    log(`Fix it, then re-run \`ai-learn verify ${phase.id}\` to prove it again.`);
+    log(`Phase ${phase.id} rétrogradée : done → in_progress — le checkpoint ou ses contrôles ne passent plus.`);
+    log(`Corrige, puis relance \`ai-learn verify ${phase.id}\` pour la prouver à nouveau.`);
   }
 
-  log(`Evidence: ${outputPath}`);
+  log(`Preuve : ${outputPath}`);
 
   if (!ok) {
     process.exitCode = 1;
+    const action = nextAction(phase, evidence, { transfertMissing });
+
+    if (action) {
+      log(`→ Prochaine action : ${action}`);
+    }
   }
 
   return { ok, phaseId: phase.id, phaseName: phase.name, results, evidence, outputPath };

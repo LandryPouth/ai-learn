@@ -117,3 +117,7 @@ working — that stays out.
 - List validation commands run.
 - State remaining risks or follow-ups.
 - Keep summaries concise and grounded in files.
+
+### Versioning
+
+- `toolVersion` (`progress.json`) est comparé à `package.json#version` pour détecter un projet en retard (`outdated`). Tout changement de scaffold ou de contrôle doit s'accompagner d'un bump de version, sinon les projets déjà estampillés ne seront pas mis à niveau.

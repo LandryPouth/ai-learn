@@ -22,7 +22,7 @@
 const fs = require("fs");
 const path = require("path");
 const { log, fail, readJson, writeJson } = require("./util");
-const { readProgress, findPhase } = require("./progress");
+const { readProgress, missingProgressMessage, findPhase } = require("./progress");
 const { walkSources, detectStack, detectTests, stackKey, loadStack, ALL_SOURCE_EXTS } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const { stripStringsAndComments } = require("./norm");
@@ -271,9 +271,18 @@ function recoverOrphanLock(dir) {
     return null;
   }
 
+  // Story 10.04: a code incident that was fully recorded owns the fault now —
+  // restoring here would silently repair it. Only the lock is stale.
+  const incident = readJson(path.join(dir, ".ai-learn", "incident.json"), null);
+
+  if (incident && incident.active === true) {
+    fs.unlinkSync(lockPath);
+    return null;
+  }
+
   const target = path.join(dir, lock.file);
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, lock.original);
+  fs.writeFileSync(target, lock.original, lock.encoding === "latin1" ? "latin1" : "utf8");
   fs.unlinkSync(lockPath);
 
   return lock.file;
@@ -368,6 +377,8 @@ function mutationReport({ dir, phase }) {
   const sites = allSites.slice(0, maxMutantsPerRun);
   const truncated = allSites.length > sites.length;
 
+  log(`Mutation : ${sites.length} mutants — ne modifie pas tes fichiers pendant ce temps (restauration automatique)`);
+
   let killed = 0;
   const survived = [];
   const killedOperators = new Set();
@@ -415,20 +426,20 @@ function mutateCommand({ dir, phaseId }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
   }
 
   const phase = findPhase(config, phaseId);
 
   if (!phase) {
-    fail(`No phase ${phaseId} in progress.json.`);
+    fail(`Phase ${phaseId} introuvable dans progress.json.`);
   }
 
   if (!phase.checkpoint) {
-    fail(`Phase ${phase.id} ("${phase.name}") has no checkpoint command. Add "checkpoint" to progress.json.`);
+    fail(`Phase ${phase.id} ("${phase.name}") n'a pas de commande de checkpoint. Ajoute "checkpoint" dans progress.json.`);
   }
 
-  log(`Mutating phase ${phase.id} — ${phase.name}`);
+  log(`Mutation de la phase ${phase.id} — ${phase.name}`);
   log(`Checkpoint: ${phase.checkpoint}\n`);
 
   recoverOrphanLockAndLog(dir);
@@ -459,6 +470,8 @@ function mutateCommand({ dir, phaseId }) {
       `Plafond de ${maxMutantsPerRun} mutant(s) par run atteint — ${allSites.length - sites.length} site(s) supplémentaire(s) non testé(s) cette fois.\n`,
     );
   }
+
+  log(`Mutation : ${sites.length} mutants — ne modifie pas tes fichiers pendant ce temps (restauration automatique)`);
 
   let killed = 0;
   let anySurvived = false;

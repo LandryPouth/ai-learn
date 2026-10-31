@@ -18,7 +18,7 @@ const { ensureGuardHook } = require("../bin/lib/guard");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, latestEvidenceForPhase } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
-const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome } = require("./helpers");
+const { writeCompleteBilan, capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome, withoutNodeTestContext } = require("./helpers");
 const { scaffold } = require("../bin/lib/init");
 const { generateDigest } = require("../bin/lib/docs");
 const { findLearningProjects } = require("../bin/lib/util");
@@ -331,6 +331,28 @@ test("an out-of-range gitTier is a warning, not an error; a valid one is silent"
   assert.ok(!entryValid.issues.warnings.some((w) => /gitTier/.test(w.message)));
 });
 
+test("platformTier out of range is an error naming the phase and the 1-7 range", () => {
+  const progress = sampleProgress();
+  progress.phases[0].platformTier = 9;
+
+  const { errors } = checkProject(tmpProject(progress)).issues;
+  assert.ok(errors.some((e) => /phase 0.*platformTier.*1-7/.test(e.message)));
+
+  progress.phases[0].platformTier = 7;
+  assert.ok(!checkProject(tmpProject(progress)).issues.errors.some((e) => /platformTier/.test(e.message)));
+});
+
+test("a corrupt platform ledger is reported by check", () => {
+  const dir = tmpProject(sampleProgress());
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-platform-"));
+  const file = require("../bin/lib/tracks/platform").tracksPath({ home });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "{ cassé");
+
+  const errors = checkProject(dir, { home }).issues.errors;
+  assert.ok(errors.some((e) => /tracks\/platform\.json/.test(e.file)));
+});
+
 test("a non-boolean phase.mutation is a warning, not an error; a real boolean is silent", () => {
   const progress = sampleProgress();
   progress.phases[0].mutation = "true";
@@ -347,12 +369,15 @@ test("a non-boolean phase.mutation is a warning, not an error; a real boolean is
 });
 
 test("a done phase with a green evidence passes", () => {
+  // An isolated home: verify syncs into it, so check finds the project there.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
   const progress = sampleProgress();
   const dir = tmpProject(progress);
 
-  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+  writeCompleteBilan(dir);
 
-  const entry = checkProject(dir);
+  const entry = checkProject(dir, { home });
   assert.deepStrictEqual(entry.issues.errors, []);
   assert.deepStrictEqual(entry.issues.warnings, []);
 });
@@ -698,6 +723,7 @@ test("a missing artifact blocks a done phase", () => {
   // is missing, so this fixture only reaches "passing evidence" once written.
   writeFile(dir, "docs/phase-0-notes.md", "# notes");
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
@@ -848,12 +874,13 @@ test("countJournalEntries counts every recorded prediction, not just the first (
 test("missing predictions in the journal is a warning", () => {
   const progress = sampleProgress();
   progress.phases[0].predictionsRequired = 2;
+  progress.phases[0].status = "in_progress";
   const dir = tmpProject(progress);
 
   writeFile(dir, "docs/plans/predictions.md", "# Journal\n");
 
   const entry = checkProject(dir);
-  assert.ok(entry.issues.warnings.some((w) => /recorded predictions/.test(w.message)));
+  assert.ok(entry.issues.warnings.some((w) => /prédictions enregistrées/.test(w.message)));
 });
 
 // -----------------------------------------------------------------------
@@ -864,8 +891,8 @@ test("missing predictions in the journal is a warning", () => {
 function twoPhaseProgress() {
   return sampleProgress({
     phases: [
-      { id: 0, name: "Phase zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
-      { id: 1, name: "Phase one", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
+      { id: 0, name: "Phase zero", status: "in_progress", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
+      { id: 1, name: "Phase one", status: "in_progress", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
     ],
   });
 }
@@ -890,8 +917,8 @@ test("the comptage des prédictions est par phase — 4 entries on phase 0 do no
 
   const entry = checkProject(dir);
 
-  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*recorded predictions/.test(w.message)));
-  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 recorded predictions; 2 missing/.test(w.message)));
+  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*prédictions enregistrées/.test(w.message)));
+  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 prédictions enregistrées ; 2 manquante\(s\)/.test(w.message)));
 });
 
 test("le séparateur tiret ordinaire est compté — legacy .md with a plain hyphen, no predictions.json", () => {
@@ -904,8 +931,8 @@ test("le séparateur tiret ordinaire est compté — legacy .md with a plain hyp
 
   const entry = checkProject(dir);
 
-  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*recorded predictions/.test(w.message)));
-  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 recorded predictions/.test(w.message)));
+  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*prédictions enregistrées/.test(w.message)));
+  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 prédictions enregistrées/.test(w.message)));
 });
 
 test("predictions.json corrompu est une erreur, jamais silencieusement accepté", () => {
@@ -934,6 +961,7 @@ test("corrigé par IA est signalé — from predictions.json data", () => {
 test("un projet ayant les deux fichiers — le JSON fait foi, même vide, sur un .md hérité non vide", () => {
   const progress = sampleProgress();
   progress.phases[0].predictionsRequired = 1;
+  progress.phases[0].status = "in_progress";
   const dir = tmpProject(progress);
 
   writeFile(dir, "docs/plans/predictions.md", "# Journal\n\n### Phase 0 — prédiction 1/1\n- Prédiction : x\n");
@@ -946,7 +974,7 @@ test("un projet ayant les deux fichiers — le JSON fait foi, même vide, sur un
   // Found in review (story 01.03): the warning must explain itself — the
   // legacy .md's entries didn't vanish, an empty predictions.json just now
   // outranks them.
-  const warning = entry.issues.warnings.find((w) => /phase 0: 0\/1 recorded predictions/.test(w.message));
+  const warning = entry.issues.warnings.find((w) => /phase 0: 0\/1 prédictions enregistrées/.test(w.message));
   assert.ok(warning);
   assert.match(warning.message, /legacy entries.*takes precedence/);
 });
@@ -1011,6 +1039,7 @@ test("a modification to src/ after a passing verify makes the proof stale", () =
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
   assert.deepStrictEqual(checkProject(dir).issues.errors, []);
 
   writeFile(dir, "src/index.js", "console.log('changed');\n");
@@ -1088,6 +1117,7 @@ test("proof stays valid when nothing covered by it changed", () => {
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
@@ -1099,6 +1129,7 @@ test("legacy evidence without a sourceHash field is never marked stale", () => {
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
 
   const runsDirPath = path.join(dir, ".ai-learn", "runs");
   const runFile = fs.readdirSync(runsDirPath).find((f) => f.endsWith("-verify.json"));
@@ -1113,15 +1144,19 @@ test("legacy evidence without a sourceHash field is never marked stale", () => {
 });
 
 test("a verified checkpoint file passes cleanly", () => {
+  // An isolated home: verify syncs into it, so check finds the project there.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
   const progress = sampleProgress();
   progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
   const dir = tmpProject(progress);
 
-  writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; test('ok', () => {});");
+  writeFile(dir, "src/index.js", "module.exports = { ready: true };\n");
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; import '../src/index.js'; test('ok', () => {});");
 
-  capture(() => verifyCommand({ dir, phaseId: 0 }));
+  capture(() => verifyCommand({ dir, phaseId: 0, home }));
+  writeCompleteBilan(dir);
 
-  const entry = checkProject(dir);
+  const entry = checkProject(dir, { home });
   assert.deepStrictEqual(entry.issues.errors, []);
   assert.deepStrictEqual(entry.issues.warnings, []);
 });
@@ -1272,8 +1307,10 @@ test("checkCommand scans every learning project under a root", () => {
   const badProgress = sampleProgress({ project: "proj-b" });
   badProgress.phases[0].status = "done";
   writeFile(bad, "progress.json", JSON.stringify(badProgress, null, 2));
+  writeCompleteBilan(bad);
 
   capture(() => verifyCommand({ dir: good, phaseId: 0 }));
+  writeCompleteBilan(good);
 
   const out = capture(() => checkCommand({ root }));
 
@@ -1315,6 +1352,7 @@ test("check --json produces a single valid JSON object on stdout, with the same 
   const badProgress = sampleProgress({ project: "proj-b" });
   badProgress.phases[0].status = "done";
   writeFile(bad, "progress.json", JSON.stringify(badProgress, null, 2));
+  writeCompleteBilan(bad);
 
   const out = capture(() => checkCommand({ root, json: true }));
 
@@ -1364,6 +1402,7 @@ test("check reports nothing for a phase whose mutation proof is still valid (cod
   writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
@@ -1557,6 +1596,22 @@ test("check errors on an unknown tutor assistance or proof value", () => {
   assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /unknown proof "magie"/.test(issue.message)));
 });
 
+test("check errors when tutor incidents.chance is out of range", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "indices", proof: "explication", incidents: { chance: 2 } }));
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /incidents\.chance 2 is out of range/.test(issue.message)));
+});
+
+test("check accepts a tutor profile without incidents and with chance 0", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "indices", proof: "explication", incidents: { chance: 0 } }));
+
+  assert.ok(!checkProject(dir).issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json"));
+});
+
 // -----------------------------------------------------------------------
 // Story 07.02 — a proven phase past its revisit delay is a warning, not a lie
 // -----------------------------------------------------------------------
@@ -1571,6 +1626,7 @@ function provenRevisitProject() {
   });
   const dir = tmpProject(progress);
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
   return dir;
 }
 
@@ -1584,7 +1640,7 @@ test("check warns (never errors) when a proven phase is past its revisit delay, 
   assert.strictEqual(entry.issues.errors.length, 0);
   assert.ok(
     entry.issues.warnings.some(
-      (warning) => /phase 0 \("Zero"\) has not been revisited/.test(warning.message) && /--revisit/.test(warning.message),
+      (warning) => /phase 0 \("Zero"\) has not been revisited/.test(warning.message) && /ai-learn revisit 0/.test(warning.message),
     ),
   );
 });
@@ -1597,4 +1653,223 @@ test("check stays silent before the revisit delay (non-regression)", () => {
   const entry = checkProject(dir, { now });
 
   assert.ok(!entry.issues.warnings.some((warning) => /revisited/.test(warning.message)));
+});
+
+
+// Story 09.02 — an honest checkpoint verdict.
+function provenWithTestFile(checkpointBody = "import { test } from 'node:test'; import '../src/index.js'; test('ok', () => {});") {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-home-"));
+  const progress = sampleProgress();
+  progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
+  const dir = tmpProject(progress);
+
+  writeFile(dir, "src/index.js", "module.exports = { ready: true };\n");
+  writeFile(dir, "checkpoint/phase-0.test.mjs", checkpointBody);
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+  writeCompleteBilan(dir);
+
+  return { dir, home };
+}
+
+function setPhaseField(dir, field, value) {
+  const { config } = readProgress(dir);
+  config.phases[0][field] = value;
+  fs.writeFileSync(path.join(dir, "progress.json"), `${JSON.stringify(config, null, 2)}\n`);
+}
+
+test("a changed checkpoint command makes the proof stale", () => {
+  const { dir, home } = provenWithTestFile();
+
+  setPhaseField(dir, "checkpoint", "node -e 0");
+
+  const entry = checkProject(dir, { home });
+  assert.ok(entry.issues.errors.some((e) => /checkpoint modifié depuis la preuve/.test(e.message)));
+
+  const status = capture(() => require("../bin/lib/status").statusCommand({ dir, home }));
+  assert.match(status, /checkpoint modifié depuis la preuve/);
+});
+
+test("a whitespace-only checkpoint edit does not make the proof stale", () => {
+  const { dir, home } = provenWithTestFile();
+
+  setPhaseField(dir, "checkpoint", "node  --test   checkpoint/phase-0.test.mjs ");
+
+  const entry = checkProject(dir, { home });
+  assert.ok(!entry.issues.errors.some((e) => /checkpoint modifié depuis la preuve/.test(e.message)));
+});
+
+test("green obtained by changing only the checkpoint is warned", () => {
+  const { dir, home } = provenWithTestFile();
+
+  // Red: the test now fails against unchanged code; then green: the test is
+  // edited, the learner files are identical.
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ko', () => { throw new Error('x'); });");
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ok', () => {});");
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+
+  const entry = checkProject(dir, { home });
+  assert.ok(entry.issues.warnings.some((w) => /phase 0 : passée au vert en modifiant le test, pas le code \(\d{4}-\d{2}-\d{2}\)/.test(w.message)));
+  assert.deepStrictEqual(entry.issues.errors, []);
+});
+
+test("a recorded contract change silences the warning", () => {
+  const { dir, home } = provenWithTestFile();
+
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ko', () => { throw new Error('x'); });");
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ok', () => {});");
+  withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+
+  setPhaseField(dir, "contractChanges", [{ at: new Date(Date.now() + 1000).toISOString(), why: "préfixe /api/v1" }]);
+
+  const entry = checkProject(dir, { home });
+  assert.ok(!entry.issues.warnings.some((w) => /modifiant le test/.test(w.message)));
+
+  const status = capture(() => require("../bin/lib/status").statusCommand({ dir, home }));
+  assert.match(status, /contrat modifié .* : préfixe \/api\/v1/);
+});
+
+test("a checkpoint file that never mentions learner files is warned", () => {
+  const { dir, home } = provenWithTestFile("import { test } from 'node:test'; test('ok', () => {});");
+
+  const entry = checkProject(dir, { home });
+  assert.ok(entry.issues.warnings.some((w) => /checkpoint\/phase-0\.test\.mjs|phase-0\.test\.mjs/.test(w.message) && /ne mentionne aucun fichier/.test(w.message)));
+});
+
+test("old evidence without split hashes raises nothing new", () => {
+  const { dir, home } = provenWithTestFile();
+
+  const runsPath = path.join(dir, ".ai-learn", "runs");
+  const file = fs.readdirSync(runsPath).find((f) => f.endsWith("-verify.json"));
+  const evidence = JSON.parse(fs.readFileSync(path.join(runsPath, file), "utf8"));
+  delete evidence.learnerHash;
+  delete evidence.checkpointHash;
+  fs.writeFileSync(path.join(runsPath, file), JSON.stringify(evidence));
+
+  const entry = checkProject(dir, { home });
+  assert.deepStrictEqual(entry.issues.errors, []);
+  assert.deepStrictEqual(entry.issues.warnings, []);
+});
+
+test("re-running verify after a green obtained by the test does not erase the warning", () => {
+  const { dir, home } = provenWithTestFile();
+  const run = () => withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ko', () => { throw new Error('x'); });");
+  run();
+  writeFile(dir, "checkpoint/phase-0.test.mjs", "import '../src/index.js'; import { test } from 'node:test'; test('ok', () => {});");
+  run();
+  run();
+
+  const entry = checkProject(dir, { home });
+  assert.ok(entry.issues.warnings.some((w) => /modifiant le test/.test(w.message)));
+});
+
+// Story 09.03 — predictions in two steps, and a guard hook that points nowhere.
+function backdate(dir, mutate) {
+  const file = path.join(dir, ".ai-learn", "predictions.json");
+  const data = JSON.parse(fs.readFileSync(file, "utf8"));
+  mutate(data.entries);
+  fs.writeFileSync(file, JSON.stringify(data));
+}
+
+test("one-step predictions are reported as recorded after the fact", () => {
+  const dir = tmpProject(sampleProgress());
+  const { recordPrediction } = require("../bin/lib/predictions");
+  recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "x", score: "5/10" });
+
+  const entry = checkProject(dir);
+  assert.ok(entry.issues.infos.some((i) => /après coup/.test(i.message)));
+  assert.strictEqual(entry.issues.errors.length, 0);
+});
+
+test("a prediction left unrevealed for a week is warned", () => {
+  const dir = tmpProject(sampleProgress());
+  const { recordPrediction } = require("../bin/lib/predictions");
+  const { entry: recorded } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "x" });
+
+  assert.ok(!checkProject(dir).issues.warnings.some((w) => /not been revealed/.test(w.message)));
+
+  backdate(dir, (entries) => {
+    entries[0].at = new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString();
+  });
+  const warning = checkProject(dir).issues.warnings.find((w) => /not been revealed/.test(w.message));
+  assert.ok(warning && warning.message.includes(recorded.id));
+});
+
+test("a hook pointing at a missing script fails check", () => {
+  const dir = tmpProject(sampleProgress());
+  ensureGuardHook(dir);
+  assert.strictEqual(checkProject(dir).issues.errors.length, 0);
+
+  const settingsPath = path.join(dir, ".claude", "settings.json");
+  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  settings.hooks.PreToolUse[0].hooks[0].command = `node "${path.join(dir, "gone", "ai-learn.js")}" guard`;
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+
+  const errors = checkProject(dir).issues.errors;
+  assert.ok(errors.some((e) => /garde-fou éteint/.test(e.message) && /gone/.test(e.message)));
+});
+
+test("hook path forms: unknown or expandable paths are never reported dead; relative paths resolve against the project", () => {
+  const { hookScriptMissing } = require("../bin/lib/guard");
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, "my dir/ai-learn.js", "");
+  writeFile(dir, "bin/ai-learn.js", "");
+
+  assert.strictEqual(hookScriptMissing(`node ${path.join(dir, "my dir", "ai-learn.js")} guard`, dir), false);
+  assert.strictEqual(hookScriptMissing('node "$HOME/x/ai-learn.js" guard', dir), false);
+  assert.strictEqual(hookScriptMissing("npx ai-learn guard", dir), false);
+  assert.strictEqual(hookScriptMissing("node ./bin/ai-learn.js guard", dir), false);
+  assert.strictEqual(hookScriptMissing("node ./nope/ai-learn.js guard", dir), true);
+});
+
+test("an OpenCode plugin pointing at a missing tool fails check", () => {
+  const dir = tmpProject(sampleProgress());
+  const pluginDir = path.join(dir, ".opencode", "plugins");
+  fs.mkdirSync(pluginDir, { recursive: true });
+  const plugin = path.join(pluginDir, "ai-learn-guard.js");
+
+  fs.writeFileSync(plugin, `const BINARY = ${JSON.stringify(path.join(dir, "gone", "ai-learn.js"))};\n`);
+  assert.ok(checkProject(dir).issues.errors.some((e) => /plugin OpenCode/.test(e.message) && /gone/.test(e.message)));
+
+  fs.writeFileSync(plugin, `const BINARY = ${JSON.stringify(path.join(dir, "package.json"))};\n`);
+  fs.writeFileSync(path.join(dir, "package.json"), "{}");
+  assert.ok(!checkProject(dir).issues.errors.some((e) => /plugin OpenCode/.test(e.message)));
+});
+
+test("pending phases without predictions are one info line, not one warning each", () => {
+  const phases = [0, 1, 2, 3, 4].map((id) => ({
+    id,
+    name: `P${id}`,
+    status: "pending",
+    checkpoint: "node -e \"\"",
+    artifacts: [],
+    predictionsRequired: 2,
+  }));
+  const dir = tmpProject(sampleProgress({ phases }));
+
+  writeFile(dir, ".ai-learn/predictions.json", JSON.stringify(predictionsData([])));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((w) => /prédictions enregistrées/.test(w.message)));
+  assert.strictEqual(entry.issues.infos.filter((i) => /pas encore commencée/.test(i.message)).length, 1);
+});
+
+test("a missing referenced pertinence file is an error", () => {
+  const dir = tmpProject({ ...sampleProgress(), pertinence: "docs/plans/pertinence.md" });
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.errors.some((e) => /pertinence\.md/.test(e.message)));
+});
+
+test("a progress without pertinence is never flagged", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const entry = checkProject(dir);
+
+  assert.ok(![...entry.issues.errors, ...entry.issues.warnings].some((e) => /pertinence/.test(e.message)));
 });

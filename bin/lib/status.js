@@ -5,15 +5,21 @@
 
 const path = require("path");
 const { log, fail, normalizePortable } = require("./util");
-const { readProgress, validateProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
+const { readProgress, missingProgressMessage, validateProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
+const platformTracks = require("./tracks/platform");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
 const { loadGuardConfig } = require("./guard");
 const { readTutorConfig } = require("./tutor");
+const { readProfile } = require("./profile");
+const { isFinished, bilanState } = require("./bilan");
 const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
+const { revisitStatus, revisitNotice } = require("./revisit");
+const { incidentFact, incidentNotice } = require("./incident");
+const { predictionsToReview } = require("./predictions");
 
 // The mark and, where useful, the French label shown next to a phase —
 // derived from the same verdict `check` and `next` consume, not re-derived
@@ -21,12 +27,16 @@ const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 // states are already legible from the mark plus the raw status text below.
 // The `stale` label names the exact command to run, same as `check`/`next` —
 // spec.md's UX Note requires a périmé state to say what to do, not just note it.
-function verdictDisplay(state) {
+function verdictDisplay(state, reason) {
   switch (state) {
     case "proven":
     case "proven-unhashed":
       return { mark: "✓", label: null };
     case "stale":
+      if (reason === "checkpoint-changed") {
+        return { mark: "⚠", label: "périmé — checkpoint modifié depuis la preuve, re-prouver avec `ai-learn verify`" };
+      }
+
       return { mark: "⚠", label: "périmé — re-prouver avec `ai-learn verify --stale`" };
     case "unproven":
       return { mark: "✗", label: "non prouvé" };
@@ -91,11 +101,11 @@ function mutationSummary(phase, ev) {
 function printStatus(config, { dir }) {
   const done = config.phases.filter((phase) => phase.status === "done").length;
 
-  log(`Project: ${config.project || path.basename(dir)}${config.technology ? ` · ${config.technology}` : ""}`);
-  log(`Phases: ${done}/${config.phases.length} done\n`);
+  log(`Projet : ${config.project || path.basename(dir)}${config.technology ? ` · ${config.technology}` : ""}`);
+  log(`Phases : ${done}/${config.phases.length} terminées\n`);
 
   if (config.phases.length === 0) {
-    log("No phases yet. Add them to progress.json, then run `ai-learn verify <id>` for each checkpoint.");
+    log("Aucune phase pour l'instant. Ajoute-les dans progress.json, puis lance `ai-learn verify <id>` pour chaque checkpoint.");
     return;
   }
 
@@ -108,9 +118,9 @@ function printStatus(config, { dir }) {
     // other status, same guard as check.js/next.js.
     const currentHash = phase.status === "done" && ev && ev.sourceHash ? computeSourceHash(dir, { checkpointFile }) : null;
     const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
-    const { mark, label } = verdictDisplay(verdict.state);
+    const { mark, label } = verdictDisplay(verdict.state, verdict.reason);
 
-    const evNote = ev ? ` — evidence ${new Date(ev.generatedAt).toISOString().slice(0, 10)}` : "";
+    const evNote = ev ? ` — preuve ${new Date(ev.generatedAt).toISOString().slice(0, 10)}` : "";
     const labelNote = label ? ` (${label})` : "";
     log(`  ${mark} Phase ${phase.id} — ${phase.name}${evNote}${labelNote}`);
     if (phase.checkpoint) {
@@ -120,6 +130,14 @@ function printStatus(config, { dir }) {
     const mutationLine = formatMutationLine(phase, ev);
     if (mutationLine) {
       log(`      ${mutationLine}`);
+    }
+
+    // Story 09.02 — a contract change the learner acknowledged is shown once,
+    // here, with its reason (the `check` warning it silences is gone).
+    for (const change of Array.isArray(phase.contractChanges) ? phase.contractChanges : []) {
+      if (change && typeof change.why === "string") {
+        log(`      contrat modifié (${String(change.at).slice(0, 10)}) : ${change.why}`);
+      }
     }
   }
 }
@@ -132,6 +150,16 @@ function printTutorProfile({ dir }) {
   const source = tutor.exists && tutor.valid ? "" : " (défaut)";
 
   log(`\nTuteur : assistance=${assistance} · preuve=${proof}${source}`);
+}
+
+// The global learner profile (story 10.02), one line. Silent when absent or
+// invalid (`check` reports the latter).
+function printProfile({ home } = {}) {
+  const { valid, profile } = readProfile({ home });
+
+  if (valid) {
+    log(`\nprofil : ${profile.goals[0] || "(aucun objectif)"} · ${profile.dailyMinutes} min/jour`);
+  }
 }
 
 // Additive, read-only summary of the global git/gh mastery ledger (see
@@ -151,6 +179,20 @@ function printGitTracksSummary({ home } = {}) {
   log("\nGit/gh — maîtrise cross-projet :");
   log(`  Tiers atteints : ${achieved.length > 0 ? achieved.join(", ") : "aucun"}`);
   log(missing.length > 0 ? `  Tiers restants  : ${missing.join(", ")}` : "  Tous les tiers sont atteints.");
+}
+
+// The global platform ledger (story 10.03), silent when absent or unreadable
+// (`check` reports a corrupt one).
+function printPlatformSummary({ home } = {}) {
+  const missing = platformTracks.missingPlatformTiers({ home });
+
+  if (missing === null) {
+    return;
+  }
+
+  const total = platformTracks.TIER_IDS.length;
+  log(`\nplateforme : ${total - missing.length}/${total}`);
+  log(missing.length > 0 ? `  Paliers restants : ${missing.join(", ")}` : "  Tous les paliers sont atteints.");
 }
 
 // Additive, read-only summary of the domain mastery ledger (see
@@ -199,6 +241,22 @@ function printNormSummary({ dir }) {
   }
 }
 
+// Story 09.07: what the learner struggled with, straight from the flash notes
+// of their own low-scored predictions. Silent when there is none.
+function printReviewList({ dir }) {
+  const items = predictionsToReview(dir);
+
+  if (items.length === 0) {
+    return;
+  }
+
+  log("\nÀ revoir :");
+
+  for (const item of items) {
+    log(`  Phase ${item.phaseId} — ${item.flash}`);
+  }
+}
+
 // Dirigeant-only, additive summary: how many done phases carry a valid sourced
 // review. In apprenti the review tier does not exist, so the line is silent —
 // same absence-is-not-a-warning stance as the other cross-project summaries.
@@ -235,6 +293,31 @@ function printReviewSummary({ dir, config }) {
 // reshaped into a stable, versioned object. Never throws — a missing or
 // corrupt progress.json becomes an `error` field on the object instead of a
 // stack, so --json always produces valid JSON (see spec.md's edge cases).
+function pendingRevisit(dir) {
+  const pending = revisitStatus(dir);
+
+  return pending.state === "none" ? null : { state: pending.state, phaseId: pending.lock ? pending.lock.phaseId : null };
+}
+
+// Story 10.07 — null while the track is unfinished, so the line never shows early.
+function bilanFact(dir, config) {
+  if (!isFinished(config)) {
+    return null;
+  }
+
+  const { state, decision } = bilanState(dir);
+
+  return state === "complete" ? { state, decision } : { state };
+}
+
+function printBilanSummary({ dir, config }) {
+  const bilan = bilanFact(dir, config);
+
+  if (bilan) {
+    log(`\nbilan : ${bilan.state === "complete" ? `fait (${bilan.decision})` : "à compléter"}`);
+  }
+}
+
 function buildStatusReport(dir) {
   const { config, exists } = readProgress(dir);
 
@@ -242,7 +325,7 @@ function buildStatusReport(dir) {
     return {
       version: 1,
       dir: normalizePortable(dir),
-      error: `No progress.json in ${dir}. Run \`ai-learn init\` first.`,
+      error: missingProgressMessage(dir),
       uncommitted: uncommittedCount(dir),
     };
   }
@@ -273,6 +356,9 @@ function buildStatusReport(dir) {
     phasesDone: phases.filter((phase) => phase.status === "done").length,
     phasesTotal: phases.length,
     phases,
+    bilan: bilanFact(dir, config),
+    revisitPending: pendingRevisit(dir),
+    incident: incidentFact(dir),
     uncommitted: uncommittedCount(dir),
     progressIssues: validateProgress(config).map((issue) => issue.message),
   };
@@ -292,23 +378,39 @@ function statusCommand({ dir, home, json }) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
-    fail(`No progress.json in ${dir}. Run \`ai-learn init\` first.`);
+    fail(missingProgressMessage(dir));
+  }
+
+  const incident = incidentNotice(dir);
+
+  if (incident) {
+    log(`${incident}\n`);
+  }
+
+  const notice = revisitNotice(dir);
+
+  if (notice) {
+    log(`${notice}\n`);
   }
 
   printStatus(config, { dir });
   printTutorProfile({ dir });
+  printProfile({ home });
   printReviewSummary({ dir, config });
+  printBilanSummary({ dir, config });
+  printReviewList({ dir });
 
   const issues = validateProgress(config);
 
   if (issues.length > 0) {
-    log("\nprogress.json issues:");
+    log("\nProblèmes dans progress.json :");
     for (const issue of issues) {
       log(`  - ${issue.message}`);
     }
   }
 
   printGitTracksSummary({ home });
+  printPlatformSummary({ home });
   printDomainSummary({ dir, home });
   printNormSummary({ dir });
   printCommitReminder(dir);
@@ -319,6 +421,8 @@ module.exports = {
   buildStatusReport,
   latestEvidenceForPhase,
   printGitTracksSummary,
+  printPlatformSummary,
+  printProfile,
   printDomainSummary,
   printNormSummary,
   printReviewSummary,

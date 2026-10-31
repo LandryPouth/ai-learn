@@ -42,6 +42,8 @@ Partie D (norm) — indépendante
 
 ## Partie A — Module debug par injection de faute
 
+> **Promue (epic 10).** Tiers 1-3 construits par les stories 10.04 (`ai-learn break`, ledger `~/.ai-learn/tracks/debug.json`) et 10.05 (pannes d'environnement), hors règle des trois entrées de friction — décision explicite du propriétaire du produit (2026-10-30, voir `epics/epic-10-cap-plateforme-et-machinerie/index.md`). Les tiers 4-6 restent différés.
+
 ### Le problème visé
 
 Lire une stack trace, localiser une cause à distance de son symptôme, reproduire un

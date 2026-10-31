@@ -14,7 +14,8 @@
 
 const os = require("os");
 const path = require("path");
-const { readJson, writeJson } = require("../util");
+const { readJson } = require("../util");
+const { writeLedgerFile, withoutTimestamps, canonicalizeProjects } = require("./store");
 const { walkSources, detectStack, detectConcepts, loadStack, stackKey } = require("../scan");
 
 function domainsHome({ home = os.homedir() } = {}) {
@@ -81,8 +82,8 @@ function validateDomainLedger(config) {
   return issues;
 }
 
-function writeDomainLedger(config, { home = os.homedir() } = {}) {
-  writeJson(domainPath({ technology: config.technology, home }), config);
+function writeDomainLedger(config, { home = os.homedir(), before } = {}) {
+  return writeLedgerFile(domainPath({ technology: config.technology, home }), config, { before, validate: validateDomainLedger });
 }
 
 function readOrDefaultDomainLedger({ technology, home = os.homedir() } = {}) {
@@ -113,6 +114,8 @@ function syncDomainLedger({ dir, verifyEvidence, home } = {}) {
   const detected = detectConcepts(stack.language, walked.files);
 
   const config = readOrDefaultDomainLedger({ technology: key, home });
+  const before = readDomainLedger({ technology: key, home }).exists ? withoutTimestamps(config) : null;
+  canonicalizeProjects(config);
   const now = new Date().toISOString();
   const touched = [];
 
@@ -137,7 +140,7 @@ function syncDomainLedger({ dir, verifyEvidence, home } = {}) {
       : [];
   config.projects[dir] = { lastSyncedAt: now, conceptsContributed: [...new Set([...previous, ...touched])] };
 
-  writeDomainLedger(config, { home });
+  writeDomainLedger(config, { home, before });
   return { key, touched };
 }
 

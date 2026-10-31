@@ -160,7 +160,8 @@ test("init installs the given platform's slash commands into an isolated home", 
   try {
     const { platform } = scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "codex" });
     assert.strictEqual(platform, "codex");
-    assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next", "SKILL.md")));
+    assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-learn", "references", "propose.md")));
+    assert.ok(!fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next")), "no alias skill is installed");
   } finally {
     process.env.HOME = original.HOME;
     process.env.USERPROFILE = original.USERPROFILE;
@@ -312,7 +313,7 @@ test("the protocol template keeps its numbered sections present and in order", (
   const content = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
   const ids = [...content.matchAll(/^###\s+([^\s.]+)\./gm)].map((match) => match[1]);
 
-  assert.deepStrictEqual(ids, ["1", "1bis", "2", "3", "3bis", "3ter", "3quater", "3quinquies", "4", "5", "5bis"]);
+  assert.deepStrictEqual(ids, ["1", "1bis", "2", "3", "3bis", "3ter", "3quater", "3quinquies", "3sexies", "4", "5", "5bis"]);
 });
 
 test("§1bis enumerates its five synthesis steps in order, between §1 and §2", () => {
@@ -457,4 +458,104 @@ test("the protocol documents the three assistance levels and reads tutor.json be
   assert.match(section1, /`indices`/);
   assert.match(section1, /indice → question → pseudo-code → solution/);
   assert.match(section1, /`strict`/);
+});
+
+// Story 09.04 — scaffold au bon endroit.
+const { chooseInitDir } = require("../bin/lib/init");
+
+test("init writes the ai-learn gitignore block", () => {
+  const dir = tmpDir();
+  scaffold({ dir, project: "demo", technology: "Node", phases: [] });
+  const text = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
+  assert.match(text, /# ai-learn/);
+  assert.match(text, /^node_modules\/$/m);
+  assert.match(text, /^\.env$/m);
+});
+
+test("init --project in a container creates ./<name>/", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "autre.txt"), "x");
+  assert.strictEqual(chooseInitDir({ cwd: dir, explicitDir: false, project: "mini-redis" }), path.join(dir, "mini-redis"));
+});
+
+test("init --project in an empty dir uses it", () => {
+  const dir = tmpDir();
+  assert.strictEqual(chooseInitDir({ cwd: dir, explicitDir: false, project: "x" }), dir);
+});
+
+test("init --project refuses a name that escapes the folder", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "autre.txt"), "x");
+  assert.throws(() => chooseInitDir({ cwd: dir, explicitDir: false, project: "../evil" }), /invalide/);
+});
+
+test("init refuses inside an existing project", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "progress.json"), "{}");
+  fs.mkdirSync(path.join(dir, "src"));
+  assert.throws(() => chooseInitDir({ cwd: path.join(dir, "src"), explicitDir: false, project: null }), (error) => error.message.includes(dir));
+  assert.ok(!fs.existsSync(path.join(dir, "src", "progress.json")));
+});
+
+test("findProjectDir stops at home and ignores a progress.json there", () => {
+  const { findProjectDir } = require("../bin/lib/progress");
+  const home = tmpDir();
+  const sub = path.join(home, "src");
+  fs.mkdirSync(sub);
+  fs.writeFileSync(path.join(home, "progress.json"), "{}");
+  assert.strictEqual(findProjectDir(sub, home), sub);
+  const project = path.join(home, "p");
+  fs.mkdirSync(path.join(project, "src"), { recursive: true });
+  fs.writeFileSync(path.join(project, "progress.json"), "{}");
+  assert.strictEqual(findProjectDir(path.join(project, "src"), home), project);
+});
+
+test("AGENTS commands section lists only visible commands as the learner's", () => {
+  const template = fs.readFileSync(path.join(__dirname, "..", "templates", "AGENTS-apprentissage.md"), "utf8");
+  const section = template.slice(template.indexOf("## Commandes"));
+  const intro = section.slice(0, section.indexOf("| Commande |"));
+
+  for (const visible of ["/learn", "/learn-next", "/learn-status", "/learn-break"]) {
+    assert.ok(intro.includes(`\`${visible}\``), `${visible} is named as a learner command`);
+  }
+  assert.match(intro, /machinerie/);
+  for (const retired of ["/learn-scan", "/learn-propose", "/learn-check", "/learn-docs"]) {
+    assert.ok(!template.includes(retired), `${retired} is not a learner command any more`);
+  }
+
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+  const learnerTable = readme.slice(readme.indexOf("### Les commandes de l'apprenant"), readme.indexOf("Il n'y a pas de `/verify`"));
+  assert.deepStrictEqual(
+    [...learnerTable.matchAll(/^\| `(\/[a-z-]+)` \|/gm)].map((m) => m[1]),
+    ["/learn", "/learn-status", "/learn-next", "/learn-break"],
+  );
+});
+
+test("init --pertinence copies and references the analysis", () => {
+  const dir = tmpDir();
+  const src = path.join(tmpDir(), "p.md");
+  fs.writeFileSync(src, "# Pertinence\n");
+
+  const { created } = scaffold({ dir, project: "demo", technology: "C", docSource: null, phases: [], pertinenceFile: src });
+
+  assert.strictEqual(fs.readFileSync(path.join(dir, "docs", "plans", "pertinence.md"), "utf8"), "# Pertinence\n");
+  assert.strictEqual(readJson(path.join(dir, "progress.json")).pertinence, "docs/plans/pertinence.md");
+  assert.ok(created.includes("docs/plans/pertinence.md"));
+});
+
+test("init --pertinence on an existing project leaves it untouched", () => {
+  const dir = tmpDir();
+  const src = path.join(tmpDir(), "p.md");
+  fs.writeFileSync(src, "# Pertinence\n");
+  scaffold({ dir, project: "demo", technology: "C", docSource: null, phases: [] });
+
+  const { created } = scaffold({ dir, project: "demo", technology: "C", docSource: null, phases: [], pertinenceFile: src });
+
+  assert.ok(!created.includes("docs/plans/pertinence.md"));
+  assert.ok(!fs.existsSync(path.join(dir, "docs", "plans", "pertinence.md")));
+  assert.strictEqual(readJson(path.join(dir, "progress.json")).pertinence, undefined);
+});
+
+test("init --pertinence fails on a missing file", () => {
+  assert.throws(() => scaffold({ dir: tmpDir(), project: "demo", technology: "C", docSource: null, phases: [], pertinenceFile: "/nonexistent/p.md" }));
 });

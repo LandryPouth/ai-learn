@@ -131,4 +131,25 @@ function changedSourceFiles(oldHash, newHash) {
   return [...paths].filter((p) => before.get(p) !== after.get(p)).sort();
 }
 
-module.exports = { checkpointFilePath, computeSourceHash, changedSourceFiles };
+// Story 09.02 — the two halves of `sourceHash`, kept apart in the evidence so
+// `check` can tell "the code changed" from "the test changed". `learnerHash`
+// is the learner's files without the checkpoint file; `checkpointHash` is the
+// checkpoint command plus the content of the file it points at (if any).
+function computeLearnerHash(dir) {
+  const { algo, digest } = computeSourceHash(dir);
+
+  return { algo, digest };
+}
+
+function computeCheckpointHash(dir, command) {
+  const file = checkpointFilePath(dir, command);
+  const hash = crypto.createHash("sha256").update(`${command || ""}\n`);
+
+  if (file) {
+    hash.update(fs.readFileSync(file));
+  }
+
+  return { algo: "sha256", digest: hash.digest("hex") };
+}
+
+module.exports = { checkpointFilePath, computeSourceHash, changedSourceFiles, computeLearnerHash, computeCheckpointHash };

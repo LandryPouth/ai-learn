@@ -31,6 +31,9 @@ const {
 } = require("./platforms/codex-guard");
 
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+// Read tools only matter for one path: the secret of a code incident (story 10.04).
+const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
+const HOOK_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob";
 const DEFAULT_LEARNER_FILES = ["src/**"];
 const DEFAULT_BLOCKED_COMMANDS = ["git", "gh"];
 
@@ -97,6 +100,7 @@ const DIRIGEANT_LEARNER_FILES = [
 // Write, so these are denied in both modes, before the learner-path check. The
 // learner edits them by hand; `init`/`update` (the CLI, not the agent) writes
 // them normally.
+const TUNING_FILES = [".ai-learn/tutor.json", ".ai-learn/norm.json", ".ai-learn/mutate.json"];
 const PROTECTED_FILES = [
   ".ai-learn/guard.json",
   ".claude/settings.json",
@@ -117,6 +121,18 @@ const PROTECTED_FILES = [
   // fail-open journal. An AI that can erase them can hide its own unjudged write.
   ".ai-learn/guard.log",
   ".ai-learn/guard-unchecked.jsonl",
+  ".ai-learn/revisit.lock.json",
+  // The public half of a code incident (story 10.04): flipping `active` would
+  // end it without a repair.
+  ".ai-learn/incident.json",
+  // The settings that set how strict the checks are (story 09.03): proof
+  // required, norm thresholds, mutation scope, prediction journal. The AI has no
+  // legitimate reason to write them; the learner edits them, and the AI records
+  // predictions through `ai-learn predict` (the CLI, not a Write).
+  ".ai-learn/tutor.json",
+  ".ai-learn/norm.json",
+  ".ai-learn/mutate.json",
+  ".ai-learn/predictions.json",
 ];
 // Directories whose whole subtree is protected. `.ai-learn/runs/*.json` are the
 // verify evidences that feed the test ledger gating `dirigeant`: forging one is
@@ -124,7 +140,9 @@ const PROTECTED_FILES = [
 // `.opencode/plugins` (and its singular alias) is code OpenCode loads at
 // startup with the user's authority: a new file there defeats the guard on the
 // next session just as surely as rewriting the generated plugin.
-const PROTECTED_DIRS = [".ai-learn/runs", ".opencode/plugins", ".opencode/plugin"];
+// `.ai-learn/revisit` holds a revisit's backup (story 09.06): writing it would
+// forge the removal `verify --revisit` requires, or alter what `--giveup` restores.
+const PROTECTED_DIRS = [".ai-learn/runs", ".ai-learn/revisit", ".opencode/plugins", ".opencode/plugin"];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
 
 // Commands that merely wrap another command — unwrapped so `sudo git log` or
@@ -1119,6 +1137,63 @@ function modeSwitchReason() {
   );
 }
 
+// An incident's site lives in `~/.ai-learn/incidents/`. Reading it (or listing,
+// or grepping a directory that contains it) would hand the AI the answer the
+// learner is meant to find. The wall only stands while a record exists, so
+// ordinary reads in the home are untouched the rest of the time.
+function incidentStoreHasRecords() {
+  try {
+    return fs.readdirSync(path.join(os.homedir(), ".ai-learn", "incidents")).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function readTargets(toolInput) {
+  if (!toolInput || typeof toolInput !== "object") {
+    return [];
+  }
+
+  const targets = [toolInput.file_path, toolInput.path];
+
+  if (typeof toolInput.pattern === "string") {
+    // A Glob pattern: the literal directory prefix before the first wildcard.
+    targets.push(toolInput.pattern.replace(/^[{[]+/, "").split(/[*?[{,]/)[0]);
+  }
+
+  return targets.filter((value) => typeof value === "string" && value);
+}
+
+function readsIncidentStore(root, toolInput) {
+  if (!incidentStoreHasRecords()) {
+    return false;
+  }
+
+  const store = normalizePortable(path.join(os.homedir(), ".ai-learn", "incidents"));
+  const realStore = resolveRealPath(store);
+
+  return readTargets(toolInput).some((target) => {
+    const expanded = expandHome(target);
+    const abs = normalizePortable(path.isAbsolute(expanded) ? path.normalize(expanded) : path.resolve(root, expanded));
+    const real = resolveRealPath(abs);
+    const stores = [store, realStore && normalizePortable(realStore)].filter(Boolean);
+
+    // Inside the store, or an ancestor of it (`~/.ai-learn`, `~`, `/`).
+    return [abs, real && normalizePortable(real)].filter(Boolean).some((candidate) => stores.some((dir) => matchesDir(candidate, dir) || matchesDir(dir, candidate)));
+  });
+}
+
+function revealsIncident(command) {
+  return splitSegments(command).some((segment) => /\bai-learn(?:\.js)?\b/.test(segment) && /\bbreak\b/.test(segment) && /--giveup\b/.test(segment));
+}
+
+function incidentStoreReason() {
+  return (
+    "ce chemin contient le secret d'un incident de code (~/.ai-learn/incidents/) : l'endroit de la panne est ce que l'apprenant doit trouver. " +
+    "Donne-lui des indices de méthode (relire la sortie du test, réduire le cas, poser une expérience), jamais l'endroit."
+  );
+}
+
 function homeStateReason(target, viaShell) {
   return viaShell
     ? `cette commande écrit dans ${target}, un ledger global d'ai-learn (hors du projet). ` +
@@ -1128,6 +1203,14 @@ function homeStateReason(target, viaShell) {
 }
 
 function protectedPathReason(rel, viaShell) {
+  if (rel === ".ai-learn/predictions.json") {
+    return `${viaShell ? "cette commande écrit dans " : ""}${rel} est le journal des prédictions : ` +
+      "l'IA ne l'écrit pas à la main. Voie légitime : `ai-learn predict` (puis `predict --reveal`).";
+  }
+  if (TUNING_FILES.includes(rel)) {
+    return `${viaShell ? "cette commande écrit dans " : ""}${rel} règle la sévérité des contrôles : ` +
+      "l'IA ne la modifie pas. Voie légitime : l'apprenant édite ce fichier lui-même.";
+  }
   return viaShell
     ? `cette commande écrit dans ${rel}, un fichier qui configure le garde-fou lui-même. ` +
         "L'IA ne modifie pas sa propre policy (mode, chemins, hooks) : demande à l'apprenant de le faire."
@@ -1181,6 +1264,20 @@ function decide(hook, root) {
       };
     }
 
+    if (incidentStoreHasRecords() && /\.ai-learn[\\/]+incidents/i.test(command)) {
+      return { decision: "deny", command, reason: incidentStoreReason() };
+    }
+
+    if (revealsIncident(command)) {
+      return {
+        decision: "deny",
+        command,
+        reason:
+          "`ai-learn break --giveup` révèle le site de la panne et clôt l'incident : c'est un renoncement de l'apprenant, " +
+          "pas de l'IA. Demande-lui de lancer la commande lui-même (`! ai-learn break --giveup`).",
+      };
+    }
+
     if (invokesModeSwitch(command)) {
       return { decision: "deny", command, reason: modeSwitchReason() };
     }
@@ -1202,6 +1299,12 @@ function decide(hook, root) {
     }
 
     return { decision: "allow", reason: "no learner write target detected" };
+  }
+
+  if (READ_TOOLS.has(toolName)) {
+    return readsIncidentStore(root, toolInput)
+      ? { decision: "deny", reason: incidentStoreReason(), path: null }
+      : { decision: "allow", reason: `tool ${toolName} reads nothing protected` };
   }
 
   if (!WRITE_TOOLS.has(toolName)) {
@@ -1393,6 +1496,29 @@ function guardHookCommand(toolBin) {
 
 // Recognizes the hook we own, quoted (current form) or not (older installs), so
 // `update` upgrades a stale command instead of appending a duplicate.
+// The script path a hook command runs (`node <path> guard|norm --hook`), quoted
+// or not (an unquoted path may hold spaces). Null when it cannot be known —
+// another launcher, or a path the shell would expand (`$VAR`, `~`, `%VAR%`):
+// an unknown path is never reported dead.
+function hookScriptPath(command) {
+  const match = typeof command === "string" && command.match(/^\s*node\s+(.+?)\s+(?:guard|norm --hook)\b/);
+
+  if (!match) {
+    return null;
+  }
+
+  const script = match[1].replace(/^(["'])(.*)\1$/, "$2");
+  return /[$~%`]/.test(script) ? null : script;
+}
+
+// A hook whose script no longer exists silently lets everything through
+// (only exit 2 blocks), so it is a dead guard, not a wired one. A relative
+// path is resolved against the project, where the agent runs it.
+function hookScriptMissing(command, dir = process.cwd()) {
+  const script = hookScriptPath(command);
+  return script !== null && !fs.existsSync(path.resolve(dir, script));
+}
+
 function isOwnGuardCommand(command) {
   return typeof command === "string" && /ai-learn(\.js)?["']?\s+guard\b/.test(command);
 }
@@ -1529,7 +1655,7 @@ function ensureGuardHook(dir) {
 
   const toolBin = path.join(__dirname, "..", "ai-learn.js");
   const command = guardHookCommand(toolBin);
-  const matcher = "Write|Edit|MultiEdit|NotebookEdit|Bash";
+  const matcher = HOOK_MATCHER;
 
   let settings = null;
 
@@ -1572,6 +1698,18 @@ function ensureGuardHook(dir) {
       }
       for (const h of entry.hooks) {
         if (!h || !isOwnGuardCommand(h.command)) {
+          continue;
+        }
+        // Story 10.04: an older install matched only the write tools; the
+        // incident wall needs Read/Grep/Glob too. Ours only, others untouched.
+        if (typeof entry.matcher === "string" && !HOOK_MATCHER.split("|").every((tool) => entry.matcher.split("|").includes(tool))) {
+          entry.matcher = [...new Set([...entry.matcher.split("|"), ...HOOK_MATCHER.split("|")])].join("|");
+          changed = true;
+        }
+
+        if (hookScriptMissing(h.command, dir)) {
+          h.command = command;
+          changed = true;
           continue;
         }
         const match = h.command.match(/^node\s+(.+?)\s+guard\s*$/);
@@ -1622,6 +1760,8 @@ module.exports = {
   guardCommand,
   guardHookCommand,
   isOwnGuardCommand,
+  hookScriptPath,
+  hookScriptMissing,
   MODE_APPRENTI,
   MODE_DIRIGEANT,
   ensureGuardHook,

@@ -19,6 +19,7 @@ const {
   latestAnyEvidenceForPhase,
   phaseVerdict,
   revisitState,
+  missingProgressMessage,
 } = require("./progress");
 const { docSourceList, digestPath, digestCitations, digestCitationProblem } = require("./docs");
 const { MARKER: CODEX_GUARD_MARKER } = require("./platforms/codex-guard");
@@ -36,8 +37,10 @@ const {
 const { appendAutoEntry } = require("./dogfood");
 const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
-const { guardConfigIssues, loadGuardConfig, isOwnGuardCommand } = require("./guard");
+const { guardConfigIssues, loadGuardConfig, isOwnGuardCommand, hookScriptMissing, hookScriptPath } = require("./guard");
 const { readTutorConfig } = require("./tutor");
+const { readProfile } = require("./profile");
+const { readPlatformTracks, validatePlatformTracks, tracksPath: platformTracksPath } = require("./tracks/platform");
 const { MODE_DIRIGEANT, formatLedgerRefusal, requiredTiersStatus } = require("./mode");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
@@ -51,7 +54,11 @@ const {
   formatPredictionsGap,
 } = require("./predictions");
 const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
+const { isFinished, bilanState } = require("./bilan");
 const { duplicateSlugs, reviewState } = require("./reviews");
+const { ledgerHealth, hasReplayableEvidence } = require("./ledgers");
+const { contractWarnings } = require("./contract");
+const { incidentFact } = require("./incident");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -66,7 +73,7 @@ const HOLE_MARKER_RE = /\[\s*\.\.\.\s*\]|…|\bTODO\b|à (?:compl[ée]ter|finir)
 const READING_WORDS_PER_MINUTE = 200;
 
 function checkProject(dir, { home, now = new Date() } = {}) {
-  const issues = { errors: [], warnings: [] };
+  const issues = { errors: [], warnings: [], infos: [] };
   const { config, exists } = readProgress(dir);
 
   if (!exists) {
@@ -74,8 +81,17 @@ function checkProject(dir, { home, now = new Date() } = {}) {
   }
 
   if (!config) {
-    issues.errors.push({ file: "progress.json", message: "unreadable or invalid JSON" });
+    issues.errors.push({ file: "progress.json", message: missingProgressMessage(dir) });
     return { dir, config: null, issues };
+  }
+
+  // Story 10.04 — while a code incident is active the learner's code is broken
+  // on purpose: a red proof below is the incident, not drift.
+  if (incidentFact(dir).active) {
+    issues.warnings.push({
+      file: ".ai-learn/incident.json",
+      message: "a code incident is active: the proofs below may be red because of it. Repair it, then `ai-learn break --resolve` (or `--giveup`).",
+    });
   }
 
   // The learning mode lives in `.ai-learn/guard.json`; absent or typo'd, the
@@ -90,12 +106,35 @@ function checkProject(dir, { home, now = new Date() } = {}) {
     (issue.level === "error" ? issues.errors : issues.warnings).push(issue);
   }
 
+  // The relevance analysis (story 10.06): presence only. A project without the
+  // field is never flagged; one that references a missing file is.
+  if (typeof config.pertinence === "string" && config.pertinence) {
+    if (!fs.existsSync(path.join(dir, config.pertinence))) {
+      issues.errors.push({ file: config.pertinence, message: `progress.json references pertinence file ${config.pertinence}, which is missing` });
+    }
+  }
+
   // The tutor profile (story 05.05): an unknown assistance/proof value is an
   // explicit error, never a silent fallback to the defaults verify would use.
   const tutor = readTutorConfig(dir);
 
   for (const message of tutor.issues) {
     issues.errors.push({ file: ".ai-learn/tutor.json", message });
+  }
+
+  // The global learner profile (story 10.02): a corrupt one is an explicit
+  // error; a missing one is the normal state.
+  for (const message of readProfile({ home }).issues) {
+    issues.errors.push({ file: "~/.ai-learn/profile.json", message });
+  }
+
+  // The platform ledger (story 10.03) is only written by a phase tagged
+  // `platformTier`, so — unlike the other ledgers — its absence is never a
+  // sign of a lost sync; a corrupt file is always worth naming.
+  if (fs.existsSync(platformTracksPath({ home }))) {
+    for (const issue of validatePlatformTracks(readPlatformTracks({ home }).config)) {
+      issues.errors.push({ file: "~/.ai-learn/tracks/platform.json", message: issue.message });
+    }
   }
 
   // Doc sources the ledger declares should exist. A local source that vanished
@@ -235,6 +274,31 @@ function checkProject(dir, { home, now = new Date() } = {}) {
       surface: "hook-guard",
       expected: "le hook PreToolUse ai-learn guard aurait dû être câblé dans .claude/settings.json par init/update",
       problem: "guard.json existe mais aucun hook PreToolUse pointant vers ai-learn.js guard n'est présent dans .claude/settings.json",
+    });
+  }
+
+  // A hook that points at a script which no longer exists is a guard that is
+  // switched off while looking wired: only exit 2 blocks, so a missing script
+  // lets every write through (story 09.03). A verdict that lies, hence an error.
+  for (const { event, command } of ownHooks(dir)) {
+    if (hookScriptMissing(command, dir)) {
+      issues.errors.push({
+        file: ".claude/settings.json",
+        message: `garde-fou éteint : le hook ${event} pointe vers ${hookScriptPath(command)} qui n'existe plus — ` +
+          "`ai-learn update`",
+      });
+    }
+  }
+
+  // The OpenCode plugin embeds the tool path (`const BINARY = "…"`). Codex's
+  // profile is static permissions with no script path, so there is nothing to check.
+  const openCodeBinary = openCodePluginBinary(dir);
+
+  if (openCodeBinary && !fs.existsSync(openCodeBinary)) {
+    issues.errors.push({
+      file: ".opencode/plugins/ai-learn-guard.js",
+      message: `garde-fou éteint : le plugin OpenCode pointe vers ${openCodeBinary} qui n'existe plus — ` +
+        "`ai-learn update`",
     });
   }
 
@@ -473,10 +537,19 @@ function checkProject(dir, { home, now = new Date() } = {}) {
     // legacy `.md`-only case has no JSON to feed that function, so it keeps
     // its own count here — informative only (a warning, never a block; see
     // predictionsReport's own retro-compat contract).
+    const pendingWithoutPredictions = [];
+
     for (const phase of config.phases || []) {
       const phaseRequired = normalizePredictionsRequired(phase.predictionsRequired).total;
 
       if (phaseRequired <= 0) {
+        continue;
+      }
+
+      // Story 09.07 — a phase not started yet cannot have predictions: it is
+      // summarised in one info line below, never one warning each.
+      if (phase.status === "pending") {
+        pendingWithoutPredictions.push(phase.id);
         continue;
       }
 
@@ -495,6 +568,40 @@ function checkProject(dir, { home, now = new Date() } = {}) {
           message: `${formatPredictionsGap(phase, report)}${legacyHint}`,
         });
       }
+    }
+
+    if (pendingWithoutPredictions.length > 0) {
+      issues.infos.push({
+        file: countsSource,
+        message: `${pendingWithoutPredictions.length} phase(s) pas encore commencée(s) (${pendingWithoutPredictions.join(", ")}) : ` +
+          "prédictions attendues quand elles démarrent",
+      });
+    }
+  }
+
+  // Story 09.03: a prediction is written before the reveal (`predict`, then
+  // `predict --reveal`). Left unrevealed for a week it is forgotten work; a
+  // one-step entry (at == revealedAt) was recorded after the fact, which the
+  // tool cannot tell apart from a late prediction — said, not blocked.
+  if (predictions.valid) {
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const stale = predictions.data.entries.filter((entry) => !entry.revealedAt && Date.parse(entry.at) < weekAgo);
+    const afterTheFact = predictions.data.entries.filter((entry) => entry.revealedAt && entry.revealedAt === entry.at);
+
+    for (const entry of stale) {
+      issues.warnings.push({
+        file: ".ai-learn/predictions.json",
+        message: `prediction ${entry.id} (phase ${entry.phaseId}) has not been revealed for over 7 days — ` +
+          "finish it with `ai-learn predict --reveal <id> …`",
+      });
+    }
+
+    if (afterTheFact.length > 0) {
+      issues.infos.push({
+        file: ".ai-learn/predictions.json",
+        message: `${afterTheFact.length} prediction(s) enregistrée(s) après coup (en un temps) : l'antériorité ` +
+          "n'est pas établie — `ai-learn predict` avant la révélation, puis `--reveal`",
+      });
     }
   }
 
@@ -515,6 +622,10 @@ function checkProject(dir, { home, now = new Date() } = {}) {
 
     checkDigest(dir, config, phase, issues);
 
+    for (const message of contractWarnings({ dir, phase, checkpointFile })) {
+      issues.warnings.push({ file: "progress.json", message });
+    }
+
     if (phase.status === "done") {
       if (!phase.checkpoint) {
         issues.warnings.push({
@@ -532,6 +643,11 @@ function checkProject(dir, { home, now = new Date() } = {}) {
           issues.errors.push({
             file: "progress.json",
             message: `phase ${phase.id} ("${phase.name}") is marked done but has no passing evidence. Run \`ai-learn verify ${phase.id}\`.`,
+          });
+        } else if (verdict.state === "stale" && verdict.reason === "checkpoint-changed") {
+          issues.errors.push({
+            file: "progress.json",
+            message: `phase ${phase.id} ("${phase.name}") is done but its checkpoint changed since the proof (checkpoint modifié depuis la preuve). Run \`ai-learn verify ${phase.id}\` to prove it again.`,
           });
         } else if (verdict.state === "stale") {
           // `entries` is absent on evidence written before story 01.02 —
@@ -572,7 +688,7 @@ function checkProject(dir, { home, now = new Date() } = {}) {
               message:
                 `phase ${phase.id} ("${phase.name}") has not been revisited since ${revisit.lastProvenAt.slice(0, 10)} ` +
                 `(more than ${revisit.reviewAfterDays} day(s)). Redo it from memory, without notes or the prediction journal: ` +
-                `\`ai-learn verify ${phase.id} --revisit\`.`,
+                `\`ai-learn revisit ${phase.id}\`.`,
             });
           }
         }
@@ -640,6 +756,36 @@ function checkProject(dir, { home, now = new Date() } = {}) {
           message: `checkpoint exists but no passing evidence — run \`ai-learn verify ${phase.id}\``,
         });
       }
+    }
+  }
+
+  // Story 10.07 — a finished track owes its bilan. Never raised for a track
+  // still in progress.
+  if (isFinished(config)) {
+    for (const message of bilanState(dir).issues) {
+      issues.errors.push({ file: "docs/bilan.md", message });
+    }
+  }
+
+  // Story 09.01 — a proven project that no ledger knows means verify's sync
+  // failed (sandbox, permissions) or ran before the ledgers existed. The
+  // cross-project progression is then silently short; the fix is a replay.
+  // "Proven" is exactly what `ledgers --sync` replays, so the warning is
+  // always one the suggested command clears.
+  if (hasReplayableEvidence(dir, config)) {
+    const { missing, unreadable } = ledgerHealth({ dir, home });
+
+    if (missing.length > 0) {
+      issues.warnings.push({
+        file: "~/.ai-learn",
+        message: `progression absente des ledgers (${missing.join(", ")}) — \`ai-learn ledgers --sync --dir ${dir}\``,
+      });
+    }
+    if (unreadable.length > 0) {
+      issues.warnings.push({
+        file: "~/.ai-learn",
+        message: `ledger illisible, jamais réécrit (${unreadable.join(", ")}) — le corriger ou le retirer, \`ai-learn ledgers --repair --dry-run\` le nomme`,
+      });
     }
   }
 
@@ -952,6 +1098,45 @@ function countDogfoodEntries(dogfoodPath) {
   return (content.match(/^###\s+(?:low|medium|high)\s+—/gim) || []).length;
 }
 
+// The tool path embedded in the generated OpenCode plugin, or null.
+function openCodePluginBinary(dir) {
+  try {
+    const source = fs.readFileSync(path.join(dir, ".opencode", "plugins", "ai-learn-guard.js"), "utf8");
+    const match = source.match(/^const BINARY = (".*");$/m);
+    return match ? JSON.parse(match[1]) || null : null;
+  } catch {
+    return null;
+  }
+}
+
+// Every ai-learn hook command wired in .claude/settings.json, with its event.
+function ownHooks(dir) {
+  let settings = null;
+
+  try {
+    settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  } catch {
+    return [];
+  }
+
+  const hooks = (settings && settings.hooks) || {};
+  const found = [];
+
+  for (const [event, pattern] of [["PreToolUse", null], ["PostToolUse", /ai-learn\.js"? norm --hook/]]) {
+    for (const entry of Array.isArray(hooks[event]) ? hooks[event] : []) {
+      for (const h of entry && Array.isArray(entry.hooks) ? entry.hooks : []) {
+        const own = pattern ? h && typeof h.command === "string" && pattern.test(h.command) : h && isOwnGuardCommand(h.command);
+
+        if (own) {
+          found.push({ event, command: h.command });
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
 // Is the `ai-learn guard` PreToolUse hook wired into the project's
 // .claude/settings.json? The block is only real when the hook is installed.
 function guardHookWired(dir) {
@@ -1020,6 +1205,10 @@ function printProjectReport(entry) {
 
   for (const warning of issues.warnings) {
     log(`  ⚠ ${warning.file ? `${warning.file}: ` : ""}${warning.message}`);
+  }
+
+  for (const info of issues.infos || []) {
+    log(`  ℹ ${info.file ? `${info.file}: ` : ""}${info.message}`);
   }
 
   // The learner-file block, when active, reports how many AI writes it has

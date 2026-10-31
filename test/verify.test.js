@@ -12,7 +12,7 @@ const { computeSourceHash } = require("../bin/lib/source-hash");
 const { readGitTracks } = require("../bin/lib/tracks/git");
 const { recordPrediction } = require("../bin/lib/predictions");
 const { mutateConfigPath, mutateLockPath } = require("../bin/lib/mutate");
-const { capture, sampleProgress, tmpProject, writeFile, spawnGit } = require("./helpers");
+const { activeRevisitLock, capture, sampleProgress, tmpProject, writeFile, spawnGit, withoutNodeTestContext } = require("./helpers");
 
 // A checkpoint that never inspects the return value of the mutated function —
 // it stays green whether the boolean literal is `true` or `false`, so the
@@ -43,7 +43,7 @@ test("verify runs a passing checkpoint, records evidence, marks the phase done",
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.match(out, /\[ok\]/);
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
@@ -84,7 +84,7 @@ test("verify with a passing stressCheckpoint marks done once both checkpoints pa
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.match(out, /Stress: node -e "process\.exit\(0\)"/);
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
@@ -105,7 +105,7 @@ test("verify with a failing stressCheckpoint does NOT mark done, even though the
 
   assert.match(out, /\[ok\].*node -e "process\.exit\(0\)"/s);
   assert.match(out, /\[exit 7\]/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.doesNotMatch(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
@@ -176,10 +176,32 @@ test("verify never marks done or fails if the git ledger sync throws (isolated f
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0, home: brokenHome }));
 
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
   assert.strictEqual(process.exitCode, 0);
+});
+
+// Story 09.01 — the same isolated failure is no longer silent: the learner
+// sees which ledger was not written, the error code and what to run.
+test("a failing ledger sync is reported, the phase stays done", { skip: process.platform === "win32" || process.getuid() === 0 }, () => {
+  const dir = tmpProject(sampleProgress());
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-verify-eacces-"));
+  fs.mkdirSync(path.join(home, ".ai-learn"));
+  fs.chmodSync(path.join(home, ".ai-learn"), 0o555);
+
+  try {
+    const out = capture(() => verifyCommand({ dir, phaseId: 0, home }));
+
+    assert.match(out, /ledger git non mis à jour : EACCES \(/);
+    assert.match(out, /ledger tests non mis à jour : EACCES/);
+    assert.match(out, /ai-learn ledgers --sync/);
+    assert.match(out, /validée \(done\)/);
+    assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+    assert.strictEqual(process.exitCode, 0);
+  } finally {
+    fs.chmodSync(path.join(home, ".ai-learn"), 0o755);
+  }
 });
 
 test("verify with --no-mark keeps the phase pending despite a green checkpoint", () => {
@@ -205,7 +227,7 @@ test("verify does not mark done when a norm violation exists in the learner's fi
 
   assert.match(out, /Norme \(clean code\)/);
   assert.match(out, /function `tooLong` is 6 lines \(max 3\)/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.doesNotMatch(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
@@ -228,7 +250,7 @@ test("verify marks done once the norm violation is fixed, with checkpoint and st
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.doesNotMatch(out, /Norme \(clean code\)/);
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
@@ -261,7 +283,7 @@ test("verify does not mark done when a declared artifact is missing, even though
 
   assert.match(out, /Artefacts manquants/);
   assert.match(out, /docs\/phase-0-notes\.md/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.doesNotMatch(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
@@ -282,7 +304,7 @@ test("verify marks done once the declared artifact exists", () => {
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
 });
@@ -361,7 +383,7 @@ test("a failing re-verify demotes a done phase to in_progress, with an explicit 
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /demoted: done → in_progress/);
+  assert.match(out, /rétrogradée : done → in_progress/);
   ({ config } = readProgress(dir));
   assert.strictEqual(config.phases[0].status, "in_progress");
   assert.strictEqual(process.exitCode, 1);
@@ -391,7 +413,7 @@ test("a done phase reproven successfully after going stale stays/returns done wi
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
 
@@ -447,8 +469,8 @@ test("verify blocks on missing predictions: 1/2 recorded does not mark the phase
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.match(out, /Prédictions/);
-  assert.match(out, /phase 0: 1\/2 recorded predictions; 1 missing/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.match(out, /phase 0: 1\/2 prédictions enregistrées ; 1 manquante\(s\)/);
+  assert.doesNotMatch(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
@@ -465,7 +487,7 @@ test("verify marks done once the required prediction count is reached", () => {
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.doesNotMatch(out, /Prédictions/);
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
@@ -477,14 +499,14 @@ test("verify never blocks on predictions when predictionsRequired is absent", ()
   const dir = tmpProject(progress);
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 });
 
 test("verify never blocks on predictions when predictionsRequired is 0", () => {
   const dir = tmpProject(sampleProgress()); // predictionsRequired: 0 by default
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 });
 
 test("verify never blocks a legacy project with no predictions.json at all, even with predictionsRequired set", () => {
@@ -494,7 +516,7 @@ test("verify never blocks a legacy project with no predictions.json at all, even
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
 });
@@ -524,7 +546,7 @@ test("verify --no-mark still computes and logs the predictions gap, without mark
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
 
-  assert.match(out, /phase 0: 1\/2 recorded predictions; 1 missing/);
+  assert.match(out, /phase 0: 1\/2 prédictions enregistrées ; 1 manquante\(s\)/);
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
 });
@@ -542,8 +564,8 @@ test("a failing stressCheckpoint and missing predictions are both reported, neit
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.match(out, /\[exit 7\]/);
-  assert.match(out, /phase 0: 0\/1 recorded predictions; 1 missing/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.match(out, /phase 0: 0\/1 prédictions enregistrées ; 1 manquante\(s\)/);
+  assert.doesNotMatch(out, /validée \(done\)/);
   assert.strictEqual(process.exitCode, 1);
 });
 
@@ -573,7 +595,7 @@ test("verify signals — never blocks on — a prediction recorded after its own
 
   assert.match(out, /Antériorité prédiction\/révélation/);
   assert.match(out, /prédiction a enregistrée après sa révélation/);
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 
   const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
   const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
@@ -595,8 +617,8 @@ test("verify marks done a phase whose mutation is required and every mutant foun
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.doesNotMatch(out, /\nMutation :/);
-  assert.match(out, /marked done/);
+  assert.doesNotMatch(out, /\nMutation :\n/);
+  assert.match(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
@@ -615,10 +637,10 @@ test("verify blocks a phase with a survived mutant: not marked done, message lis
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /\nMutation :/);
+  assert.match(out, /\nMutation :\n/);
   assert.match(out, /src\/index\.js:2 — boolean-literal — SURVÉCU/);
   assert.match(out, /ai-learn mutate --phase 0/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.doesNotMatch(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
@@ -637,8 +659,8 @@ test("verify does not block a phase with mutation required but no mutable site i
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.doesNotMatch(out, /\nMutation :/);
-  assert.match(out, /marked done/);
+  assert.doesNotMatch(out, /\nMutation :\n/);
+  assert.match(out, /validée \(done\)/);
   assert.strictEqual(process.exitCode, 0);
 
   const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
@@ -653,8 +675,8 @@ test("verify reports mutation.required=false without blocking when phase.mutatio
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.doesNotMatch(out, /\nMutation :/);
-  assert.match(out, /marked done/);
+  assert.doesNotMatch(out, /\nMutation :\n/);
+  assert.match(out, /validée \(done\)/);
 
   const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
   const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
@@ -669,7 +691,7 @@ test("verify never computes mutation when the base checkpoint is already red —
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.doesNotMatch(out, /\nMutation :/);
+  assert.doesNotMatch(out, /\nMutation :\n/);
   assert.strictEqual(process.exitCode, 1);
   assert.strictEqual(fs.readFileSync(path.join(dir, "src/index.js"), "utf8"), original);
 
@@ -695,7 +717,7 @@ test("a done phase whose mutation regresses (a mutant starts surviving) is demot
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /demoted: done → in_progress/);
+  assert.match(out, /rétrogradée : done → in_progress/);
   ({ config } = readProgress(dir));
   assert.strictEqual(config.phases[0].status, "in_progress");
   assert.strictEqual(process.exitCode, 1);
@@ -707,7 +729,7 @@ test("verify --no-mark on a mutation-required phase still computes mutation.ok=f
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0, noMark: true }));
 
-  assert.match(out, /\nMutation :/);
+  assert.match(out, /\nMutation :\n/);
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "pending");
 
@@ -738,7 +760,7 @@ test("verify signals a truncated mutation run for transparency, without blocking
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.match(out, /plafond de mutants atteint/);
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 
   const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
   const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
@@ -758,8 +780,8 @@ test("verify: a maxMutantsPerRun of 0 in .ai-learn/mutate.json never bypasses mu
   // config's non-positive maxMutantsPerRun had been honored literally
   // (slicing the site list down to zero), no mutant would ever have been
   // tested and this run would have wrongly reported ok: true.
-  assert.match(out, /\nMutation :/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.match(out, /\nMutation :\n/);
+  assert.doesNotMatch(out, /validée \(done\)/);
 
   const runs = fs.readdirSync(runsDir(dir)).filter((f) => f.endsWith("-verify.json"));
   const evidence = JSON.parse(fs.readFileSync(path.join(runsDir(dir), runs[0]), "utf8"));
@@ -786,7 +808,7 @@ test("verify recovers an orphan mutation lock left by a prior interrupted run be
   assert.strictEqual(fs.existsSync(mutateLockPath(dir)), false);
   // Recovered before the base checkpoint ran, so verify proceeds normally
   // against the real (restored) source instead of the leftover mutant.
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   assert.strictEqual(fs.readFileSync(path.join(dir, "src/index.js"), "utf8"), originalContent);
 
   const { config } = readProgress(dir);
@@ -855,7 +877,7 @@ test("verify réussit même si le sync tests.json échoue", () => {
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0, home: brokenHome }));
 
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
 });
 
@@ -914,7 +936,7 @@ test("verify --stale classifies a failing checkpoint as a regression, cites the 
 
   assert.match(out, /régression : 1 phase\(s\)/);
   assert.match(out, /✗ Phase 0 — Phase zero — exit 3/);
-  assert.match(out, /demoted: done → in_progress/);
+  assert.match(out, /rétrogradée : done → in_progress/);
   assert.doesNotMatch(out, /toujours vert :/);
   assert.strictEqual(process.exitCode, 1);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "in_progress");
@@ -942,7 +964,7 @@ test("verify --stale leaves status writes to verify: a re-proof is marked applie
 
   const out = capture(() => staleCommand({ dir }));
 
-  assert.match(out, /Phase 0 marked done/);
+  assert.match(out, /Phase 0 validée \(done\)/);
   assert.strictEqual(latestEvidenceForPhase(dir, 0).marking, "applied");
 });
 
@@ -975,7 +997,7 @@ test("verify --stale keeps going when one stale phase has lost its checkpoint, a
 
   assert.match(out, /toujours vert : 1 phase\(s\)/);
   assert.match(out, /régression : 1 phase\(s\)/);
-  assert.match(out, /✗ Phase 0 — Zero — .*no checkpoint/);
+  assert.match(out, /✗ Phase 0 — Zero — .*pas de commande de checkpoint/);
   assert.strictEqual(process.exitCode, 1);
   process.exitCode = 0;
 });
@@ -994,8 +1016,8 @@ test("verify blocks when a required reality prediction is missing, naming the ty
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /phase 0: 2\/3 recorded predictions; 1 missing \(reality 0\/1\)/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.match(out, /phase 0: 2\/3 prédictions enregistrées ; 1 manquante\(s\) \(reality 0\/1\)/);
+  assert.doesNotMatch(out, /validée \(done\)/);
   assert.strictEqual(process.exitCode, 1);
   process.exitCode = 0;
 
@@ -1013,7 +1035,7 @@ test("verify marks done once every required prediction type is covered", () => {
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.doesNotMatch(out, /Prédictions/);
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 
   const { config } = readProgress(dir);
   assert.strictEqual(config.phases[0].status, "done");
@@ -1029,7 +1051,7 @@ test("an integer predictionsRequired still counts every type together (legacy fo
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
   assert.doesNotMatch(out, /Prédictions/);
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
 });
 
 test("verify's evidence records the per-type gap of a ventilated requirement", () => {
@@ -1074,7 +1096,7 @@ test("verify blocks when proof is transfert and the phase has no transfert predi
 
   assert.match(out, /Preuve de transfert/);
   assert.match(out, /aucune prédiction de type transfert pour la phase 0/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.doesNotMatch(out, /validée \(done\)/);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
   assert.strictEqual(process.exitCode, 1);
 
@@ -1091,7 +1113,7 @@ test("verify marks done and records mastery transfert once the prediction exists
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
 
   const evidence = latestVerifyEvidence(dir);
@@ -1104,7 +1126,7 @@ test("proof tests keeps the current behaviour and records tests mastery", () => 
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   assert.doesNotMatch(out, /Preuve de transfert/);
   assert.deepStrictEqual(latestVerifyEvidence(dir).proof, { tests: true, mastery: "tests", configInvalid: false });
 });
@@ -1114,7 +1136,7 @@ test("a project without tutor.json keeps the current behaviour and records the d
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
 
-  assert.match(out, /marked done/);
+  assert.match(out, /validée \(done\)/);
   assert.deepStrictEqual(latestVerifyEvidence(dir).proof, { tests: true, mastery: "explication", configInvalid: false });
 });
 
@@ -1126,7 +1148,7 @@ test("verify blocks on an invalid tutor.json and names the configuration error",
 
   assert.match(out, /Profil de tuteur/);
   assert.match(out, /unknown assistance "bogus"/);
-  assert.doesNotMatch(out, /marked done/);
+  assert.doesNotMatch(out, /validée \(done\)/);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
   assert.strictEqual(process.exitCode, 1);
   assert.strictEqual(latestVerifyEvidence(dir).proof.configInvalid, true);
@@ -1150,6 +1172,7 @@ function provenPhaseProject() {
 
 test("verify --revisit refreshes lastProvenAt, records revisit: true, and keeps the phase done", () => {
   const dir = provenPhaseProject();
+  activeRevisitLock(dir, 0);
   const before = latestVerifyEvidence(dir);
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
@@ -1171,7 +1194,7 @@ test("verify --revisit on a phase that is not done is a clear usage error and wr
 
   assert.throws(
     () => verifyCommand({ dir, phaseId: 0, revisit: true }),
-    /Revisit is only for a proven phase.*pending/s,
+    /Une revisite ne vaut que pour une phase prouvée.*pending/s,
   );
 
   assert.strictEqual(readProgress(dir).config.phases[0].status, "pending");
@@ -1180,6 +1203,7 @@ test("verify --revisit on a phase that is not done is a clear usage error and wr
 
 test("a failed revisit keeps the phase done but traces the failure in the evidence", () => {
   const dir = provenPhaseProject();
+  activeRevisitLock(dir, 0);
   const progress = readProgress(dir).config;
   progress.phases[0].checkpoint = 'node -e "process.exit(3)"';
   fs.writeFileSync(progressPath(dir), `${JSON.stringify(progress, null, 2)}\n`);
@@ -1199,6 +1223,7 @@ test("a failed revisit keeps the phase done but traces the failure in the eviden
 
 test("verify --revisit with --no-mark still leaves the phase done and the ledger untouched", () => {
   const dir = provenPhaseProject();
+  activeRevisitLock(dir, 0);
 
   capture(() => verifyCommand({ dir, phaseId: 0, revisit: true, noMark: true }));
 
@@ -1210,6 +1235,7 @@ test("verify --revisit with --no-mark still leaves the phase done and the ledger
 
 test("a green revisit on a stale phase refreshes the proof against the current code (documented tradeoff)", () => {
   const dir = provenPhaseProject();
+  activeRevisitLock(dir, 0);
   writeFile(dir, "src/index.js", "console.log('changed');\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
@@ -1218,4 +1244,50 @@ test("a green revisit on a stale phase refreshes the proof against the current c
   assert.strictEqual(evidence.ok, true);
   assert.strictEqual(evidence.sourceHash.digest, computeSourceHash(dir, {}).digest);
   assert.strictEqual(readProgress(dir).config.phases[0].status, "done");
+});
+
+
+test("a checkpoint that ran zero tests never proves a phase", () => {
+  const progress = sampleProgress();
+  progress.phases[0].checkpoint = "node --test";
+  const dir = tmpProject(progress);
+
+  const out = withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0 })));
+
+  assert.match(out, /Aucun test exécuté/);
+  assert.strictEqual(process.exitCode, 1);
+  assert.notStrictEqual(readProgress(dir).config.phases[0].status, "done");
+  assert.strictEqual(latestEvidenceForPhase(dir, 0), null);
+});
+
+test("verify writes learnerHash and checkpointHash next to the unchanged sourceHash", () => {
+  const dir = tmpProject(sampleProgress());
+  capture(() => verifyCommand({ dir, phaseId: 0 }));
+
+  const evidence = latestEvidenceForPhase(dir, 0);
+  assert.ok(evidence.sourceHash.digest);
+  assert.match(evidence.learnerHash.digest, /^[0-9a-f]{64}$/);
+  assert.match(evidence.checkpointHash.digest, /^[0-9a-f]{64}$/);
+});
+
+test("verify --revisit refuses without an active revisit", () => {
+  const dir = provenPhaseProject();
+  const runsBefore = fs.readdirSync(runsDir(dir)).length;
+
+  assert.throws(() => verifyCommand({ dir, phaseId: 0, revisit: true }), /une revisite sans retrait ne prouve rien/i);
+
+  assert.strictEqual(fs.readdirSync(runsDir(dir)).length, runsBefore, "nothing is run or written");
+});
+
+test("a failed verify ends with the next action", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/index.js", "function tooLong() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  return a + b + c;\n}\n");
+
+  const out = capture(() => verifyCommand({ dir, phaseId: 0 }));
+  const last = out.trim().split("\n").pop();
+  process.exitCode = 0;
+
+  assert.match(last, /^→ Prochaine action : /);
+  assert.match(last, /ai-learn norm/);
 });

@@ -537,3 +537,18 @@ test("docsCommand keeps the positionals correct when --dir/--path come before th
   assert.match(out, /Added local source "livre"/);
   assert.ok(fs.existsSync(path.join(dir, "docs", "sources", "livre", "guide.md")));
 });
+
+test("learn sets reviewAfterDays on generated phases, except phase 0 (story 09.06)", () => {
+  const content = fs.readFileSync(path.join(__dirname, "..", "commands", "learn.md"), "utf8");
+
+  assert.match(content, /`reviewAfterDays`: `7`.*sauf la phase 0/s);
+});
+
+test("a timed-out sparse fetch names the step and suggests --regen", () => {
+  const { cloneFailureMessage } = require("../bin/lib/docs");
+  const message = cloneFailureMessage("https://example.com/r.git", "fetch", { status: null, stderr: "" });
+
+  assert.match(message, /« fetch »/);
+  assert.match(message, /délai de 180 s dépassé/);
+  assert.match(message, /--regen/);
+});

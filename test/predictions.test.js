@@ -35,7 +35,7 @@ test("round-trip: recording a prediction writes it and it reads back the same", 
 test("recording for a phase that does not exist in progress.json fails cleanly", () => {
   const dir = tmpProject(sampleProgress());
 
-  assert.throws(() => recordPrediction(dir, sampleProgress(), { phaseId: 99, prediction: "x" }), /No phase 99/);
+  assert.throws(() => recordPrediction(dir, sampleProgress(), { phaseId: 99, prediction: "x" }), /Phase 99 introuvable/);
 });
 
 test("recording twice in a row keeps both entries distinct even if they landed in the same millisecond", () => {
@@ -310,4 +310,66 @@ test("predictionsReport: an integer requirement ignores types and keeps counting
 
   assert.strictEqual(report.missing, 0);
   assert.deepStrictEqual(report.missingByType, {});
+});
+
+const { revealPrediction } = require("../bin/lib/predictions");
+
+test("a prediction recorded before reveal counts, with no revealedAt", () => {
+  const dir = tmpProject(sampleProgress());
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "200" });
+  const { data } = readPredictions(dir);
+
+  assert.ok(data.entries[0].at);
+  assert.strictEqual(data.entries[0].revealedAt, undefined);
+  assert.strictEqual(entry.id, data.entries[0].id);
+  assert.strictEqual(countByPhase(data.entries)[0], 1);
+});
+
+test("reveal stamps revealedAt and refuses unknown ids", () => {
+  const dir = tmpProject(sampleProgress());
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "200" });
+
+  revealPrediction(dir, sampleProgress(), entry.id, { score: "7/10", gaps: "1/2", strengths: "s", weaknesses: "w", flash: "f" });
+  const stored = readPredictions(dir).data.entries[0];
+  assert.ok(stored.revealedAt >= stored.at);
+  assert.strictEqual(stored.score, "7/10");
+  assert.strictEqual(stored.flash, "f");
+
+  const before = fs.readFileSync(predictionsPath(dir), "utf8");
+  assert.throws(() => revealPrediction(dir, sampleProgress(), "nope", { score: "1/10" }), /No prediction nope/);
+  assert.strictEqual(fs.readFileSync(predictionsPath(dir), "utf8"), before);
+});
+
+test("a one-step entry (feedback given with the prediction) keeps at == revealedAt", () => {
+  const dir = tmpProject(sampleProgress());
+  recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "200", score: "5/10" });
+  const stored = readPredictions(dir).data.entries[0];
+
+  assert.strictEqual(stored.revealedAt, stored.at);
+});
+
+test("a reveal is final and needs feedback", () => {
+  const dir = tmpProject(sampleProgress());
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "200" });
+
+  assert.throws(() => revealPrediction(dir, sampleProgress(), entry.id, { score: "7/10" }), /needs the full feedback; missing: --gaps/);
+  revealPrediction(dir, sampleProgress(), entry.id, { score: "7/10", gaps: "1/2", strengths: "s", weaknesses: "w", flash: "f" });
+  assert.throws(() => revealPrediction(dir, sampleProgress(), entry.id, { score: "1/10" }), /already revealed/);
+  assert.strictEqual(readPredictions(dir).data.entries[0].score, "7/10");
+});
+
+// Story 10.04 — type `debug`: the site of an incident, as `file` + `line`.
+test("a debug prediction stores its file and line; both are required", () => {
+  const { recordPrediction: record, readPredictions: read } = require("../bin/lib/predictions");
+  const { tmpProject: project, sampleProgress: sample } = require("./helpers");
+  const dir = project(sample());
+  const config = JSON.parse(fs.readFileSync(require("path").join(dir, "progress.json"), "utf8"));
+
+  record(dir, config, { phaseId: 0, type: "debug", prediction: "le test lit mal la valeur", file: "src/a.js", line: "12" });
+  const entry = read(dir).data.entries[0];
+
+  assert.strictEqual(entry.type, "debug");
+  assert.strictEqual(entry.file, "src/a.js");
+  assert.strictEqual(entry.line, 12);
+  assert.throws(() => record(dir, config, { phaseId: 0, type: "debug", prediction: "ailleurs" }), /--file/);
 });

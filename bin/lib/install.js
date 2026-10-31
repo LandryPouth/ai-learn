@@ -1,9 +1,14 @@
 "use strict";
 
-// `ai-learn install <platform>` — installs the 7 canonical commands
-// (commands/learn-*.md) plus one generated alias per pre-04.05 name (`/next`,
-// …) as Agent Skills: `<dir>/<name>/SKILL.md` for every platform that reads
-// them (Claude Code, OpenCode, Gemini CLI, Codex CLI, Antigravity).
+// `ai-learn install <platform>` — installs the 3 visible commands
+// (commands/learn*.md) as Agent Skills: `<dir>/<name>/SKILL.md` for every
+// platform that reads them (Claude Code, OpenCode, Gemini CLI, Codex CLI,
+// Antigravity). The scan/propose/check/docs flows ship as plain files in the
+// `learn` skill's own `references/` folder (story 10.01), not as skills.
+//
+// Skills retired by 10.01 (`learn-scan`, `/check`, …) are removed only when
+// their SHA-256 matches a rendering ai-learn published (retired.js); a skill
+// the learner edited is kept and named, and an unrelated skill is untouched.
 //
 // Migration is non-destructive and content-based: the old command files this
 // tool wrote (Claude commands, Codex prompts, Gemini TOML, OpenCode commands)
@@ -15,7 +20,9 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { log, fail, mkdirp } = require("./util");
-const { listCommands } = require("./platforms/commands");
+const crypto = require("crypto");
+const { listCommands, listReferences, listLegacyCommands } = require("./platforms/commands");
+const { RETIRED_SKILLS } = require("./platforms/retired");
 
 const COMMANDS_DIR = path.join(__dirname, "..", "..", "commands");
 const BIN_SOURCE = path.join(__dirname, "..", "ai-learn.js");
@@ -114,13 +121,16 @@ function readText(target) {
 // Never write through a symlink or over a directory the learner put at a skill
 // path: that would edit a file outside the install target. "foreign" means
 // "leave it alone and report it", not an error.
-function readSkillTarget(target) {
+function readSkillTarget(target, skillsDir) {
   try {
     // lstat does not follow the final component, but it does follow parent
-    // symlinks: a learner symlink at `skills/<name>` would make us write
-    // outside the install target. Refuse it before looking at SKILL.md.
-    if (fs.lstatSync(path.dirname(target)).isSymbolicLink()) {
-      return { state: "foreign" };
+    // symlinks: a learner symlink at `skills/<name>` (or at its `references/`)
+    // would make us write outside the install target. Refuse every directory
+    // between the skills directory and the file.
+    for (let dir = path.dirname(target); dir !== skillsDir && dir !== path.dirname(dir); dir = path.dirname(dir)) {
+      if (fs.lstatSync(dir).isSymbolicLink()) {
+        return { state: "foreign" };
+      }
     }
 
     const stat = fs.lstatSync(target);
@@ -205,18 +215,96 @@ function removeEmptyDir(dir, dryRun) {
   }
 }
 
+// A reference file we wrote starts with the flow's own heading. Anything else
+// at that path is the learner's: keep it, never overwrite it.
+function looksLikeOurReference(content) {
+  return String(content).replace(/^\s+/, "").startsWith("# ai-learn:");
+}
+
+// What an install writes for one platform: each visible skill's SKILL.md, plus
+// the `learn` skill's references/*.md (body only — they are not skills, so no
+// frontmatter). The directory comes from the adapter, so a platform prefix
+// (`ai-learn-`) applies to references the same way it does to the skill.
+function skillFiles(platform) {
+  const { renderCommand } = require(ADAPTERS[platform]);
+  const files = [];
+
+  for (const command of listCommands(COMMANDS_DIR)) {
+    const skill = renderCommand(command);
+    files.push({ ...skill, reference: false });
+
+    if (command.name === "learn") {
+      for (const reference of listReferences(COMMANDS_DIR)) {
+        files.push({
+          filename: `${path.dirname(skill.filename)}/references/${reference.name}.md`,
+          content: reference.body,
+          reference: true,
+        });
+      }
+    }
+  }
+
+  return files;
+}
+
+function sha256(content) {
+  return crypto.createHash("sha256").update(String(content).replace(/\r\n/g, "\n")).digest("hex");
+}
+
+// Removes the skills story 10.01 retired, by published fingerprint. Three
+// outcomes, none silent: byte-identical to something we published → removed;
+// ours but edited → kept and named; not ours at all (a learner's own skill at
+// a generic name like `check`) → left alone.
+function retireSkills({ home, platform, dryRun, result }) {
+  const targetDir = SKILL_DIRS[platform](home);
+
+  for (const [name, fingerprints] of Object.entries(RETIRED_SKILLS[platform] || {})) {
+    const dest = path.join(targetDir, name, "SKILL.md");
+    const existing = readSkillTarget(dest, targetDir);
+
+    if (existing.state === "absent") {
+      continue;
+    }
+    if (existing.state === "foreign") {
+      result.kept.push(dest);
+      continue;
+    }
+    if (!looksLikeOurSkill(existing.content)) {
+      continue;
+    }
+    if (!fingerprints.includes(sha256(existing.content))) {
+      result.keptModified.push(dest);
+      continue;
+    }
+
+    if (!dryRun) {
+      try {
+        fs.unlinkSync(dest);
+      } catch (error) {
+        // A locked or read-only file (Windows) is the learner's to resolve:
+        // keep it and name it rather than abort the whole install.
+        if (error.code !== "EPERM" && error.code !== "EACCES" && error.code !== "EBUSY") {
+          throw error;
+        }
+        result.keptModified.push(dest);
+        continue;
+      }
+      removeEmptyDir(path.dirname(dest), dryRun);
+    }
+    result.retired.push(dest);
+  }
+}
+
 function writeSkill({ home, platform, dryRun, result }) {
   const targetDir = SKILL_DIRS[platform](home);
-  const { renderCommand } = require(ADAPTERS[platform]);
 
   if (!dryRun) {
     mkdirp(targetDir);
   }
 
-  for (const command of listCommands(COMMANDS_DIR)) {
-    const { filename, content } = renderCommand(command);
+  for (const { filename, content, reference } of skillFiles(platform)) {
     const dest = path.join(targetDir, filename);
-    const existing = readSkillTarget(dest);
+    const existing = readSkillTarget(dest, targetDir);
 
     if (existing.state === "foreign") {
       result.kept.push(dest);
@@ -225,8 +313,9 @@ function writeSkill({ home, platform, dryRun, result }) {
     if (existing.content === content) {
       continue;
     }
-    if (existing.content !== undefined && !looksLikeOurSkill(existing.content)) {
-      // A learner's own skill at a generic name (`next`, `check`, …): keep it.
+    const ours = reference ? looksLikeOurReference : looksLikeOurSkill;
+    if (existing.content !== undefined && !ours(existing.content)) {
+      // A learner's own file at one of our paths: keep it.
       result.kept.push(dest);
       continue;
     }
@@ -269,7 +358,7 @@ function migrateLegacyCommands({ home, platform, dryRun, result }) {
 
   const adapter = require(ADAPTERS[platform]);
 
-  for (const command of listCommands(COMMANDS_DIR)) {
+  for (const command of listLegacyCommands(COMMANDS_DIR)) {
     const { filename } = adapter.renderLegacyCommand(command);
     const dest = path.join(legacyDir, filename);
 
@@ -318,8 +407,12 @@ function migrateLegacyCommands({ home, platform, dryRun, result }) {
   removeEmptyDir(legacyDir, dryRun);
 }
 
+function newResult() {
+  return { created: [], removed: [], kept: [], backups: [], retired: [], keptModified: [] };
+}
+
 function installClaude({ home, dryRun = false }) {
-  const result = { created: [], removed: [], kept: [], backups: [] };
+  const result = newResult();
   const localBin = path.join(home, ".local", "bin");
   const binLink = path.join(localBin, "ai-learn");
 
@@ -332,14 +425,16 @@ function installClaude({ home, dryRun = false }) {
   }
 
   writeSkill({ home, platform: "claude", dryRun, result });
+  retireSkills({ home, platform: "claude", dryRun, result });
   migrateLegacyCommands({ home, platform: "claude", dryRun, result });
   return result;
 }
 
 function installPlatform({ home, platform, dryRun = false }) {
-  const result = { created: [], removed: [], kept: [], backups: [] };
+  const result = newResult();
 
   writeSkill({ home, platform, dryRun, result });
+  retireSkills({ home, platform, dryRun, result });
   migrateLegacyCommands({ home, platform, dryRun, result });
   return result;
 }
@@ -390,7 +485,7 @@ function installCommand({ platform, home = os.homedir(), dryRun = false }) {
 
   log(`Installed ai-learn for ${PLATFORMS[platform].label}:`);
 
-  if (result.created.length === 0 && result.removed.length === 0) {
+  if (result.created.length === 0 && result.removed.length === 0 && result.retired.length === 0) {
     log("  · already installed — nothing new");
   } else {
     for (const file of result.created) {
@@ -403,6 +498,22 @@ function installCommand({ platform, home = os.homedir(), dryRun = false }) {
 
     for (const file of result.removed) {
       log(`  ${prefix}− ${file}`);
+    }
+  }
+
+  if (result.retired.length > 0) {
+    log("\nSkills retirés (remplacés par `/learn`, qui route seul vers scan, propose, check et docs) :");
+
+    for (const file of result.retired) {
+      log(`  ${prefix}− ${file}`);
+    }
+  }
+
+  if (result.keptModified.length > 0) {
+    log("\nconservé (modifié) — skill retiré que tu as modifié, laissé en place :");
+
+    for (const file of result.keptModified) {
+      log(`  = ${file}`);
     }
   }
 
