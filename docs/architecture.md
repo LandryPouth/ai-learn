@@ -12,6 +12,16 @@ bin/lib/
   progress.js            ledger progress.json + latestEvidenceForPhase + phaseVerdict (feuille)
   source-hash.js         empreinte sha256 du code prouvé (checkpointFilePath, computeSourceHash)
   citation.js            citations vérifiables (URL de PR, fichier:ligne)
+  args.js                parseur d'arguments partagé (valeur d'un flag ≠ positionnel)
+  exec.js                exécution shell partagée verify/mutate (même timeout, même capture)
+  contract.js            avertissements sur l'évolution du checkpoint (jamais un verdict)
+  revisit.js             `revisit <id>` : retire puis retape de mémoire, `verify --revisit` prouve
+  tutor.js               profil de tuteur .ai-learn/tutor.json (assistance, preuve)
+  profile.js             profil apprenant global ~/.ai-learn/profile.json
+  ledgers.js             `ledgers --repair|--sync` : machinerie des ledgers ~/.ai-learn
+  incident.js            `break` : casse src/**, l'apprenant diagnostique (secret dans ~/.ai-learn/incidents/)
+  gitignore.js           .gitignore de l'apprenant (lignes absentes seulement, bloc marqué)
+  commit-reminder.js     rappel « travail non commité » (lecture seule) pour status/next
   reviews.js             revue dirigeant : docs/reviews/<brique>.md (citation + décision)
   bilan.js               bilan de fin de projet : docs/bilan.md (généré par verify, exigé par check)
   verify.js              LA commande d'écriture : exécute, prouve, marque done

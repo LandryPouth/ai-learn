@@ -14,8 +14,8 @@ réalité par un scanner.
 Thèse : *« l'agent a dit que la phase était faite » ne vaut rien.* Seul le CLI peut
 dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
-- Paquet : `@landry_pouth/ai-learn` v0.4.0, `bin: ai-learn`
-- Node >= 18, CI GitHub Actions sur Node 18/20/22 (**Linux uniquement**)
+- Paquet : `@landry_pouth/ai-learn` v0.6.4, `bin: ai-learn`
+- Node >= 18, CI GitHub Actions sur Node 18/20/22, Linux + macOS + Windows
 - Licence MIT · dépôt `LandryPouth/ai-learn`
 
 ## Utilisateurs
@@ -76,13 +76,20 @@ apprenti, la spécification en dirigeant), le format de commit est conforme.
 **Non prouvé, assumé** : la cognition. L'honnêteté d'une prédiction reste humaine.
 Le README l'écrit noir sur blanc — c'est ce qui rend le reste crédible.
 
-## État connu au 2026-09-01 (audit)
+## État actuel (2026-10-31)
 
-Trois bugs reproduits et cinq trous structurels identifiés — voir
-`docs/roadmap.md` et `epics/epic-01-verdict-fiable/`.
+Les epics 01 à 10 sont livrés (`epics/`), 1028 tests verts.
+Les défauts de l'audit du 2026-09-01 (check rouge pendant le travail d'une phase,
+preuve périmée non signalée, etc.) sont corrigés par les epics 01 et 09.
 
-Le plus grave : **`ai-learn check` est rouge pendant tout le temps de travail d'une
-phase** (une phase `in_progress` dont le fichier de checkpoint existe déclenche une
-erreur bloquante). C'est exactement le scénario que `docs/DOGFOODING.md` désigne
-comme le pire défaut possible — *« un check qui se déclenche sur un cas qu'on ne
-peut pas résoudre légitimement, c'est un check qu'on apprend à désactiver »*.
+Ce qui reste ouvert, honnêtement :
+
+- les entrées `open` de `docs/DOGFOODING.md` (friction de l'outil de workflow
+  Coding Flow, pas du paquet) ;
+- les jobs Windows de la CI du dernier merge n'avaient pas démarré (runners
+  saturés) : la couverture Windows de l'epic 10 n'est pas observée ;
+- la cognition reste non prouvée (voir plus haut), et le garde-fou Gemini /
+  Antigravity reste consultatif.
+
+Prochaine étape : aucune story planifiée. Un nouvel epic part de
+`docs/DOGFOODING.md` (frictions observées) ou d'un parcours réel de l'apprenant.
