@@ -31,6 +31,10 @@ L'apprenant ne retient que `/learn`, `/learn-next`, `/learn-status` (et `/learn-
 - Plateforme qui ne lit pas les fichiers à côté de `SKILL.md` : repli décidé dans le plan (références inlinées).
 - Projets déjà scaffoldés : leur `AGENTS.md` cite d'anciennes commandes ; `ai-learn update` le régénère (comportement existant).
 
+## Deferred Criteria
+
+- « 5 plateformes » : lecture de `references/` prouvée pour Gemini et OpenCode seulement. Codex et Antigravity restent à prouver (suivi : preuve de lecture, ou repli références inlinées si elle échoue).
+
 ## Out of Scope
 
 - Ajouter `/learn-break` (10.04).

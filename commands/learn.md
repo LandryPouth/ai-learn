@@ -26,6 +26,8 @@ de ce skill ; lis-les à la demande, pas tous d'avance.
 | Pas de projet et pas d'idée (« je ne sais pas quoi faire ») | `references/propose.md` — projets à construire, puis reviens à l'étape 1 avec celui qu'il choisit |
 | Pas de projet, une technologie ou un projet en tête | étapes 1 à 6 ci-dessous |
 
+Si l'apprenant a nommé une technologie (`/learn <techno>`) dans un dossier qui contient déjà du code, sa demande explicite l'emporte sur le scan : suis les étapes 1 à 6, et propose le scan seulement s'il dit vouloir faire le point sur son projet.
+
 Tu lances aussi toi-même, au bon moment et en silence : `ai-learn check` (après
 chaque étape qui écrit, et avant de dire qu'un parcours est cohérent), et
 `ai-learn docs …` quand il faut embarquer ou rafraîchir une source

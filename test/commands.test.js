@@ -36,6 +36,10 @@ test("learn routes to references and never asks the learner to type ai-learn", (
   }
 });
 
+test("learn gives an explicit technology priority over scan", () => {
+  assert.match(read("learn.md"), /sa demande explicite l'emporte sur le scan/);
+});
+
 test("learn-next runs check silently and does not send the learner to /learn-check", () => {
   const text = read("learn-next.md");
 
