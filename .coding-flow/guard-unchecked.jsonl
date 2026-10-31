@@ -548,3 +548,7 @@
 {"at":"2026-10-31T00:21:06.541Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
 {"at":"2026-10-31T00:24:57.998Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
 {"at":"2026-10-31T00:24:58.003Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-31T00:28:37.600Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-31T00:28:37.608Z","tool":"Bash","path":null,"reason":"write target depends on shell expansion"}
+{"at":"2026-10-31T00:28:45.008Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
+{"at":"2026-10-31T00:28:45.009Z","tool":"Bash","path":null,"reason":"an interpreter reads its program from a heredoc"}
