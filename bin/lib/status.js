@@ -11,6 +11,7 @@ const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
 const { loadGuardConfig } = require("./guard");
 const { readTutorConfig } = require("./tutor");
+const { readProfile } = require("./profile");
 const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
@@ -146,6 +147,16 @@ function printTutorProfile({ dir }) {
   const source = tutor.exists && tutor.valid ? "" : " (défaut)";
 
   log(`\nTuteur : assistance=${assistance} · preuve=${proof}${source}`);
+}
+
+// The global learner profile (story 10.02), one line. Silent when absent or
+// invalid (`check` reports the latter).
+function printProfile({ home } = {}) {
+  const { valid, profile } = readProfile({ home });
+
+  if (valid) {
+    log(`\nprofil : ${profile.goals[0] || "(aucun objectif)"} · ${profile.dailyMinutes} min/jour`);
+  }
 }
 
 // Additive, read-only summary of the global git/gh mastery ledger (see
@@ -340,6 +351,7 @@ function statusCommand({ dir, home, json }) {
 
   printStatus(config, { dir });
   printTutorProfile({ dir });
+  printProfile({ home });
   printReviewSummary({ dir, config });
   printReviewList({ dir });
 
@@ -363,6 +375,7 @@ module.exports = {
   buildStatusReport,
   latestEvidenceForPhase,
   printGitTracksSummary,
+  printProfile,
   printDomainSummary,
   printNormSummary,
   printReviewSummary,

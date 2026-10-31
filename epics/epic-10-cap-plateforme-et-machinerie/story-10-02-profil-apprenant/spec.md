@@ -15,13 +15,13 @@ L'apprenant décrit une seule fois ce qu'il vise (objectifs, temps disponible, t
 
 ## Acceptance Criteria
 
-- [ ] Given aucun profil, when `ai-learn profile --json`, then la sortie vaut `{ "exists": false }` et l'exit est 0.
-- [ ] Given `profile set` avec un objet valide, when on relit le fichier, then il contient les champs, `version: 1` et `updatedAt`.
-- [ ] Given `profile set` avec `dailyMinutes: 0` ou un champ inconnu, when la commande tourne, then exit 1, message nommant le champ, fichier inchangé.
-- [ ] Given un profil JSON corrompu, when `ai-learn check`, then une erreur nomme `~/.ai-learn/profile.json` et sa raison.
-- [ ] Given un profil valide, when `ai-learn status`, then une ligne « profil : <goal[0]> · <dailyMinutes> min/jour » apparaît.
-- [ ] Given `commands/learn.md`, when on le lit, then il décrit la création au premier lancement (questions une à une) et l'interdiction de redemander un profil existant.
-- [ ] Given le dépôt, when on cherche un profil d'exemple, then il ne contient aucune donnée personnelle (exemple neutre uniquement, dans la doc du flux).
+- [x] Given aucun profil, when `ai-learn profile --json`, then la sortie vaut `{ "exists": false }` et l'exit est 0.
+- [x] Given `profile set` avec un objet valide, when on relit le fichier, then il contient les champs, `version: 1` et `updatedAt`.
+- [x] Given `profile set` avec `dailyMinutes: 0` ou un champ inconnu, when la commande tourne, then exit 1, message nommant le champ, fichier inchangé.
+- [x] Given un profil JSON corrompu, when `ai-learn check`, then une erreur nomme `~/.ai-learn/profile.json` et sa raison.
+- [x] Given un profil valide, when `ai-learn status`, then une ligne « profil : <goal[0]> · <dailyMinutes> min/jour » apparaît.
+- [x] Given `commands/learn.md`, when on le lit, then il décrit la création au premier lancement (questions une à une) et l'interdiction de redemander un profil existant.
+- [x] Given le dépôt, when on cherche un profil d'exemple, then il ne contient aucune donnée personnelle (exemple neutre uniquement, dans la doc du flux).
 
 ## Edge Cases
 

@@ -90,3 +90,23 @@ test("reference flows never send the learner to a retired slash command", () => 
     assert.deepStrictEqual(learnerAddressedCommands(text), [], `${name} asks the learner to type ai-learn`);
   }
 });
+
+test("learn creates the profile once and never re-asks", () => {
+  const text = read("learn.md");
+
+  assert.match(text, /ai-learn profile --json/);
+  assert.match(text, /ai-learn profile set/);
+  assert.match(text, /une à la fois/);
+  assert.match(text, /ne le redemande jamais/);
+  assert.match(text, /mets à jour mon profil/);
+  assert.deepStrictEqual(learnerAddressedCommands(text), []);
+});
+
+test("learn-next reads the profile to size the session and pick the transfer example", () => {
+  const text = read("learn-next.md");
+
+  assert.match(text, /ai-learn profile --json/);
+  assert.match(text, /dailyMinutes/);
+  assert.match(text, /projects\[\]/);
+  assert.deepStrictEqual(learnerAddressedCommands(text), []);
+});

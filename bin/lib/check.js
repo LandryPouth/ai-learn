@@ -39,6 +39,7 @@ const { commitMsgHookWired, CONVENTIONAL_COMMITS_RE } = require("./git-hooks");
 const { normProject } = require("./norm");
 const { guardConfigIssues, loadGuardConfig, isOwnGuardCommand, hookScriptMissing, hookScriptPath } = require("./guard");
 const { readTutorConfig } = require("./tutor");
+const { readProfile } = require("./profile");
 const { MODE_DIRIGEANT, formatLedgerRefusal, requiredTiersStatus } = require("./mode");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
@@ -99,6 +100,12 @@ function checkProject(dir, { home, now = new Date() } = {}) {
 
   for (const message of tutor.issues) {
     issues.errors.push({ file: ".ai-learn/tutor.json", message });
+  }
+
+  // The global learner profile (story 10.02): a corrupt one is an explicit
+  // error; a missing one is the normal state.
+  for (const message of readProfile({ home }).issues) {
+    issues.errors.push({ file: "~/.ai-learn/profile.json", message });
   }
 
   // Doc sources the ledger declares should exist. A local source that vanished

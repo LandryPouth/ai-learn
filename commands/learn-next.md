@@ -17,6 +17,11 @@ Lance `ai-learn check` en silence (ceinture de sécurité) : ne dis rien s'il
 passe ; s'il signale une erreur, montre-la en premier avec ce qu'elle demande.
 L'apprenant n'a pas de commande `check` à connaître.
 
+Lance `ai-learn profile --json` : s'il existe, `dailyMinutes` calibre la taille de
+la session proposée (ne propose pas plus que ce temps) et les exemples de
+transfert se choisissent dans `projects[]`. Absent, comportement habituel ; ne le
+crée pas ici (c'est `/learn`).
+
 Puis exécute :
 
 ```bash

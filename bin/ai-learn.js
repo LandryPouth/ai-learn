@@ -297,6 +297,16 @@ function main() {
       break;
     }
 
+    case "profile": {
+      // Machinery (story 10.02): the agent reads and writes the learner profile.
+      const { profileCommand } = require("./lib/profile");
+      const { parseArgs } = require("./lib/args");
+      const { positionals, flags } = parseArgs(commandArgs, { valueFlags: ["--json"] });
+      const raw = flags["--json"];
+      profileCommand({ args: positionals, json: "--json" in flags, jsonValue: typeof raw === "string" ? raw : "" });
+      break;
+    }
+
     case "update": {
       const { updateCommand } = require("./lib/update");
       const platform = getFlagValue("--platform", null);
@@ -370,6 +380,7 @@ Usage:
   ai-learn guard [--input <file>]   (PreToolUse hook — interne, pas un usage manuel)
   ai-learn update [--root <dir>] [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn ledgers --repair [--dry-run] | --sync [--dir <dir>]   (machinerie : ledgers ~/.ai-learn)
+  ai-learn profile [--json] | profile set --json '<objet>'   (machinerie : profil ~/.ai-learn/profile.json)
   ai-learn upgrade
   ai-learn install [claude|codex|gemini|opencode|antigravity] [--home <dir>] [--dry-run]
 

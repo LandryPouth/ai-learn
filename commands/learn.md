@@ -34,6 +34,25 @@ chaque étape qui écrit, et avant de dire qu'un parcours est cohérent), et
 (`references/docs.md`). Tu n'en parles à l'apprenant que si le résultat change ce
 qu'il doit faire.
 
+## 0 bis. Profil de l'apprenant (une seule fois, global)
+
+Avant tout flux, lance `ai-learn profile --json`.
+
+- `{ "exists": false }` : premier lancement. Pose 3 à 5 questions, **une à la
+  fois** : objectifs (texte libre), minutes disponibles par jour, technos à
+  privilégier maintenant / à différer / à éviter, projets réels sur lesquels il
+  pourra transférer ce qu'il apprend. Puis enregistre avec
+  `ai-learn profile set --json '{"goals":[…],"dailyMinutes":N,"focus":{"now":[…],"later":[…],"avoid":[]},"projects":[{"name":"…","summary":"…"}]}'`.
+  Une liste peut rester vide ; une chaîne vide est refusée.
+- Profil présent et valide : lis-le (il oriente le cadrage, les projets proposés
+  et les exemples de transfert) et ne le redemande jamais. Si l'apprenant dit
+  « mets à jour mon profil », reprends les questions utiles et relance
+  `profile set`.
+- Profil invalide : montre l'erreur de `ai-learn check` et continue sans lui.
+
+Le profil vit dans `~/.ai-learn/`, jamais dans le dépôt, et tu ne l'écris pas à la
+main : seul `ai-learn profile set` le fait.
+
 ## 1. Collecter le contexte
 
 Résous dans l'ordre, en posant des questions **une à la fois** si le renseignement
