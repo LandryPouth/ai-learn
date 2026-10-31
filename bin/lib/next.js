@@ -10,6 +10,7 @@ const { readProgress, missingProgressMessage, latestEvidenceForPhase, phaseVerdi
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { normalizePredictionsRequired } = require("./predictions");
+const { normProject, formatViolation } = require("./norm");
 
 // The done phases, split into the two ways one stops being actionable proof:
 // `broken` (never proven, or stale) and `revisits` (proven, but old enough to
@@ -52,6 +53,18 @@ function analyzeDonePhases(dir, phases, now) {
 // becomes an `error` field instead of a stack (see spec.md's edge cases).
 // When no phase remains, `done: true` is the dedicated field an agent reads
 // instead of parsing the "All N/N phases done." sentence.
+// Learner-file norm violations, as the `file:line — message [rule]` strings
+// `ai-learn norm` prints. Never throws: a norm failure must not break `next`.
+const MAX_NORM_LINES = 5;
+
+function learnerNorm(dir) {
+  try {
+    return { violations: normProject(dir).violations.map(formatViolation) };
+  } catch {
+    return { violations: [] };
+  }
+}
+
 function buildNextReport(dir, { now = new Date() } = {}) {
   const { config, exists } = readProgress(dir);
 
@@ -86,6 +99,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
       broken,
       stale,
       revisit,
+      norm: learnerNorm(dir),
       uncommitted: uncommittedCount(dir),
     };
   }
@@ -99,6 +113,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
     broken,
     stale,
     revisit,
+    norm: learnerNorm(dir),
     uncommitted: uncommittedCount(dir),
     next: {
       id: next.id,
@@ -215,6 +230,18 @@ function nextCommand({ dir, json, now = new Date() }) {
     for (const { phase, lastProvenAt: provenAt, reviewAfterDays } of revisits) {
       log(`  Phase ${phase.id} — ${phase.name} — prouvée le ${provenAt.slice(0, 10)}, revisite conseillée après ${reviewAfterDays} jour(s).`);
       log(`    Rejouez son checkpoint de mémoire : \`ai-learn verify ${phase.id}\`.`);
+    }
+  }
+
+  const { violations: normViolations } = learnerNorm(dir);
+
+  if (normViolations.length > 0) {
+    log("");
+    log(`Norme : ${normViolations.length} violation${normViolations.length > 1 ? "s" : ""} dans ton code — à expliquer, pas à corriger à ta place :`);
+    normViolations.slice(0, MAX_NORM_LINES).forEach((v) => log(`  ${v}`));
+
+    if (normViolations.length > MAX_NORM_LINES) {
+      log(`  … et ${normViolations.length - MAX_NORM_LINES} autre(s) — \`ai-learn norm\` pour la liste complète.`);
     }
   }
 

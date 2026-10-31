@@ -426,3 +426,35 @@ test("next stays silent about commits on a clean tree and a non-git directory", 
   assert.doesNotMatch(capture(() => nextCommand({ dir: plain })), /Rappel —/);
   assert.strictEqual(buildNextReport(plain).uncommitted, 0);
 });
+
+test("next reports learner norm violations", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [{ id: 1, name: "One", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/app.js", "function tooLong() {\n  a();\n  b();\n  c();\n  d();\n  e();\n}\n");
+
+  const report = buildNextReport(dir);
+  assert.strictEqual(report.norm.violations.length, 1);
+  assert.match(report.norm.violations[0], /src\/app\.js:1/);
+
+  assert.match(capture(() => nextCommand({ dir })), /Norme : 1 violation[\s\S]*src\/app\.js:1/);
+});
+
+test("next caps the text norm list but keeps the full list in json", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [{ id: 1, name: "One", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+
+  for (let i = 0; i < 7; i += 1) {
+    writeFile(dir, `src/f${i}.js`, "function tooLong() {\n  a();\n  b();\n  c();\n  d();\n  e();\n}\n");
+  }
+
+  assert.strictEqual(buildNextReport(dir).norm.violations.length, 7);
+  assert.match(capture(() => nextCommand({ dir })), /… et 2 autre\(s\)/);
+});

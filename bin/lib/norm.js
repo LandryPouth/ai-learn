@@ -658,7 +658,10 @@ function normCommand({ dir }) {
 // ---------------------------------------------------------------------------
 
 const MAX_HOOK_FILE_BYTES = 1024 * 1024;
-const WRITE_TOOLS =new Set(["Write", "Edit", "MultiEdit"]);
+const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
+// A Read is measured too: the learner types src/** themselves, so the agent's
+// re-read before grading is the one moment their code passes in front of it.
+const MEASURED_TOOLS = new Set([...WRITE_TOOLS, "Read"]);
 const NORM_HOOK_MARKER = /ai-learn\.js"? norm --hook/;
 // Manifests probed at the project root to pick the right stack pack without
 // walking the whole tree on every write.
@@ -762,7 +765,7 @@ function analyzeWrittenFile(root, rel) {
 // the OpenCode plugin, which loads this module in-process: a Bun-compiled
 // OpenCode has no `node` to spawn, and a second copy of the wording would drift.
 function normHookContext(hook) {
-  if (!hook || !WRITE_TOOLS.has(hook.tool_name)) {
+  if (!hook || !MEASURED_TOOLS.has(hook.tool_name)) {
     return null;
   }
 
@@ -823,7 +826,7 @@ function normHookCommand({ inputFile = null } = {}) {
 function ensureNormHook(dir) {
   const settingsPath = path.join(dir, ".claude", "settings.json");
   const command = `node "${path.join(__dirname, "..", "ai-learn.js")}" norm --hook`;
-  const matcher = "Write|Edit|MultiEdit";
+  const matcher = "Write|Edit|MultiEdit|Read";
 
   let settings = {};
 
@@ -861,6 +864,15 @@ function ensureNormHook(dir) {
     // A path that still exists is a deliberate other install (kept, like the
     // guard hook); only a dead one is repointed (story 09.03).
     let changed = false;
+
+    for (const entry of postToolUse) {
+      const isOurs = entry && Array.isArray(entry.hooks) && entry.hooks.some((h) => ours.includes(h));
+
+      if (isOurs && typeof entry.matcher === "string" && !entry.matcher.split("|").includes("Read")) {
+        entry.matcher = `${entry.matcher}|Read`;
+        changed = true;
+      }
+    }
 
     for (const h of ours) {
       if (h.command === command) {

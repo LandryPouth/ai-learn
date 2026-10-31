@@ -483,3 +483,20 @@ test("ensureGitignore keeps CRLF line endings", () => {
   assert.match(text, /node_modules\/\r\n/);
   assert.doesNotMatch(text.replace(/\r\n/g, ""), /\n/);
 });
+
+test("update adds Read to the norm hook matcher", () => {
+  const dir = tmpProject(project());
+  capture(() => updateCommand({ root: dir }));
+  const settingsPath = path.join(dir, ".claude", "settings.json");
+  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  const ours = settings.hooks.PostToolUse.find((e) => /norm --hook/.test(JSON.stringify(e)));
+  ours.matcher = "Write|Edit|MultiEdit";
+  settings.hooks.PostToolUse.push({ matcher: "Bash", hooks: [{ type: "command", command: "other-post" }] });
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+
+  capture(() => updateCommand({ root: dir }));
+
+  const after = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  assert.strictEqual(after.hooks.PostToolUse.find((e) => /norm --hook/.test(JSON.stringify(e))).matcher, "Write|Edit|MultiEdit|Read");
+  assert.ok(after.hooks.PostToolUse.some((e) => e.matcher === "Bash"));
+});

@@ -15,12 +15,12 @@ Le retour clean code arrive brique par brique, au moment où l'IA relit ce que l
 
 ## Acceptance Criteria
 
-- [ ] Given un hook `Read` sur `src/app.ts` contenant une fonction de 80 lignes (seuil 50), when `norm --hook` tourne, then la sortie contient `src/app.ts:<ligne> — … [maxFunctionLines]` et l'exit est 0 (non bloquant).
-- [ ] Given un `Read` sur un fichier hors `learnerFiles` (ex. `README.md`), when le hook tourne, then aucune sortie.
-- [ ] Given un `Read` sur un fichier propre, when le hook tourne, then aucune sortie.
-- [ ] Given un projet existant avec l'ancien matcher, when `update`, then le matcher inclut `Read` et les autres hooks de l'apprenant sont intacts.
-- [ ] Given une violation dans `src/**`, when `ai-learn next --json`, then `norm.violations` la contient ; when `ai-learn next`, then une ligne « Norme : 1 violation » la cite.
-- [ ] Given la doc Claude Code consultée, when on lit le Result, then la source et la confirmation (ou le repli) y figurent.
+- [x] Given un hook `Read` sur `src/app.ts` contenant une fonction de 80 lignes (seuil 50), when `norm --hook` tourne, then la sortie contient `src/app.ts:<ligne> — … [maxFunctionLines]` et l'exit est 0 (non bloquant).
+- [x] Given un `Read` sur un fichier hors `learnerFiles` (ex. `README.md`), when le hook tourne, then aucune sortie.
+- [x] Given un `Read` sur un fichier propre, when le hook tourne, then aucune sortie.
+- [x] Given un projet existant avec l'ancien matcher, when `update`, then le matcher inclut `Read` et les autres hooks de l'apprenant sont intacts.
+- [x] Given une violation dans `src/**`, when `ai-learn next --json`, then `norm.violations` la contient ; when `ai-learn next`, then une ligne « Norme : 1 violation » la cite.
+- [x] Given la doc Claude Code consultée, when on lit le Result, then la source et la confirmation (ou le repli) y figurent.
 
 ## Edge Cases
 

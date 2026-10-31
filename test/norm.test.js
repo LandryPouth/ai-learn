@@ -637,3 +637,59 @@ test("init wires the norm hook for claude-code and wires nothing for a platform 
 
   assert.match(fs.readFileSync(path.join(codexDir, "AGENTS.md"), "utf8"), /après chaque brique/);
 });
+
+// Story 09.05 — the learner types src/** themselves, so the agent's Read of it
+// is the moment the norm gets measured.
+
+test("a Read of a learner file reports its violations without blocking", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "src/app.js", jsFunctionOfLength("tooLong", 5));
+
+  const result = runNormHook(dir, "src/app.js", { toolName: "Read" });
+  assert.strictEqual(result.status, 0);
+
+  const payload = JSON.parse(result.stdout);
+  assert.match(payload.hookSpecificOutput.additionalContext, /src\/app\.js:1 — .*\[function-length\]/);
+  assert.ok(!("decision" in payload));
+});
+
+test("a Read outside learner files is silent", () => {
+  const dir = tmpDir();
+  writeFile(dir, ".ai-learn/norm.json", JSON.stringify({ version: 1, maxFunctionLines: 3 }));
+  writeFile(dir, "README.md", "# hello\n");
+  writeFile(dir, "scripts/build.js", jsFunctionOfLength("outOfScope", 5));
+
+  assert.strictEqual(runNormHook(dir, "README.md", { toolName: "Read" }).stdout, "");
+  assert.strictEqual(runNormHook(dir, "scripts/build.js", { toolName: "Read" }).stdout, "");
+});
+
+test("a Read of a clean learner file is silent", () => {
+  const dir = tmpDir();
+  writeFile(dir, "src/app.js", "function clean() {\n  return 1;\n}\n");
+
+  assert.strictEqual(runNormHook(dir, "src/app.js", { toolName: "Read" }).stdout, "");
+});
+
+test("ensureNormHook widens an old Write|Edit|MultiEdit matcher to include Read, keeping other hooks", () => {
+  const dir = tmpDir();
+  writeFile(
+    dir,
+    ".claude/settings.json",
+    JSON.stringify({
+      hooks: {
+        PostToolUse: [
+          { matcher: "Write", hooks: [{ type: "command", command: "other-post" }] },
+          { matcher: "Write|Edit|MultiEdit", hooks: [{ type: "command", command: `node "${BIN}" norm --hook` }] },
+        ],
+      },
+    }),
+  );
+
+  ensureNormHook(dir);
+
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+  assert.strictEqual(settings.hooks.PostToolUse[0].matcher, "Write");
+  assert.strictEqual(settings.hooks.PostToolUse[0].hooks[0].command, "other-post");
+  assert.strictEqual(settings.hooks.PostToolUse[1].matcher, "Write|Edit|MultiEdit|Read");
+});
