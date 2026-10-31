@@ -40,13 +40,28 @@ Backbone: `/learn` (profil → pertinence → parcours avec paliers plateforme) 
 
 ```text
 s1
-├── s2 ── s3 ──┬── s6
-│              │
-├── s4 ── s5 ──┘
+├── s2
+│   └── s3 ──┐
+├── s4 ──────┴── s5
+│                └── s6
 └── s7
 ```
 
-`s1` est le squelette : il traverse la source des commandes (`commands/`), le rendu des skills, l'installation et le retrait sur les 5 plateformes, `AGENTS.md` et le README — toute la surface que les stories suivantes enrichissent sans la redessiner. `s2`→`s3` : le choix des paliers lit le profil. `s4`→`s5` : `s5` réutilise le moteur d'incident. `s5` lit le ledger plateforme pour choisir le niveau (arête vers `s3`). `s6` lit profil + ledgers. Les branches partagent `commands/learn.md`, `bin/lib/check.js`, `bin/lib/status.js` et le README : **exécuter en séquence** (ordre numérique) sauf fusion manuelle assumée.
+Arêtes réelles (« bâtit sur ») — chacune est vérifiée dans les `plan.md` / `spec.md`, pas supposée :
+
+| Story | Bâtit sur | Pourquoi |
+|---|---|---|
+| `s1` | — | Racine : source des commandes, rendu des skills, installation sur 5 plateformes, `AGENTS.md`, README. |
+| `s2` | `s1` | Le profil est créé et lu par `/learn` et `/learn-next`, dont `s1` fixe la forme. |
+| `s3` | `s2` | Le choix des paliers plateforme lit le profil. Crée `~/.ai-learn/tracks/platform.json`. |
+| `s4` | `s1` | Ajoute `/learn-break` (4e commande, squelette de `s1`). Réutilise le moteur de `mutate` (epic 09). Ne dépend ni du profil ni de la plateforme. |
+| `s5` | `s4` **et** `s3` | `s4` : moteur d'incident, ledger `debug.json`, `--resolve`/`--giveup`. `s3` : le niveau 3 (panne d'environnement) exige un palier plateforme 4 ou 6, lu dans `platform.json`. Sans `s3`, le niveau 3 ne peut pas être choisi. |
+| `s6` | `s5` | Lit profil + ledgers plateforme et debug (donc `s2`, `s3`, `s4` en amont, transitivement). |
+| `s7` | `s1` | Bilan de fin de projet, vérifié par `check`. Si le bilan doit citer les ledgers plateforme/debug, ajouter l'arête vers `s6` au moment de la planifier. |
+
+Seule `s5` a deux parents : c'est la fusion `──┴──`. `s3` et `s4` sont sur des branches sœurs (`s2→s3` et `s4`) : elles peuvent tourner en parallèle, chacune dans son worktree, mais **`s5` ne démarre que quand `s3` et `s4` sont `done`**. `s7` est parallèle à tout le reste.
+
+Les branches partagent `commands/learn.md`, `bin/lib/check.js`, `bin/lib/status.js` et le README : en parallèle, prévoir une fusion manuelle assumée (ou exécuter en séquence, dans l'ordre `s1, s2, s3, s4, s5, s6, s7`, qui respecte toutes les arêtes).
 
 ## Stories
 
