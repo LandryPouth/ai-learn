@@ -54,6 +54,7 @@ const {
   formatPredictionsGap,
 } = require("./predictions");
 const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
+const { isFinished, bilanState } = require("./bilan");
 const { duplicateSlugs, reviewState } = require("./reviews");
 const { ledgerHealth, hasReplayableEvidence } = require("./ledgers");
 const { contractWarnings } = require("./contract");
@@ -755,6 +756,14 @@ function checkProject(dir, { home, now = new Date() } = {}) {
           message: `checkpoint exists but no passing evidence — run \`ai-learn verify ${phase.id}\``,
         });
       }
+    }
+  }
+
+  // Story 10.07 — a finished track owes its bilan. Never raised for a track
+  // still in progress.
+  if (isFinished(config)) {
+    for (const message of bilanState(dir).issues) {
+      issues.errors.push({ file: "docs/bilan.md", message });
     }
   }
 

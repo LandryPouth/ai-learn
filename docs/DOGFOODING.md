@@ -452,3 +452,8 @@ Chaque entrée du `.ai-learn/dogfood.md` de l'apprenant porte désormais une lig
 - **Repo** : ai-learn (`@landry_pouth/coding-flow` 0.14.0) — **Surface** : `/flow-run`
 - **Problème** : `place` puis `autoland` de la story 10-05 (fusion `s3`+`s4`, `┴`) ont refusé, comme en epic 03. Les deux parents étant `done` dans le checkout principal, la story y a été exécutée directement ; le `autoland` n'avait rien à atterrir.
 - **Résolution** : ouverte, voir la ligne « `place`/`autoland` refusent la même arbre à point de fusion ».
+
+### `low` — 10-07 : « assertions removed » sur un diff qui ne retire aucune assertion
+- **Repo** : ai-learn (`@landry_pouth/coding-flow` 0.14.0) — **Surface** : `/flow-run` (`verify`)
+- **Problème** : `verify` a averti « assertions removed in 1 test file » alors que le diff de `test/` ne retirait que deux lignes d'`import`/`export` (ajout d'un helper à la liste). Aucune assertion supprimée ; l'avertissement n'indique ni le fichier ni la ligne, donc impossible à vérifier sans lire le diff.
+- **Résolution** : ouverte (avertissement seulement, aucun verdict changé).

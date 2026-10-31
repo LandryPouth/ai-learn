@@ -56,3 +56,17 @@ retire de `src/**` ce que la phase avait ajouté et l'apprenant le retape de mé
 tu ne le recopies pas. Ensuite `ai-learn verify <id> --revisit` ; au besoin
 `ai-learn revisit <id> --giveup` restaure les fichiers. Une revisite en cours ou
 interrompue est annoncée en première ligne de `ai-learn next` et `ai-learn status`.
+
+## Parcours terminé : le bilan
+
+Quand toutes les phases sont `done`, `ai-learn verify` a préparé `docs/bilan.md`
+(phases, paliers, mutation, prédictions, incidents). Conduis l'apprenant à le
+compléter, **une section à la fois** : « Encore fragile », « Erreurs marquantes »,
+« Compromis d'architecture », « Réutilisable dans mes projets », « Recommandation ».
+Pour chacune, propose une ou deux questions qui l'aident à trouver sa réponse ; il
+l'écrit lui-même. Tu n'écris pas les réponses à sa place (la partie générée est la
+seule que tu peux toucher). La recommandation contient exactement une décision :
+`intégrer`, `labo`, `simplifier` ou `abandonner`.
+
+Quand le bilan est complet, propose la suite — un nouveau parcours via `/learn` —
+sans l'imposer : consolider peut être la bonne réponse.

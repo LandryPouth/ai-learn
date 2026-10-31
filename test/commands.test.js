@@ -134,3 +134,12 @@ test("learn runs a single-validation relevance analysis before init", () => {
   assert.match(read("references/propose.md"), /Analyse de pertinence/);
   assert.deepStrictEqual(learnerAddressedCommands(text), []);
 });
+
+test("learn-next guides the bilan without writing answers", () => {
+  const text = fs.readFileSync(path.join(__dirname, "..", "commands", "learn-next.md"), "utf8");
+
+  assert.match(text, /docs\/bilan\.md/);
+  assert.match(text, /une section à la fois/);
+  assert.match(text, /n'écris pas les réponses/);
+  assert.match(text, /\/learn/);
+});

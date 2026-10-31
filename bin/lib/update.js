@@ -29,6 +29,7 @@ const {
   journalPath: predictionsJournalPath,
 } = require("./predictions");
 const { detectDomainKey } = require("./tracks/domain");
+const { isFinished, generateBilan } = require("./bilan");
 const { syncProjectLedgers, formatSyncFailure, ledgerHealth } = require("./ledgers");
 const { PLATFORMS, INSTALLERS } = require("./install");
 const {
@@ -365,6 +366,17 @@ function updateCommand({ root, platform, home }) {
       ledgerLine = `  ⚠ ledgers non synchronisés : ${error.code || error.message}`;
     }
     log(ledgerLine);
+
+    // Story 10.07 — a track finished before the bilan existed owes one too:
+    // prepare it here so `check` never asks for a file nothing generated.
+    try {
+      const { config } = readProgress(project);
+      if (isFinished(config) && generateBilan({ dir: project, config, home }).created) {
+        log("  bilan: docs/bilan.md préparé — à compléter avec /learn-next");
+      }
+    } catch (error) {
+      log(`  ⚠ bilan non généré : ${error.message}`);
+    }
 
     if (predictionsData.action === "created") {
       log(

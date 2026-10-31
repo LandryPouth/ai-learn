@@ -13,6 +13,7 @@ const { normProject } = require("./norm");
 const { loadGuardConfig } = require("./guard");
 const { readTutorConfig } = require("./tutor");
 const { readProfile } = require("./profile");
+const { isFinished, bilanState } = require("./bilan");
 const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
@@ -298,6 +299,25 @@ function pendingRevisit(dir) {
   return pending.state === "none" ? null : { state: pending.state, phaseId: pending.lock ? pending.lock.phaseId : null };
 }
 
+// Story 10.07 — null while the track is unfinished, so the line never shows early.
+function bilanFact(dir, config) {
+  if (!isFinished(config)) {
+    return null;
+  }
+
+  const { state, decision } = bilanState(dir);
+
+  return state === "complete" ? { state, decision } : { state };
+}
+
+function printBilanSummary({ dir, config }) {
+  const bilan = bilanFact(dir, config);
+
+  if (bilan) {
+    log(`\nbilan : ${bilan.state === "complete" ? `fait (${bilan.decision})` : "à compléter"}`);
+  }
+}
+
 function buildStatusReport(dir) {
   const { config, exists } = readProgress(dir);
 
@@ -336,6 +356,7 @@ function buildStatusReport(dir) {
     phasesDone: phases.filter((phase) => phase.status === "done").length,
     phasesTotal: phases.length,
     phases,
+    bilan: bilanFact(dir, config),
     revisitPending: pendingRevisit(dir),
     incident: incidentFact(dir),
     uncommitted: uncommittedCount(dir),
@@ -376,6 +397,7 @@ function statusCommand({ dir, home, json }) {
   printTutorProfile({ dir });
   printProfile({ home });
   printReviewSummary({ dir, config });
+  printBilanSummary({ dir, config });
   printReviewList({ dir });
 
   const issues = validateProgress(config);

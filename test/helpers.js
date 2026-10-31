@@ -131,4 +131,14 @@ function activeRevisitLock(dir, phaseId, extra = {}) {
   );
 }
 
-module.exports = { activeRevisitLock, ISOLATED_HOME, tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit, withoutNodeTestContext };
+// Story 10.07 — a finished track owes its bilan (`check` errors without one).
+// Tests whose subject is something else fill it so they stay about that subject.
+function writeCompleteBilan(dir) {
+  const sections = ["Encore fragile", "Erreurs marquantes", "Compromis d'architecture", "Réutilisable dans mes projets"]
+    .map((title) => `## ${title}\n\nRéponse.\n`)
+    .join("\n");
+
+  writeFile(dir, "docs/bilan.md", `# Bilan\n\n${sections}\n## Recommandation\n\nlabo\n`);
+}
+
+module.exports = { writeCompleteBilan, activeRevisitLock, ISOLATED_HOME, tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit, withoutNodeTestContext };

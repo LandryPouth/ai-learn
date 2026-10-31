@@ -15,6 +15,7 @@ const { checkpointFilePath, computeSourceHash, computeLearnerHash, computeCheckp
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
 const { readTutorConfig, masteryLevel } = require("./tutor");
 const { requireActiveRevisit, completeRevisit, refuseDuringRevisit } = require("./revisit");
+const { generateBilan, isFinished } = require("./bilan");
 const { mutationReport, formatMutationGap, emptyMutationReport, recoverOrphanLockAndLog } = require("./mutate");
 const { runCommand, portabilityHint, zeroTestsRan } = require("./exec");
 
@@ -89,6 +90,21 @@ function findStalePhases(dir, config) {
   }
 
   return stale;
+}
+
+// Story 10.07 — proving the last phase prepares the end-of-project bilan from
+// the data on disk. Best-effort like the ledger syncs: the phase proof is the
+// contract, and an existing bilan is never touched.
+function announceBilan({ dir, home }) {
+  try {
+    const { config } = readProgress(dir);
+
+    if (isFinished(config) && generateBilan({ dir, config, home }).created) {
+      log("Parcours terminé — docs/bilan.md est préparé : complète-le avec /learn-next.");
+    }
+  } catch (error) {
+    log(`Bilan non généré : ${error.message}`);
+  }
 }
 
 // The real reason a re-proof failed, for the bulk summary: the failing
@@ -557,6 +573,7 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
       }
 
       log(`Phase ${phase.id} validée (done).`);
+      announceBilan({ dir, home });
 
       // AGENTS.md §3bis forbids the AI from running git itself — only the
       // human learner types it. Without a nudge here, nothing prompts a

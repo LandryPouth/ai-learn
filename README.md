@@ -18,7 +18,8 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 | `ai-learn verify <phase>` | Exécute le checkpoint de la phase, capture la sortie verbatim, écrit l'évidence, marque `done` **seulement si ça passe vraiment** |
 | `ai-learn revisit <phase>` | Revisite espacée : retire de `src/**` ce que la phase avait ajouté (inverse de ses commits `feat(phase-N)`) pour le retaper de mémoire, puis `verify --revisit` prouve ; `--giveup` restaure tout |
 | `ai-learn check` | Scan une racine (ex. un monorepo) : croise chaque `progress.json` contre la réalité — phase `done` sans évidence = erreur |
-| `ai-learn status` | Vue lisible des phases et de leur état |
+| `ai-learn status` | Vue lisible des phases et de leur état ; parcours terminé : `bilan : à compléter` / `fait (<décision>)` |
+| Bilan de fin de projet | `verify` prépare `docs/bilan.md` à la dernière phase prouvée (phases, paliers, mutation, prédictions, incidents ; jamais écrasé). Tu écris cinq sections et une recommandation parmi `intégrer`, `labo`, `simplifier`, `abandonner` ; `check` vérifie la présence et une substance minimale, pas la qualité |
 | `ai-learn next` | La prochaine phase à faire (et alerte sur les phases `done` sans évidence) |
 | `ai-learn scan` | Analyse un projet déjà avancé : montre où tu en es et propose une suite d'approfondissement — jamais de reprise à zéro |
 | `ai-learn propose` | Propose des projets à construire quand tu ne sais pas quoi faire — tout est fait automatiquement, chaque étape sourcée |
@@ -50,7 +51,7 @@ bash scripts/install-claude.sh   # rend `ai-learn` dispo partout + skills Claude
 |---|---|
 | `/learn` | Crée un parcours d'apprentissage : doc solide + questions + plan + `progress.json` |
 | `/learn-status` | Où j'en suis : phases et leur état |
-| `/learn-next` | La prochaine phase à faire |
+| `/learn-next` | La prochaine phase à faire ; parcours terminé : te guide dans `docs/bilan.md` |
 | `/learn-break` | Incident de code : l'outil casse ton code sans dire où, tu diagnostiques et tu répares |
 
 Quatre commandes, pas plus. `/learn` route seul : projet existant sans parcours →

@@ -501,3 +501,15 @@ test("update adds Read to the norm hook matcher", () => {
   assert.strictEqual(after.hooks.PostToolUse.find((e) => /norm --hook/.test(JSON.stringify(e))).matcher, "Write|Edit|MultiEdit|Read");
   assert.ok(after.hooks.PostToolUse.some((e) => e.matcher === "Bash"));
 });
+
+test("update prepares the bilan of a track finished before it existed, once", () => {
+  const dir = tmpProject(project({ phases: [{ id: 0, name: "Zero", status: "done", checkpoint: "node -e 0", artifacts: [], predictionsRequired: 0 }] }));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-bilan-"));
+
+  capture(() => updateCommand({ root: dir, home }));
+  assert.match(fs.readFileSync(path.join(dir, "docs", "bilan.md"), "utf8"), /## Recommandation/);
+
+  fs.writeFileSync(path.join(dir, "docs", "bilan.md"), "# à moi\n");
+  capture(() => updateCommand({ root: dir, home }));
+  assert.strictEqual(fs.readFileSync(path.join(dir, "docs", "bilan.md"), "utf8"), "# à moi\n");
+});

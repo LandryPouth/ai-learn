@@ -18,7 +18,7 @@ const { ensureGuardHook } = require("../bin/lib/guard");
 const { verifyCommand } = require("../bin/lib/verify");
 const { readProgress, latestEvidenceForPhase } = require("../bin/lib/progress");
 const { ensureCommitMsgHook } = require("../bin/lib/git-hooks");
-const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome, withoutNodeTestContext } = require("./helpers");
+const { writeCompleteBilan, capture, sampleProgress, tmpProject, writeFile, spawnGit, withHome, withoutNodeTestContext } = require("./helpers");
 const { scaffold } = require("../bin/lib/init");
 const { generateDigest } = require("../bin/lib/docs");
 const { findLearningProjects } = require("../bin/lib/util");
@@ -375,6 +375,7 @@ test("a done phase with a green evidence passes", () => {
   const dir = tmpProject(progress);
 
   capture(() => verifyCommand({ dir, phaseId: 0, home }));
+  writeCompleteBilan(dir);
 
   const entry = checkProject(dir, { home });
   assert.deepStrictEqual(entry.issues.errors, []);
@@ -722,6 +723,7 @@ test("a missing artifact blocks a done phase", () => {
   // is missing, so this fixture only reaches "passing evidence" once written.
   writeFile(dir, "docs/phase-0-notes.md", "# notes");
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
@@ -1037,6 +1039,7 @@ test("a modification to src/ after a passing verify makes the proof stale", () =
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
   assert.deepStrictEqual(checkProject(dir).issues.errors, []);
 
   writeFile(dir, "src/index.js", "console.log('changed');\n");
@@ -1114,6 +1117,7 @@ test("proof stays valid when nothing covered by it changed", () => {
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
@@ -1125,6 +1129,7 @@ test("legacy evidence without a sourceHash field is never marked stale", () => {
   writeFile(dir, "src/index.js", "console.log('hi');\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
 
   const runsDirPath = path.join(dir, ".ai-learn", "runs");
   const runFile = fs.readdirSync(runsDirPath).find((f) => f.endsWith("-verify.json"));
@@ -1149,6 +1154,7 @@ test("a verified checkpoint file passes cleanly", () => {
   writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; import '../src/index.js'; test('ok', () => {});");
 
   capture(() => verifyCommand({ dir, phaseId: 0, home }));
+  writeCompleteBilan(dir);
 
   const entry = checkProject(dir, { home });
   assert.deepStrictEqual(entry.issues.errors, []);
@@ -1301,8 +1307,10 @@ test("checkCommand scans every learning project under a root", () => {
   const badProgress = sampleProgress({ project: "proj-b" });
   badProgress.phases[0].status = "done";
   writeFile(bad, "progress.json", JSON.stringify(badProgress, null, 2));
+  writeCompleteBilan(bad);
 
   capture(() => verifyCommand({ dir: good, phaseId: 0 }));
+  writeCompleteBilan(good);
 
   const out = capture(() => checkCommand({ root }));
 
@@ -1344,6 +1352,7 @@ test("check --json produces a single valid JSON object on stdout, with the same 
   const badProgress = sampleProgress({ project: "proj-b" });
   badProgress.phases[0].status = "done";
   writeFile(bad, "progress.json", JSON.stringify(badProgress, null, 2));
+  writeCompleteBilan(bad);
 
   const out = capture(() => checkCommand({ root, json: true }));
 
@@ -1393,6 +1402,7 @@ test("check reports nothing for a phase whose mutation proof is still valid (cod
   writeFile(dir, "src/index.js", "function isReady() {\n  return true;\n}\nmodule.exports = { isReady };\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
 
   const entry = checkProject(dir);
   assert.deepStrictEqual(entry.issues.errors, []);
@@ -1616,6 +1626,7 @@ function provenRevisitProject() {
   });
   const dir = tmpProject(progress);
   capture(() => verifyCommand({ dir, phaseId: 0 }));
+  writeCompleteBilan(dir);
   return dir;
 }
 
@@ -1655,6 +1666,7 @@ function provenWithTestFile(checkpointBody = "import { test } from 'node:test'; 
   writeFile(dir, "src/index.js", "export const ready = true;\n");
   writeFile(dir, "checkpoint/phase-0.test.mjs", checkpointBody);
   withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
+  writeCompleteBilan(dir);
 
   return { dir, home };
 }

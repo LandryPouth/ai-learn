@@ -14,13 +14,13 @@ Un projet terminé laisse une trace utile : ce qui a été construit, ce qui est
 
 ## Acceptance Criteria
 
-- [ ] Given la dernière phase prouvée par `verify`, when on liste `docs/`, then `bilan.md` existe avec les sections pré-remplies (phases, paliers, mutation, prédictions, incidents) et les cinq sections marquées à compléter.
-- [ ] Given un `bilan.md` déjà présent, when `verify` reprouve une phase, then le fichier n'est pas écrasé.
-- [ ] Given toutes les phases `done` et un bilan contenant encore un marqueur, when `ai-learn check`, then erreur nommant la section.
-- [ ] Given une « Recommandation » contenant deux décisions ou aucune, when `check`, then erreur listant les décisions valides.
-- [ ] Given un bilan complet avec `labo`, when `check` puis `status`, then aucune erreur et « bilan : fait (labo) ».
-- [ ] Given un parcours non terminé, when `check`, then l'absence de bilan n'est jamais signalée.
-- [ ] Given `commands/learn-next.md`, when le parcours est terminé, then il décrit la complétion section par section et interdit à l'IA de rédiger les réponses de l'apprenant.
+- [x] Given la dernière phase prouvée par `verify`, when on liste `docs/`, then `bilan.md` existe avec les sections pré-remplies (phases, paliers, mutation, prédictions, incidents) et les cinq sections marquées à compléter.
+- [x] Given un `bilan.md` déjà présent, when `verify` reprouve une phase, then le fichier n'est pas écrasé.
+- [x] Given toutes les phases `done` et un bilan contenant encore un marqueur, when `ai-learn check`, then erreur nommant la section.
+- [x] Given une « Recommandation » contenant deux décisions ou aucune, when `check`, then erreur listant les décisions valides.
+- [x] Given un bilan complet avec `labo`, when `check` puis `status`, then aucune erreur et « bilan : fait (labo) ».
+- [x] Given un parcours non terminé, when `check`, then l'absence de bilan n'est jamais signalée.
+- [x] Given `commands/learn-next.md`, when le parcours est terminé, then il décrit la complétion section par section et interdit à l'IA de rédiger les réponses de l'apprenant.
 
 ## Edge Cases
 
