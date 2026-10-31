@@ -11,6 +11,27 @@ parcours **prouvé**, pas un vague plan. Chaque phase aura un checkpoint exécut
 un artefact de doc, et un nombre de prédictions exigées (protocole « prédire avant
 de révéler »).
 
+## 0. Router (l'apprenant ne tape que `/learn`)
+
+L'apprenant ne connaît que `/learn`, `/learn-next` et `/learn-status` : tout le
+reste est de la machinerie que **tu** appelles, sans lui demander de taper quoi
+que ce soit. Regarde d'abord où il en est, puis suis le flux — les fichiers
+`references/<flux>.md` sont à côté de ce `SKILL.md`, dans le dossier `references/`
+de ce skill ; lis-les à la demande, pas tous d'avance.
+
+| Situation | Flux |
+|---|---|
+| Un `progress.json` existe déjà dans le projet | reprise : lance `ai-learn next`, montre la phase, pas de nouveau parcours |
+| Un projet existe (du code, des tests) mais pas de `progress.json` | `references/scan.md` — où il en est, puis suite d'approfondissement |
+| Pas de projet et pas d'idée (« je ne sais pas quoi faire ») | `references/propose.md` — projets à construire, puis reviens à l'étape 1 avec celui qu'il choisit |
+| Pas de projet, une technologie ou un projet en tête | étapes 1 à 6 ci-dessous |
+
+Tu lances aussi toi-même, au bon moment et en silence : `ai-learn check` (après
+chaque étape qui écrit, et avant de dire qu'un parcours est cohérent), et
+`ai-learn docs …` quand il faut embarquer ou rafraîchir une source
+(`references/docs.md`). Tu n'en parles à l'apprenant que si le résultat change ce
+qu'il doit faire.
+
 ## 1. Collecter le contexte
 
 Résous dans l'ordre, en posant des questions **une à la fois** si le renseignement
@@ -111,7 +132,7 @@ donnes à `--technology`). Simple lecture de fichier, jamais bloquée.
 
 - S'il existe : **ne génère aucune phase sur un concept déjà `achieved`**
   dans ce ledger — c'est l'invariant de non-régression déjà appliqué par
-  `/learn-scan` à l'intérieur d'un projet, étendu ici à travers plusieurs projets.
+  le scan (`references/scan.md`) à l'intérieur d'un projet, étendu ici à travers plusieurs projets.
   Démarre directement au-dessus du tier le plus haut déjà prouvé.
 - C'est ce qui rend « quelques projets suffisent pour devenir expert »
   mesurable plutôt que déclaratif : `ai-learn status` affichera la couverture
@@ -185,8 +206,9 @@ connais, inutile de la deviner) — `init` installe alors immédiatement les
 commandes `/…` pour cette plateforme, sans étape manuelle séparée pour
 l'apprenant. Si tu ne sais vraiment pas laquelle tu es, omets le flag :
 `init` détecte Claude Code (seul signal vérifié), sinon les commandes `/…`
-ne sont pas posées automatiquement — l'apprenant peut toujours lancer
-`ai-learn install <plateforme>` lui-même plus tard.
+ne sont pas posées automatiquement — lance alors toi-même
+`ai-learn install <plateforme>` quand tu connais la plateforme : l'apprenant n'a
+aucune commande `ai-learn` à taper.
 
 ⚠ Le JSON des phases est long — construis-le proprement (un objet par phase, avec
 les 5 champs) et vérifie-le avant d'appeler la commande.

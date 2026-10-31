@@ -21,9 +21,9 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 ## Utilisateurs
 
 1. **L'apprenant** — ne tape jamais de commande. Il passe par les 7 commandes
-   `/learn-*` de son agent (`/learn`, `/learn-status`, `/learn-next`, `/learn-scan`,
-   `/learn-propose`, `/learn-check`, `/learn-docs`) ; les anciens noms (`/status`,
-   `/next`, …) restent des alias dépréciés.
+   `/learn-*` de son agent (`/learn`, `/learn-status`, `/learn-next`) ; scan, propose,
+   check et docs tournent en machinerie, appelés par `/learn` (flux dans
+   `learn/references/`). Les anciens noms et alias sont retirés (story 10.01).
    En mode `apprenti` (défaut), il tape **tout le code** de `src/**` ; en mode
    `dirigeant`, il garde la **spécification** (`test/**`, `tests/**`,
    `__tests__/**`, `checkpoint/**`, conventions test/spec) et l'IA écrit

@@ -10,6 +10,22 @@
 Toutes les versions notables d'`ai-learn` sont documentées ici. Le format suit
 grossièrement [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased — story 10.01
+
+`package.json` passe à `0.5.0` : les projets déjà estampillés sont vus `outdated` et
+reçoivent le nouveau `AGENTS.md` via `ai-learn update`.
+
+- **Rupture** : trois commandes visibles — `/learn`, `/learn-next`,
+  `/learn-status`. Retirées : `/learn-scan`, `/learn-propose`, `/learn-check`,
+  `/learn-docs` et tous les alias (`/status`, `/next`, `/scan`, `/propose`,
+  `/check`, `/docs`). Remplaçant de chacune : `/learn`, qui route seul vers
+  scan, propose, check et docs (`learn/references/*.md`) ; `/learn-next` lance
+  `check` en silence. Les sous-commandes du CLI sont inchangées.
+- `ai-learn install` / `update` retirent un skill retiré seulement si son
+  SHA-256 correspond à un rendu publié (`bin/lib/platforms/retired.js`) ; un
+  skill modifié est conservé et nommé (« conservé (modifié) »), un skill
+  utilisateur sans rapport n'est pas touché. `--dry-run` liste les retraits.
+
 ## Unreleased — story 08.03
 
 - Les commandes `/learn-*` sont installées comme skills `<nom>/SKILL.md` pour

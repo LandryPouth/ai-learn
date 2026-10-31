@@ -13,6 +13,10 @@ Commence par `ai-learn next --json` : si `outdated` est `true`, lance
 niveau avec l'outil »). Un projet scaffoldé par une ancienne version n'a pas les
 derniers contrôles ; l'apprenant n'a pas à y penser.
 
+Lance `ai-learn check` en silence (ceinture de sécurité) : ne dis rien s'il
+passe ; s'il signale une erreur, montre-la en premier avec ce qu'elle demande.
+L'apprenant n'a pas de commande `check` à connaître.
+
 Puis exécute :
 
 ```bash
@@ -24,8 +28,8 @@ prédictions exigées, artefact) puis, en avertissement, les phases `done` dont 
 preuve est périmée (avec la commande `ai-learn verify <id>`) ou absente.
 
 Une preuve périmée ne remplace jamais la prochaine action : elle est listée
-après. Si tout est fini et prouvé, `ai-learn next` le dit — propose alors
-`/learn-check` pour confirmer que tout est prouvé.
+après. Si tout est fini et prouvé, `ai-learn next` le dit — dis-le simplement : le
+`check` silencieux a déjà confirmé que tout est prouvé.
 
 Si la sortie annonce une **revisite échue**, lance `ai-learn revisit <id>` : l'outil
 retire de `src/**` ce que la phase avait ajouté et l'apprenant le retape de mémoire

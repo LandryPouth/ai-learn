@@ -186,7 +186,7 @@ function ensurePlatformCommands(platform) {
 
   try {
     const result = INSTALLERS[platform]({ home: os.homedir() });
-    return { platform, created: result.created.length, removed: result.removed.length, kept: result.kept.length, keptFiles: result.kept };
+    return { platform, created: result.created.length, removed: result.removed.length + result.retired.length, retiredFiles: result.retired, kept: result.kept.length + result.keptModified.length, keptFiles: result.kept.concat(result.keptModified) };
   } catch (error) {
     log(
       `  ⚠ installation des skills ${platform} a échoué : ${error.message}`,
@@ -209,6 +209,10 @@ function updateCommand({ root, platform, home }) {
     log(
       `Platform ${platformResult.platform}: skills synchronisés (${platformResult.created} fichier(s) créé/rafraîchi, ${platformResult.removed} ancien(s) retiré(s), ${platformResult.kept} conservé(s)).`,
     );
+
+    for (const file of platformResult.retiredFiles) {
+      log(`  − ${file}`);
+    }
 
     for (const file of platformResult.keptFiles) {
       log(`  = ${file}`);

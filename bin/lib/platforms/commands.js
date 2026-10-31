@@ -60,11 +60,15 @@ function listCommandFiles(commandsDir) {
     .map((name) => path.join(commandsDir, name));
 }
 
-// Old slash names kept as thin aliases (story 04.05): `/next` still resolves,
-// but points to `/learn-next`. Additive only — dropping an old name is a
-// breaking change that waits for a major version, so projects scaffolded
-// before the rename keep working untouched.
-const COMMAND_ALIASES = {
+// Commands that story 10.01 retired as slash commands. Their flows now live in
+// commands/references/<flux>.md, installed inside the `learn` skill. They are
+// kept here only to rebuild what older ai-learn versions wrote, so
+// install.js#migrateLegacyCommands can still recognise (and remove) a
+// pre-08.03 command file by its bytes. Nothing here is ever installed.
+const LEGACY_REFERENCE_COMMANDS = ["scan", "propose", "check", "docs"];
+
+// Old slash names that were thin aliases (story 04.05) of a canonical command.
+const LEGACY_ALIASES = {
   check: "learn-check",
   docs: "learn-docs",
   next: "learn-next",
@@ -73,49 +77,66 @@ const COMMAND_ALIASES = {
   status: "learn-status",
 };
 
-// The one-line deprecation note every alias carries, above the canonical body
-// it forwards to — same content, so the alias can never drift from the real
-// command.
-const DEPRECATION_MARKER = "Nom déprécié";
+const LEGACY_DEPRECATION_MARKER = "Nom déprécié";
 
-function deprecationNote(canonicalName) {
-  return `> ⚠ ${DEPRECATION_MARKER} — cette commande s'appelle désormais \`/${canonicalName}\`.`;
+function legacyDeprecationNote(canonicalName) {
+  return `> ⚠ ${LEGACY_DEPRECATION_MARKER} — cette commande s'appelle désormais \`/${canonicalName}\`.`;
 }
 
-function aliasCommand(name, canonical) {
+function legacyAliasCommand(name, canonical) {
   return {
     name,
     aliasOf: canonical.name,
     description: canonical.description,
     argumentHint: canonical.argumentHint,
     allowedTools: canonical.allowedTools,
-    body: `${deprecationNote(canonical.name)}\n\n${canonical.body}`,
+    body: `${legacyDeprecationNote(canonical.name)}\n\n${canonical.body}`,
   };
 }
 
-// Every command an installer must write: the canonical commands/*.md files
-// plus one generated alias per old name. Aliases are derived here, never a
-// second copy on disk — the canonical body stays the single source of truth,
-// so renaming or editing a command cannot leave an alias behind.
+// The three commands a learner sees: commands/*.md, nothing derived.
 function listCommands(commandsDir) {
-  const canonical = listCommandFiles(commandsDir).map((filePath) => ({
+  return listCommandFiles(commandsDir).map((filePath) => ({
     ...parseCommandFile(filePath),
     filePath,
   }));
+}
+
+// The flows the `learn` skill routes to: commands/references/*.md. Each is
+// installed as a plain file next to the skill's SKILL.md — never as a skill of
+// its own — so it carries no `name` and no frontmatter once installed.
+function listReferences(commandsDir) {
+  const dir = path.join(commandsDir, "references");
+
+  return listCommandFiles(dir).map((filePath) => ({
+    ...parseCommandFile(filePath),
+    filePath,
+  }));
+}
+
+// Every command an older ai-learn installed: the canonical commands, the four
+// reference flows under their former `learn-<flux>` names, and one generated
+// alias per pre-04.05 name. Used by the legacy migration only.
+function listLegacyCommands(commandsDir) {
+  const canonical = listCommands(commandsDir).concat(
+    listReferences(commandsDir)
+      .filter((reference) => LEGACY_REFERENCE_COMMANDS.includes(reference.name))
+      .map((reference) => ({ ...reference, name: `learn-${reference.name}` })),
+  );
   const byName = new Map(canonical.map((command) => [command.name, command]));
-  const aliases = Object.entries(COMMAND_ALIASES)
+  const aliases = Object.entries(LEGACY_ALIASES)
     .map(([name, canonicalName]) => {
       const source = byName.get(canonicalName);
-      return source ? aliasCommand(name, source) : null;
+      return source ? legacyAliasCommand(name, source) : null;
     })
     .filter(Boolean);
 
   return canonical.concat(aliases);
 }
 
-// Claude Code reads commands/*.md natively, so canonical files are symlinked.
-// A generated alias cannot be, so its content is re-serialized into the exact
-// same frontmatter + body shape instead of a second source file.
+// Pre-08.03 Claude commands were symlinks of commands/*.md; a generated alias
+// could not be, so it was serialized into the same frontmatter + body shape.
+// Only the legacy migration reads this.
 function serializeClaudeCommand({ description, argumentHint, allowedTools, body }) {
   return [
     "---",
@@ -132,7 +153,7 @@ module.exports = {
   parseCommandFile,
   listCommandFiles,
   listCommands,
+  listReferences,
+  listLegacyCommands,
   serializeClaudeCommand,
-  COMMAND_ALIASES,
-  DEPRECATION_MARKER,
 };

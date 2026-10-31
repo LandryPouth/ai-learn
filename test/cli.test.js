@@ -103,7 +103,8 @@ test("any command with --platform mechanically installs that platform's commands
 
   assert.strictEqual(result.status, 0);
   assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-learn-next", "SKILL.md")));
-  assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-learn", "references", "scan.md")));
+  assert.ok(!fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next")), "no alias skill is installed");
 });
 
 test("a command with CLAUDECODE=1 in its env self-heals Claude Code's commands, unprompted", () => {
@@ -223,7 +224,8 @@ test("install --home <path> claude retains claude as the platform, not the path 
 
   assert.strictEqual(result.status, 0);
   assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "learn-next", "SKILL.md")));
-  assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "next", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(home, ".claude", "skills", "learn", "references", "check.md")));
+  assert.ok(!fs.existsSync(path.join(home, ".claude", "skills", "next")), "no alias skill is installed");
 });
 
 test("install --dry-run reports actions through the CLI without writing", () => {

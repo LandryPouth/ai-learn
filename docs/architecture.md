@@ -31,7 +31,7 @@ templates/               AGENTS-apprentissage.md, plan, predictions, dogfood, co
                          opencode-guard-plugin.js (source du plugin généré)
 commands/                les 7 commandes /learn-* (markdown, format Claude Code),
                          source unique ; install.js les rend en <nom>/SKILL.md
-                         pour les 5 plateformes, alias historiques compris
+                         pour les 5 plateformes (3 skills visibles + `learn/references/`)
 ```
 
 ## Invariants structurels

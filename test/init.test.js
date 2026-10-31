@@ -160,7 +160,8 @@ test("init installs the given platform's slash commands into an isolated home", 
   try {
     const { platform } = scaffold({ dir, project: "demo", technology: "Go", docSource: null, phases: [], platform: "codex" });
     assert.strictEqual(platform, "codex");
-    assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next", "SKILL.md")));
+    assert.ok(fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-learn", "references", "propose.md")));
+    assert.ok(!fs.existsSync(path.join(home, ".codex", "skills", "ai-learn-next")), "no alias skill is installed");
   } finally {
     process.env.HOME = original.HOME;
     process.env.USERPROFILE = original.USERPROFILE;
@@ -507,4 +508,25 @@ test("findProjectDir stops at home and ignores a progress.json there", () => {
   fs.mkdirSync(path.join(project, "src"), { recursive: true });
   fs.writeFileSync(path.join(project, "progress.json"), "{}");
   assert.strictEqual(findProjectDir(path.join(project, "src"), home), project);
+});
+
+test("AGENTS commands section lists only visible commands as the learner's", () => {
+  const template = fs.readFileSync(path.join(__dirname, "..", "templates", "AGENTS-apprentissage.md"), "utf8");
+  const section = template.slice(template.indexOf("## Commandes"));
+  const intro = section.slice(0, section.indexOf("| Commande |"));
+
+  for (const visible of ["/learn", "/learn-next", "/learn-status"]) {
+    assert.ok(intro.includes(`\`${visible}\``), `${visible} is named as a learner command`);
+  }
+  assert.match(intro, /machinerie/);
+  for (const retired of ["/learn-scan", "/learn-propose", "/learn-check", "/learn-docs"]) {
+    assert.ok(!template.includes(retired), `${retired} is not a learner command any more`);
+  }
+
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+  const learnerTable = readme.slice(readme.indexOf("### Les commandes de l'apprenant"), readme.indexOf("Il n'y a pas de `/verify`"));
+  assert.deepStrictEqual(
+    [...learnerTable.matchAll(/^\| `(\/[a-z-]+)` \|/gm)].map((m) => m[1]),
+    ["/learn", "/learn-status", "/learn-next"],
+  );
 });

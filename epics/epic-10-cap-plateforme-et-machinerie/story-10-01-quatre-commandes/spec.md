@@ -16,14 +16,14 @@ L'apprenant ne retient que `/learn`, `/learn-next`, `/learn-status` (et `/learn-
 
 ## Acceptance Criteria
 
-- [ ] Given `ai-learn install claude` sur un home vierge, when on liste `~/.claude/skills/`, then seuls `learn`, `learn-next`, `learn-status` existent, et `learn/references/` contient `scan.md`, `propose.md`, `check.md`, `docs.md`.
-- [ ] Given un home où une install précédente a posé `learn-scan`, `scan`, `check`… non modifiés, when `ai-learn install claude` tourne, then ils sont retirés et listés sous « retirés ».
-- [ ] Given un de ces skills modifié par l'utilisateur, when `install` tourne, then il est conservé et nommé « conservé (modifié) » ; rien n'est supprimé en silence.
-- [ ] Given un skill utilisateur sans rapport portant le nom `check`, when `install` tourne, then il n'est pas touché.
-- [ ] Given `--dry-run`, when `install` tourne, then la sortie liste les retraits prévus et le disque est inchangé.
-- [ ] Given les 5 plateformes, when chacune est installée, then chacune reçoit les trois skills et le dossier `references/` à l'emplacement de lecture déjà prouvé en 08.03.
-- [ ] Given `commands/learn.md`, when on le lit, then il renvoie vers `references/<flux>.md` pour scan/propose/check/docs et ne demande jamais à l'apprenant de taper une commande `ai-learn`.
-- [ ] Given le README et `templates/AGENTS-apprentissage.md` (section Commandes), when on les lit, then seules les commandes visibles y sont listées comme commandes de l'apprenant.
+- [x] Given `ai-learn install claude` sur un home vierge, when on liste `~/.claude/skills/`, then seuls `learn`, `learn-next`, `learn-status` existent, et `learn/references/` contient `scan.md`, `propose.md`, `check.md`, `docs.md`.
+- [x] Given un home où une install précédente a posé `learn-scan`, `scan`, `check`… non modifiés, when `ai-learn install claude` tourne, then ils sont retirés et listés sous « retirés ».
+- [x] Given un de ces skills modifié par l'utilisateur, when `install` tourne, then il est conservé et nommé « conservé (modifié) » ; rien n'est supprimé en silence.
+- [x] Given un skill utilisateur sans rapport portant le nom `check`, when `install` tourne, then il n'est pas touché.
+- [x] Given `--dry-run`, when `install` tourne, then la sortie liste les retraits prévus et le disque est inchangé.
+- [~] Given les 5 plateformes, when chacune est installée, then chacune reçoit les trois skills et le dossier `references/` à l'emplacement de lecture déjà prouvé en 08.03.
+- [x] Given `commands/learn.md`, when on le lit, then il renvoie vers `references/<flux>.md` pour scan/propose/check/docs et ne demande jamais à l'apprenant de taper une commande `ai-learn`.
+- [x] Given le README et `templates/AGENTS-apprentissage.md` (section Commandes), when on les lit, then seules les commandes visibles y sont listées comme commandes de l'apprenant.
 
 ## Edge Cases
 

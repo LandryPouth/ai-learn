@@ -212,14 +212,14 @@ test("update --platform installs that platform's slash commands into an isolated
   }
 });
 
-test("update --platform migrates a pre-04.05 install to skills, keeping the old name as a deprecated skill", () => {
+test("update --platform migrates a pre-04.05 install to skills, without any alias skill", () => {
   const dir = tmpProject(project());
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-update-migration-"));
   const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   // A project scaffolded before story 04.05: only the old codex prompt exists,
   // carrying the old canonical body. Its bytes predate the current legacy
   // renderer, so install.js conservatively keeps it (it cannot prove it is
-  // ours); the new alias skill carries the explicit deprecation.
+  // ours). Since story 10.01 no alias skill is installed at all.
   writeFile(home, ".codex/prompts/ai-learn-next.md", "---\ndescription: \"Prochaine phase à faire\"\n---\n\nExécute `ai-learn next`.\n");
   process.env.HOME = home;
   process.env.USERPROFILE = home;
@@ -230,10 +230,7 @@ test("update --platform migrates a pre-04.05 install to skills, keeping the old 
     const skills = path.join(home, ".codex", "skills");
     assert.ok(fs.existsSync(path.join(skills, "ai-learn-learn-next", "SKILL.md")), "the new name is installed");
 
-    const alias = fs.readFileSync(path.join(skills, "ai-learn-next", "SKILL.md"), "utf8");
-    assert.match(alias, /Nom déprécié/);
-    assert.match(alias, /learn-next/);
-    assert.match(alias, /ai-learn next/, "the alias forwards the canonical body, not the stale old one");
+    assert.ok(!fs.existsSync(path.join(skills, "ai-learn-next")), "the deprecated alias is gone");
 
     assert.ok(fs.existsSync(path.join(home, ".codex", "prompts", "ai-learn-next.md")), "an unrecognised old file is kept, never silently deleted");
   } finally {

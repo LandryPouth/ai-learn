@@ -412,3 +412,20 @@ Chaque entrée du `.ai-learn/dogfood.md` de l'apprenant porte désormais une lig
   dépendances, comme `bin/lib/source-hash.js#sourceHashScope` le fait déjà ici
   pour l'évidence d'une phase ; à défaut, ne traiter la péremption comme une
   alerte qu'au moment de `ship`/`land`, pas à chaque commit.
+
+### `medium` — `ai-flow worktree place` refuse la forme d'arbre de l'epic 10, et `lock` passe quand même
+
+- **Repo** : ai-learn (dogfooding de Coding Flow — `@landry_pouth/coding-flow` 0.14.0)
+- **Surface** : `ai-flow worktree place` / `ai-flow worktree lock`
+- **Constaté** : le 2026-10-31, `/flow-run` sur la story 10-01 (racine `s1` de
+  `epics/epic-10-…/index.md`). `ai-flow worktree place` s'arrête sur `dependency
+  tree line does not resolve to exactly one story label: "├── s2 ── s3 ──┬── s6"` :
+  une ligne qui enchaîne deux stories avant un embranchement n'est pas une forme
+  qu'il sait lire. Aucune sortie ne dit quoi faire ensuite pour la story racine
+  (qui n'a rien à paralléliser).
+- **Contournement** : la story 10-01 est la racine, l'epic impose l'exécution en
+  séquence ; elle a tourné dans le checkout courant (`plan/epics-09-10`), le
+  `lock` a réussi tout de même. Aucune exemption de contrôle de test.
+- **Piste** : accepter `sA ── sB` sur une ligne (ou ne lire que la story
+  demandée), et, quand `place` échoue, dire explicitement si la story peut
+  continuer dans le checkout courant.

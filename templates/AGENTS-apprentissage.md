@@ -170,6 +170,11 @@ anomalie à combler.
 
 ## Commandes
 
+L'apprenant ne retient que trois commandes : `/learn`, `/learn-next` et `/learn-status`.
+Le tableau ci-dessous est de la **machinerie** : c'est toi qui lances ces commandes,
+l'apprenant n'a jamais à les taper ni à les connaître. `/learn` route seul vers
+`scan`, `propose`, `check` et `docs`.
+
 | Commande | Rôle |
 |---|---|
 | `ai-learn status` | Où j'en suis : phases et leur état — affiche aussi le résumé git/gh cross-projet (`~/.ai-learn/tracks/git.json`) quand il existe et l'état de la norme clean-code, automatique, rien à taper en plus |
