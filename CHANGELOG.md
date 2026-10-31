@@ -10,7 +10,35 @@
 Toutes les versions notables d'`ai-learn` sont documentées ici. Le format suit
 grossièrement [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased — story 10.01
+## 0.6.4 — 2026-10-31 (epics 04 à 10)
+
+Cette section résume ce qui a été livré depuis `0.4.0`, par epic ; le détail de
+chaque story est dans `epics/epic-NN-*/`. Les deux sections « story 10.01 » et
+« story 08.03 » ci-dessous gardent le détail des ruptures d'invocation.
+
+- **Epic 04 — le protocole atteint toute session** : mémoire native par plateforme,
+  `next` atterrit sur l'action utile, `verify --stale` re-prouve en bloc, rappel
+  de commit expliqué.
+- **Epic 05 — protocole pédagogique** : reality check compté, synthèse ciblée,
+  relire avant de noter, pas de solution avant la frappe, profil de tuteur
+  (`.ai-learn/tutor.json`) et preuve de transfert.
+- **Epic 06 — lire moins, apprendre plus** : sources secondaires hors quota,
+  extrait condensé par phase, budget de lecture contrôlé.
+- **Epic 07 — rétention** : revisite échue dans `next`, revisite sans notes,
+  `norm` au fil de la frappe.
+- **Epic 08 — portabilité** : garde-fou OpenCode, commandes en skills, Windows
+  natif ; CI sur Linux, macOS et Windows (Node 18/20/22).
+- **Epic 09 — preuve fiable** : ledgers propres, checkpoint honnête (zéro test
+  refusé, changement de checkpoint signalé), garde-fou sans angle mort, scaffold
+  `.gitignore`, norme à la relecture, revisite de mémoire, dogfood clos.
+- **Epic 10 — cap plateforme** : quatre commandes visibles (`/learn`,
+  `/learn-next`, `/learn-status`, `/learn-break`), profil apprenant global,
+  progression plateforme (7 paliers), `break` (incident de code, puis incidents
+  automatiques et pannes d'environnement), analyse de pertinence avant `init`,
+  **bilan de fin de projet** (`docs/bilan.md`, généré par `verify`, exigé par
+  `check`, `bilan` dans `status`).
+
+## 0.5.0 — story 10.01
 
 `package.json` passe à `0.5.0` : les projets déjà estampillés sont vus `outdated` et
 reçoivent le nouveau `AGENTS.md` via `ai-learn update`.
@@ -26,7 +54,7 @@ reçoivent le nouveau `AGENTS.md` via `ai-learn update`.
   skill modifié est conservé et nommé (« conservé (modifié) »), un skill
   utilisateur sans rapport n'est pas touché. `--dry-run` liste les retraits.
 
-## Unreleased — story 08.03
+## Avant 0.5.0 — story 08.03
 
 - Les commandes `/learn-*` sont installées comme skills `<nom>/SKILL.md` pour
   Claude Code, OpenCode, Gemini CLI, Codex CLI et Antigravity. L'invocation

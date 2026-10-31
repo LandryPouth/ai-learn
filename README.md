@@ -142,6 +142,8 @@ Trois niveaux de preuve, à ne pas confondre :
 
 ## Développement
 
+> Documentation du dépôt (état, architecture, conventions, roadmap) : [`docs/README.md`](docs/README.md).
+
 ```bash
 npm test                 # suite complète (node --test, stdlib only)
 ai-learn check --root .  # croise le ledger contre la réalité
