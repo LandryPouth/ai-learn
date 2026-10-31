@@ -40,6 +40,7 @@ const { normProject } = require("./norm");
 const { guardConfigIssues, loadGuardConfig, isOwnGuardCommand, hookScriptMissing, hookScriptPath } = require("./guard");
 const { readTutorConfig } = require("./tutor");
 const { readProfile } = require("./profile");
+const { readPlatformTracks, validatePlatformTracks, tracksPath: platformTracksPath } = require("./tracks/platform");
 const { MODE_DIRIGEANT, formatLedgerRefusal, requiredTiersStatus } = require("./mode");
 const { checkpointFilePath, computeSourceHash, changedSourceFiles } = require("./source-hash");
 const { walkSources, detectTests, ALL_SOURCE_EXTS } = require("./scan");
@@ -106,6 +107,15 @@ function checkProject(dir, { home, now = new Date() } = {}) {
   // error; a missing one is the normal state.
   for (const message of readProfile({ home }).issues) {
     issues.errors.push({ file: "~/.ai-learn/profile.json", message });
+  }
+
+  // The platform ledger (story 10.03) is only written by a phase tagged
+  // `platformTier`, so — unlike the other ledgers — its absence is never a
+  // sign of a lost sync; a corrupt file is always worth naming.
+  if (fs.existsSync(platformTracksPath({ home }))) {
+    for (const issue of validatePlatformTracks(readPlatformTracks({ home }).config)) {
+      issues.errors.push({ file: "~/.ai-learn/tracks/platform.json", message: issue.message });
+    }
   }
 
   // Doc sources the ledger declares should exist. A local source that vanished

@@ -331,6 +331,28 @@ test("an out-of-range gitTier is a warning, not an error; a valid one is silent"
   assert.ok(!entryValid.issues.warnings.some((w) => /gitTier/.test(w.message)));
 });
 
+test("platformTier out of range is an error naming the phase and the 1-7 range", () => {
+  const progress = sampleProgress();
+  progress.phases[0].platformTier = 9;
+
+  const { errors } = checkProject(tmpProject(progress)).issues;
+  assert.ok(errors.some((e) => /phase 0.*platformTier.*1-7/.test(e.message)));
+
+  progress.phases[0].platformTier = 7;
+  assert.ok(!checkProject(tmpProject(progress)).issues.errors.some((e) => /platformTier/.test(e.message)));
+});
+
+test("a corrupt platform ledger is reported by check", () => {
+  const dir = tmpProject(sampleProgress());
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-check-platform-"));
+  const file = require("../bin/lib/tracks/platform").tracksPath({ home });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "{ cassé");
+
+  const errors = checkProject(dir, { home }).issues.errors;
+  assert.ok(errors.some((e) => /tracks\/platform\.json/.test(e.file)));
+});
+
 test("a non-boolean phase.mutation is a warning, not an error; a real boolean is silent", () => {
   const progress = sampleProgress();
   progress.phases[0].mutation = "true";

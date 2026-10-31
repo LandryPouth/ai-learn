@@ -26,13 +26,13 @@ Quel que soit le langage du projet, chaque parcours fait progresser l'apprenant 
 
 ## Acceptance Criteria
 
-- [ ] Given une phase `platformTier: 3` et un checkpoint vert, when `ai-learn verify`, then `platform.json` marque le palier 3 `achieved` avec une évidence (projet, phase).
-- [ ] Given la même phase et un checkpoint rouge, when `verify`, then le ledger n'est pas modifié.
-- [ ] Given `platformTier: 9`, when `ai-learn check`, then erreur nommant la phase et la plage 1-7.
-- [ ] Given un ledger avec les paliers 1 et 2 atteints, when `ai-learn status`, then « plateforme : 2/7 » et la liste des paliers manquants.
-- [ ] Given un ledger où seul le palier 7 manque, when `ai-learn propose --stack javascript`, then le premier projet listé couvre le palier 7.
-- [ ] Given la banque, when `propose --validate` tourne sur chaque nouveau projet, then aucun n'est refusé (toutes les étapes sourcées).
-- [ ] Given `commands/learn.md`, when on le lit, then la section paliers impose 1-2 phases max et un checkpoint qui exécute réellement le thème.
+- [x] Given une phase `platformTier: 3` et un checkpoint vert, when `ai-learn verify`, then `platform.json` marque le palier 3 `achieved` avec une évidence (projet, phase).
+- [x] Given la même phase et un checkpoint rouge, when `verify`, then le ledger n'est pas modifié.
+- [x] Given `platformTier: 9`, when `ai-learn check`, then erreur nommant la phase et la plage 1-7.
+- [x] Given un ledger avec les paliers 1 et 2 atteints, when `ai-learn status`, then « plateforme : 2/7 » et la liste des paliers manquants.
+- [x] Given un ledger où seul le palier 7 manque, when `ai-learn propose --stack javascript`, then le premier projet listé couvre le palier 7.
+- [x] Given la banque, when `propose --validate` tourne sur chaque nouveau projet, then aucun n'est refusé (toutes les étapes sourcées).
+- [x] Given `commands/learn.md`, when on le lit, then la section paliers impose 1-2 phases max et un checkpoint qui exécute réellement le thème.
 
 ## Edge Cases
 

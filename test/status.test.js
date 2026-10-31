@@ -101,6 +101,23 @@ test("statusCommand includes the git/gh summary when a ledger exists for the inj
   assert.match(out, /Tiers atteints : 2/);
 });
 
+test("status shows platform progress and missing tiers", () => {
+  const { defaultPlatformTracks, writePlatformTracks } = require("../bin/lib/tracks/platform");
+  const dir = tmpProject(sampleProgress());
+  const home = tmpHome();
+
+  assert.doesNotMatch(capture(() => statusCommand({ dir, home })), /plateforme/);
+
+  const config = defaultPlatformTracks();
+  config.tiers["1"].achieved = true;
+  config.tiers["2"].achieved = true;
+  writePlatformTracks(config, { home });
+
+  const out = capture(() => statusCommand({ dir, home }));
+  assert.match(out, /plateforme : 2\/7/);
+  assert.match(out, /Paliers restants : 3, 4, 5, 6, 7/);
+});
+
 test("statusCommand omits the git/gh summary entirely when no ledger exists", () => {
   const dir = tmpProject(sampleProgress());
   const home = tmpHome();

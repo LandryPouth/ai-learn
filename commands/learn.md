@@ -209,6 +209,33 @@ git/gh (1-6, voir `AGENTS.md` §3) manquent encore, **tous projets confondus**.
   la commande elle-même (bloqué mécaniquement par `ai-learn guard`), elle
   demande à l'apprenant de la lancer et de rapporter ce qu'il voit.
 
+### Intégrer les paliers plateforme (1 à 2 phases max)
+
+Quel que soit le langage, chaque parcours fait avancer l'apprenant d'un ou deux
+paliers plateforme. Lis `~/.ai-learn/tracks/platform.json` (simple lecture ; absent
+= aucun palier prouvé) et, s'il existe, le champ `focus` du profil.
+
+| Palier | Thème | Ce que le checkpoint exécute pour de vrai |
+|---|---|---|
+| 1 | Linux & processus | signaux, codes de sortie, variables d'environnement, descripteurs |
+| 2 | Réseau | HTTP brut, TCP, DNS, TLS observés (`curl -v`, `ss`, `dig`, `openssl s_client`) |
+| 3 | Données | transaction, contrainte, index prouvé par `EXPLAIN` |
+| 4 | Conteneurs | image, réseau, volume, compose reproductible |
+| 5 | CI/CD | pipeline qui lance les tests et bloque un échec |
+| 6 | Observabilité | logs structurés, health check, arrêt propre sur `SIGTERM` |
+| 7 | Fiabilité | timeout, retry, idempotence, file de tâches |
+
+- Tague **1 à 2 phases au maximum** avec un palier manquant : `"platformTier": <1-7>`
+  dans `progress.json`. Jamais tout le parcours, jamais plus de deux phases.
+- Le checkpoint de ces phases **exécute réellement le thème** : une commande réelle
+  (`curl -v`, `ss`, `EXPLAIN`, `kill -TERM`…) dont la sortie prouve le palier, pas un
+  test qui l'affirme.
+- Un palier n'est `achieved` que par un `verify` réussi d'une phase taguée ; il n'y a
+  aucune détection sans tag. Une phase peut porter `gitTier` et `platformTier` : les
+  deux ledgers avancent.
+- Si l'apprenant veut un projet et n'a pas d'idée, `propose` classe en tête les
+  projets qui couvrent ses paliers manquants.
+
 ## 5. Scaffolder avec ai-learn
 
 Exécute, depuis le dossier du projet (ou depuis son dossier parent : avec `--project`, `init` crée alors `./<nom-du-projet>/` quand le dossier courant n'est ni vide-pour-ce-projet ni nommé ainsi — la première ligne affiche le chemin choisi) :

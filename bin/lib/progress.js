@@ -214,6 +214,15 @@ function validateProgress(config) {
       }
     }
 
+    // Optional: which platform tier (1-7, see bin/lib/tracks/platform.js) this
+    // phase deliberately teaches. Unlike gitTier, an out-of-range value is an
+    // error: `check` must name the phase and the 1-7 range (story 10.03).
+    if (phase.platformTier !== undefined && phase.platformTier !== null) {
+      if (!Number.isInteger(phase.platformTier) || phase.platformTier < 1 || phase.platformTier > 7) {
+        issues.push({ level: "error", message: `phase ${phase.id} has an out-of-range platformTier (${phase.platformTier}) — expected 1-7` });
+      }
+    }
+
     // Optional: the "casse réelle" checkpoint (see bin/lib/stacks/*.js's
     // `stresses` bank) — `ai-learn verify` requires both this and the base
     // `checkpoint` to pass before marking the phase done.

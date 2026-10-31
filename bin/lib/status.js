@@ -7,6 +7,7 @@ const path = require("path");
 const { log, fail, normalizePortable } = require("./util");
 const { readProgress, missingProgressMessage, validateProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
+const platformTracks = require("./tracks/platform");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
 const { loadGuardConfig } = require("./guard");
@@ -176,6 +177,20 @@ function printGitTracksSummary({ home } = {}) {
   log("\nGit/gh — maîtrise cross-projet :");
   log(`  Tiers atteints : ${achieved.length > 0 ? achieved.join(", ") : "aucun"}`);
   log(missing.length > 0 ? `  Tiers restants  : ${missing.join(", ")}` : "  Tous les tiers sont atteints.");
+}
+
+// The global platform ledger (story 10.03), silent when absent or unreadable
+// (`check` reports a corrupt one).
+function printPlatformSummary({ home } = {}) {
+  const missing = platformTracks.missingPlatformTiers({ home });
+
+  if (missing === null) {
+    return;
+  }
+
+  const total = platformTracks.TIER_IDS.length;
+  log(`\nplateforme : ${total - missing.length}/${total}`);
+  log(missing.length > 0 ? `  Paliers restants : ${missing.join(", ")}` : "  Tous les paliers sont atteints.");
 }
 
 // Additive, read-only summary of the domain mastery ledger (see
@@ -365,6 +380,7 @@ function statusCommand({ dir, home, json }) {
   }
 
   printGitTracksSummary({ home });
+  printPlatformSummary({ home });
   printDomainSummary({ dir, home });
   printNormSummary({ dir });
   printCommitReminder(dir);
@@ -375,6 +391,7 @@ module.exports = {
   buildStatusReport,
   latestEvidenceForPhase,
   printGitTracksSummary,
+  printPlatformSummary,
   printProfile,
   printDomainSummary,
   printNormSummary,

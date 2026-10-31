@@ -430,3 +430,4 @@ Chaque entrée du `.ai-learn/dogfood.md` de l'apprenant porte désormais une lig
   demandée), et, quand `place` échoue, dire explicitement si la story peut
   continuer dans le checkout courant.
 - **Récurrence** : même refus le 2026-10-31 sur la story 10-02 ; exécutée en séquence dans le checkout courant, `lock` réussi. Aucune exemption de contrôle.
+- **Récurrence** : même refus le 2026-10-31 sur la story 10-03 (`├── s2 ── s3 ──┬── s6`) ; exécutée en séquence dans le checkout courant, `lock` réussi. Aucune exemption de contrôle.

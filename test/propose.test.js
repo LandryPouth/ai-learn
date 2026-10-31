@@ -5,7 +5,7 @@
 // project must be fully backed by verifiable resources (no step on thin air),
 // and an invented project without a resource per stage is refused.
 
-const { test, afterEach } = require("node:test");
+const { test, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
@@ -16,8 +16,17 @@ const { PROJECTS, stageCoverage, stageResource, validateProject, proposeCommand 
 
 const BIN = path.join(__dirname, "..", "bin", "ai-learn.js");
 
+// The platform ledger lives in the home directory and reorders proposals:
+// every test starts from an empty one (the developer's real ledger never leaks in).
+const realHome = process.env.HOME;
+
+beforeEach(() => {
+  process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-propose-home-"));
+});
+
 afterEach(() => {
   process.exitCode = 0;
+  process.env.HOME = realHome;
 });
 
 function tmpDir() {
@@ -146,7 +155,7 @@ test("proposeCommand filters by stack and level", () => {
   assert.ok(five.projects.every((p) => p.difficulty === 5), `got ${five.projects.map((p) => p.id)}`);
 
   const cDir = tmpDir();
-  capture(() => proposeCommand({ dir: cDir, stack: "c", limit: 10 }));
+  capture(() => proposeCommand({ dir: cDir, stack: "c", limit: 20 }));
   const cStack = JSON.parse(fs.readFileSync(path.join(cDir, ".ai-learn", "proposals.json"), "utf8"));
   assert.ok(cStack.projects.some((p) => p.id === "sqlite"), "sqlite (C) should appear for --stack c");
   assert.ok(!cStack.projects.some((p) => p.id === "redis"), "redis is not offered in C");
@@ -159,7 +168,7 @@ test("proposeCommand filters by stack and level", () => {
 
 test("the bank serves the web/API persona: JS projects include a REST API and a WebSocket", () => {
   const dir = tmpDir();
-  capture(() => proposeCommand({ dir, stack: "javascript", limit: 10 }));
+  capture(() => proposeCommand({ dir, stack: "javascript", limit: 20 }));
 
   const report = JSON.parse(fs.readFileSync(path.join(dir, ".ai-learn", "proposals.json"), "utf8"));
   const ids = report.projects.map((p) => p.id);
@@ -190,4 +199,54 @@ test("propose --validate accepts a fully sourced invented project via CLI", () =
   const result = spawnSync(process.execPath, [BIN, "propose", "--validate", goodFile, "--dir", dir], { encoding: "utf8" });
   assert.strictEqual(result.status, 0);
   assert.match(result.stdout, /Projet valide/);
+});
+
+const PLATFORM_IDS = ["task-queue", "graceful-shutdown", "observability", "rate-limiter", "reverse-proxy", "ci-pipeline"];
+
+test("every project declares platformTiers within 1-7, and the six platform projects cover at least one", () => {
+  for (const project of PROJECTS) {
+    assert.ok(Array.isArray(project.platformTiers), `${project.id} needs platformTiers`);
+    assert.ok(project.platformTiers.every((t) => Number.isInteger(t) && t >= 1 && t <= 7), `${project.id} has a bad tier`);
+  }
+
+  for (const id of PLATFORM_IDS) {
+    const project = PROJECTS.find((p) => p.id === id);
+    assert.ok(project, `missing platform project ${id}`);
+    assert.ok(project.platformTiers.length > 0, `${id} covers no platform tier`);
+    assert.ok(project.stages.length >= 3, `${id} needs at least 3 stages`);
+  }
+});
+
+function firstProposal(dir, args) {
+  proposeCommand({ dir, ...args });
+  return JSON.parse(fs.readFileSync(path.join(dir, ".ai-learn", "proposals.json"), "utf8")).projects;
+}
+
+test("projects covering missing platform tiers rank first", () => {
+  const { defaultPlatformTracks, writePlatformTracks } = require("../bin/lib/tracks/platform");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-propose-home-"));
+  const dir = tmpDir();
+
+  const config = defaultPlatformTracks();
+  for (const tier of [1, 2, 3, 4, 5, 6]) {
+    config.tiers[String(tier)].achieved = true;
+  }
+  writePlatformTracks(config, { home });
+
+  let picked;
+  capture(() => {
+    picked = firstProposal(dir, { stack: "javascript", home });
+  });
+  assert.ok(picked[0].platformTiers.includes(7), `first project ${picked[0].id} must cover tier 7`);
+});
+
+test("without a platform ledger the order is unchanged (difficulty first)", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-propose-home-"));
+  const dir = tmpDir();
+  let picked;
+  capture(() => {
+    picked = firstProposal(dir, { stack: "javascript", home });
+  });
+  const difficulties = picked.map((p) => p.difficulty);
+  assert.deepStrictEqual(difficulties, [...difficulties].sort((a, b) => a - b));
 });

@@ -11,7 +11,7 @@
 // the proof it rested on is gone. Repair only ever lowers: it never grants.
 //
 // sync: replays a project's latest passing verify evidence per phase through
-// the three ledger syncs verify runs at phase closure. Idempotent: the syncs
+// the four ledger syncs verify runs at phase closure. Idempotent: the syncs
 // dedupe their evidence and skip the write when only timestamps would change.
 
 const fs = require("fs");
@@ -21,6 +21,7 @@ const { log, readJson } = require("./util");
 const { readProgress, latestEvidenceForPhase } = require("./progress");
 const git = require("./tracks/git");
 const tests = require("./tracks/tests");
+const platform = require("./tracks/platform");
 const domain = require("./tracks/domain");
 const { assertWritable, writeLedgerFile, withoutTimestamps, projectKey, canonicalizeProjects } = require("./tracks/store");
 
@@ -82,6 +83,20 @@ function repairGit(config, gone) {
   return { removed: [...removed], tiersReset };
 }
 
+// platform: like git, only a `phase-verified` entry ever marked a tier achieved.
+function repairPlatform(config, gone) {
+  const removed = new Set(dropProjects(config, gone));
+  const tiersReset = [];
+
+  for (const tierId of platform.TIER_IDS) {
+    const tier = config.tiers[String(tierId)];
+    dropEvidence(tier, gone, removed);
+    settle(tier, tierId, tier.evidence.some((e) => e.kind === "phase-verified"), tiersReset);
+  }
+
+  return { removed: [...removed], tiersReset };
+}
+
 // tests: tiers 1-5 rest on their own evidence; tier 6 is "tier 2 in >= 2
 // projects", recomputed from the projects that remain.
 function repairTests(config, gone) {
@@ -129,6 +144,7 @@ function ledgerFiles(home) {
   const files = [
     { name: "tracks/git.json", file: git.tracksPath({ home }), validate: git.validateGitTracks, repair: repairGit },
     { name: "tracks/tests.json", file: tests.tracksPath({ home }), validate: tests.validateTestsTracks, repair: repairTests },
+    { name: "tracks/platform.json", file: platform.tracksPath({ home }), validate: platform.validatePlatformTracks, repair: repairPlatform },
   ];
   const domainsDir = domain.domainsHome({ home });
 
@@ -191,7 +207,7 @@ function repairLedgers({ home = os.homedir(), dryRun = false, gone = folderGone,
 
 // --- sync --------------------------------------------------------------------
 
-// Same three syncs, same isolated failure domains as verify's phase closure:
+// Same four syncs, same isolated failure domains as verify's phase closure:
 // one failing ledger never stops the other two, and every failure is returned.
 function syncEvidence({ dir, phase, evidence, home }) {
   const key = projectKey(dir);
@@ -200,6 +216,7 @@ function syncEvidence({ dir, phase, evidence, home }) {
     ["git", () => git.syncGitTrack({ dir: key, phase, verifyEvidence: evidence, home }), () => git.tracksPath({ home })],
     ["domaine", () => domain.syncDomainLedger({ dir: key, verifyEvidence: evidence, home }), () => domain.domainsHome({ home })],
     ["tests", () => tests.syncTestsTrack({ dir: key, phase, verifyEvidence: evidence, home }), () => tests.tracksPath({ home })],
+    ["plateforme", () => platform.syncPlatformTrack({ dir: key, phase, verifyEvidence: evidence, home }), () => platform.tracksPath({ home })],
   ];
 
   for (const [name, run, where] of attempts) {
@@ -273,21 +290,26 @@ function ledgerHealth({ dir, home = os.homedir() } = {}) {
   const missing = [];
   const unreadable = [];
 
-  const inspect = (name, file, validate) => {
+  const inspect = (name, file, validate, { optional = false } = {}) => {
     if (!fs.existsSync(file)) {
-      missing.push(name);
+      if (!optional) {
+        missing.push(name);
+      }
       return;
     }
     const config = readJson(file, null);
     if (config === null || validate(config).length > 0) {
       unreadable.push(name);
-    } else if (!(config.projects && config.projects[key])) {
+    } else if (!optional && !(config.projects && config.projects[key])) {
       missing.push(name);
     }
   };
 
   inspect("tracks/git.json", git.tracksPath({ home }), git.validateGitTracks);
   inspect("tracks/tests.json", tests.tracksPath({ home }), tests.validateTestsTracks);
+  // Only a phase tagged `platformTier` ever writes this ledger: absent is
+  // normal, a corrupt one is still reported.
+  inspect("tracks/platform.json", platform.tracksPath({ home }), platform.validatePlatformTracks, { optional: true });
 
   let stack = null;
   try {

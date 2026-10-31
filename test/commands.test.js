@@ -110,3 +110,13 @@ test("learn-next reads the profile to size the session and pick the transfer exa
   assert.match(text, /projects\[\]/);
   assert.deepStrictEqual(learnerAddressedCommands(text), []);
 });
+
+test("learn caps platform tiers at two phases and demands a checkpoint that really runs the theme", () => {
+  const text = read("learn.md");
+
+  assert.match(text, /platformTier/);
+  assert.match(text, /1 à 2 phases au maximum/);
+  assert.match(text, /exécute réellement le thème/);
+  assert.match(text, /tracks\/platform\.json/);
+  assert.deepStrictEqual(learnerAddressedCommands(text), []);
+});

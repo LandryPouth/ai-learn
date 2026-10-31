@@ -32,6 +32,9 @@ d'où vient l'idée.
      hasard — c'est ce qui rend « quelques projets suffisent pour devenir
      expert » réel plutôt qu'un vœu. Aucun changement de commande : le filtre
      `--level` existe déjà, seule la valeur choisie est informée par le ledger.
+   - Si `~/.ai-learn/tracks/platform.json` existe, `propose` classe lui-même en
+     tête les projets qui couvrent les paliers plateforme manquants : garde cet
+     ordre, ne le contredis pas.
 3. L'IA lance `ai-learn propose [--stack …] [--level …]` et lit
    `.ai-learn/proposals.json`.
 4. L'IA choisit un projet (ou propose 2-3 en langage naturel), puis **monte
