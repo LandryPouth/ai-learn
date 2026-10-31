@@ -116,7 +116,7 @@ function syncPlatformTrack({ dir, phase, verifyEvidence, home } = {}) {
   tier.achieved = true;
 
   const known = config.projects[dir] && Array.isArray(config.projects[dir].tiersTouched) ? config.projects[dir].tiersTouched : [];
-  config.projects[dir] = { lastSyncedAt: now, tiersTouched: [...new Set([...known, phase.platformTier])].sort() };
+  config.projects[dir] = { lastSyncedAt: now, tiersTouched: [...new Set([...known, phase.platformTier])].sort((a, b) => a - b) };
   config.updatedAt = now;
 
   writePlatformTracks(config, { home, before });
