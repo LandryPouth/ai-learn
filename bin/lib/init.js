@@ -25,11 +25,13 @@ const { ensureGitignore } = require("./gitignore");
 
 const TEMPLATES_DIR = path.join(__dirname, "..", "..", "templates");
 
+const PERTINENCE_PATH = "docs/plans/pertinence.md";
+
 function templatePath(name) {
   return path.join(TEMPLATES_DIR, name);
 }
 
-function defaultProgress({ project, technology, docSource, phases }) {
+function defaultProgress({ project, technology, docSource, phases, pertinence }) {
   return {
     version: 1,
     toolVersion: TOOL_VERSION,
@@ -37,6 +39,7 @@ function defaultProgress({ project, technology, docSource, phases }) {
     technology: technology || "",
     docSource: docSource || null,
     phases: Array.isArray(phases) && phases.length > 0 ? phases : [],
+    ...(pertinence ? { pertinence } : {}),
   };
 }
 
@@ -75,7 +78,7 @@ function chooseInitDir({ cwd, explicitDir, project }) {
   return target;
 }
 
-function scaffold({ dir, project, technology, docSource, phases, platform }) {
+function scaffold({ dir, project, technology, docSource, phases, platform, pertinenceFile }) {
   const abs = path.resolve(dir);
   const created = [];
 
@@ -97,10 +100,35 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     created.push(".gitignore");
   }
 
+  // The relevance analysis (story 10.06) is written by the agent; the engine
+  // only guarantees it exists next to the plan and is referenced.
   const progressFile = progressPath(abs);
+  const isNewProject = !fs.existsSync(progressFile);
+  let pertinence = null;
 
-  if (!fs.existsSync(progressFile)) {
-    writeJson(progressFile, defaultProgress({ project, technology, docSource, phases }));
+  if (pertinenceFile) {
+    if (!fs.existsSync(pertinenceFile)) {
+      fail(`--pertinence : fichier introuvable : ${pertinenceFile}`);
+    }
+
+    // An existing project keeps its progress.json untouched, so copying here
+    // would leave an unreferenced file: skip it and say so.
+    if (isNewProject) {
+      pertinence = PERTINENCE_PATH;
+      const dest = path.join(abs, PERTINENCE_PATH);
+
+      if (path.resolve(pertinenceFile) !== dest) {
+        fs.copyFileSync(pertinenceFile, dest);
+      }
+
+      created.push(PERTINENCE_PATH);
+    } else {
+      log(`  ignoré --pertinence (le projet existe déjà)`);
+    }
+  }
+
+  if (isNewProject) {
+    writeJson(progressFile, defaultProgress({ project, technology, docSource, phases, pertinence }));
     created.push(normalizePortable(path.relative(abs, progressFile)));
   } else {
     log(`  conservé ${normalizePortable(path.relative(abs, progressFile))} (existe déjà)`);

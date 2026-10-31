@@ -105,6 +105,14 @@ function checkProject(dir, { home, now = new Date() } = {}) {
     (issue.level === "error" ? issues.errors : issues.warnings).push(issue);
   }
 
+  // The relevance analysis (story 10.06): presence only. A project without the
+  // field is never flagged; one that references a missing file is.
+  if (typeof config.pertinence === "string" && config.pertinence) {
+    if (!fs.existsSync(path.join(dir, config.pertinence))) {
+      issues.errors.push({ file: config.pertinence, message: `progress.json references pertinence file ${config.pertinence}, which is missing` });
+    }
+  }
+
   // The tutor profile (story 05.05): an unknown assistance/proof value is an
   // explicit error, never a silent fallback to the defaults verify would use.
   const tutor = readTutorConfig(dir);

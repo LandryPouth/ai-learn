@@ -530,3 +530,32 @@ test("AGENTS commands section lists only visible commands as the learner's", () 
     ["/learn", "/learn-status", "/learn-next", "/learn-break"],
   );
 });
+
+test("init --pertinence copies and references the analysis", () => {
+  const dir = tmpDir();
+  const src = path.join(tmpDir(), "p.md");
+  fs.writeFileSync(src, "# Pertinence\n");
+
+  const { created } = scaffold({ dir, project: "demo", technology: "C", docSource: null, phases: [], pertinenceFile: src });
+
+  assert.strictEqual(fs.readFileSync(path.join(dir, "docs", "plans", "pertinence.md"), "utf8"), "# Pertinence\n");
+  assert.strictEqual(readJson(path.join(dir, "progress.json")).pertinence, "docs/plans/pertinence.md");
+  assert.ok(created.includes("docs/plans/pertinence.md"));
+});
+
+test("init --pertinence on an existing project leaves it untouched", () => {
+  const dir = tmpDir();
+  const src = path.join(tmpDir(), "p.md");
+  fs.writeFileSync(src, "# Pertinence\n");
+  scaffold({ dir, project: "demo", technology: "C", docSource: null, phases: [] });
+
+  const { created } = scaffold({ dir, project: "demo", technology: "C", docSource: null, phases: [], pertinenceFile: src });
+
+  assert.ok(!created.includes("docs/plans/pertinence.md"));
+  assert.ok(!fs.existsSync(path.join(dir, "docs", "plans", "pertinence.md")));
+  assert.strictEqual(readJson(path.join(dir, "progress.json")).pertinence, undefined);
+});
+
+test("init --pertinence fails on a missing file", () => {
+  assert.throws(() => scaffold({ dir: tmpDir(), project: "demo", technology: "C", docSource: null, phases: [], pertinenceFile: "/nonexistent/p.md" }));
+});

@@ -37,11 +37,13 @@ d'où vient l'idée.
      ordre, ne le contredis pas.
 3. L'IA lance `ai-learn propose [--stack …] [--level …]` et lit
    `.ai-learn/proposals.json`.
-4. L'IA choisit un projet (ou propose 2-3 en langage naturel), puis **monte
+4. L'IA choisit un projet (ou propose 2-3 en langage naturel), puis fait passer
+   l'**analyse de pertinence** de `/learn` (section « Analyse de pertinence »)
+   avec sa validation unique, avant tout `init` ; ensuite elle **monte
    tout le parcours sans que l'apprenant fasse quoi que ce soit** :
    - `ai-learn docs add` pour embarquer chaque ressource des étapes (clone,
      preset, ou `--regen` si non clonable) ;
-   - `ai-learn init --phases` avec des phases dont chaque checkpoint est
+   - `ai-learn init --pertinence … --phases` avec des phases dont chaque checkpoint est
      exécutable et chaque citation pointe vers `docs/sources/<nom>/` ;
    - le plan, l'AGENTS.md, le journal de prédictions — tout est posé.
 5. L'apprenant n'a plus qu'à apprendre : la première phase est prête.

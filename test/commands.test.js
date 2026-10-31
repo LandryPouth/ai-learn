@@ -120,3 +120,17 @@ test("learn caps platform tiers at two phases and demands a checkpoint that real
   assert.match(text, /tracks\/platform\.json/);
   assert.deepStrictEqual(learnerAddressedCommands(text), []);
 });
+
+test("learn runs a single-validation relevance analysis before init", () => {
+  const text = read("learn.md");
+  const analysis = text.indexOf("Analyse de pertinence");
+
+  assert.ok(analysis > -1 && analysis < text.indexOf("## 5. Scaffolder"));
+  assert.match(text, /profile\.dailyMinutes/);
+  assert.match(text, /essentiel \/ utile \/ différable \/ hors périmètre/);
+  assert.match(text, /\*\*une seule\*\* question de validation/);
+  assert.match(text, /n'appelle \*\*jamais\*\* `ai-learn init` avant la réponse/);
+  assert.match(text, /déjà `achieved`[^]*version réduite/);
+  assert.match(read("references/propose.md"), /Analyse de pertinence/);
+  assert.deepStrictEqual(learnerAddressedCommands(text), []);
+});

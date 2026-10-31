@@ -86,6 +86,7 @@ function main() {
       const technology = getFlagValue("--technology", null);
       const docSourceRaw = getFlagValue("--doc-source", null);
       const phasesRaw = getFlagValue("--phases", null);
+      const pertinenceRaw = getFlagValue("--pertinence", null);
       let phases = [];
 
       if (phasesRaw) {
@@ -108,7 +109,7 @@ function main() {
       const { detectPlatform } = require("./lib/platforms/detect");
       const platform = getFlagValue("--platform", null) || detectPlatform();
 
-      const { created } = scaffold({ dir: target, project, technology, docSource, phases, platform });
+      const { created } = scaffold({ dir: target, project, technology, docSource, phases, platform, pertinenceFile: pertinenceRaw ? path.resolve(dir, pertinenceRaw) : null });
       log(`Projet d'apprentissage "${project}" initialisé dans ${target}`);
 
       for (const file of created) {
@@ -375,7 +376,7 @@ function main() {
 
 Usage:
   ai-learn version | --version | -v
-  ai-learn init --technology <name> [--project <name>] [--dir <dir>] [--doc-source <path|url>] [--phases '<json>']
+  ai-learn init --technology <name> [--project <name>] [--dir <dir>] [--doc-source <path|url>] [--pertinence <fichier>] [--phases '<json>']
              [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn status [--dir <dir>] [--json]
   ai-learn next [--dir <dir>] [--json]

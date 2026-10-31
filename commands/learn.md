@@ -236,6 +236,33 @@ paliers plateforme. Lis `~/.ai-learn/tracks/platform.json` (simple lecture ; abs
 - Si l'apprenant veut un projet et n'a pas d'idée, `propose` classe en tête les
   projets qui couvrent ses paliers manquants.
 
+## 4 bis. Analyse de pertinence (avant tout `ai-learn init`)
+
+Avant de monter quoi que ce soit, écris `pertinence.md` (dans un dossier
+temporaire, pas encore dans le projet) et montre-le **en une fois** :
+
+- **Compétences nouvelles** : ce que l'apprenant ne sait pas encore faire.
+- **Déjà acquises** : lues dans les ledgers (`~/.ai-learn/domains/<stack>.json`,
+  `tracks/platform.json`, `tracks/tests.json`, `tracks/git.json`,
+  `tracks/debug.json`) — simple lecture, jamais bloquée.
+- **Prérequis manquants** : ce qu'il faudrait savoir avant la première phase.
+- **Lien avec `profile.projects`** : à quoi ça sert dans ses projets réels.
+- **Coût** : estimation en jours, rapportée à `profile.dailyMinutes`.
+- **Classement** de chaque concept : essentiel / utile / différable / hors périmètre.
+
+Règles :
+
+- Pose **une seule** question de validation (monter tel quel, ou réduire), et
+  n'appelle **jamais** `ai-learn init` avant la réponse.
+- Si tous les concepts du projet sont déjà `achieved` dans le ledger de
+  domaine : ne le monte pas — propose une version réduite ou un autre projet.
+- Un projet trop gros pour `profile.dailyMinutes` est réduit (différable /
+  hors périmètre) avant d'être monté, pas après.
+- Guide de séquençage des phases (jamais une règle obligatoire) : mécanisme →
+  expérience minimale → tests → échecs → framework → comparaison.
+- Le moteur ne juge pas la qualité de l'analyse : il garantit seulement
+  qu'elle existe (`--pertinence`).
+
 ## 5. Scaffolder avec ai-learn
 
 Exécute, depuis le dossier du projet (ou depuis son dossier parent : avec `--project`, `init` crée alors `./<nom-du-projet>/` quand le dossier courant n'est ni vide-pour-ce-projet ni nommé ainsi — la première ligne affiche le chemin choisi) :
@@ -245,6 +272,7 @@ ai-learn init \
   --technology "<techno>" \
   --project "<nom-du-projet>" \
   --doc-source "<chemin-ou-url-de-la-doc>" \
+  --pertinence "<chemin-de-pertinence.md>" \
   --phases '<JSON des phases>' \
   --platform <claude|codex|gemini|opencode|antigravity>
 ```

@@ -1845,3 +1845,19 @@ test("pending phases without predictions are one info line, not one warning each
   assert.ok(!entry.issues.warnings.some((w) => /prédictions enregistrées/.test(w.message)));
   assert.strictEqual(entry.issues.infos.filter((i) => /pas encore commencée/.test(i.message)).length, 1);
 });
+
+test("a missing referenced pertinence file is an error", () => {
+  const dir = tmpProject({ ...sampleProgress(), pertinence: "docs/plans/pertinence.md" });
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.errors.some((e) => /pertinence\.md/.test(e.message)));
+});
+
+test("a progress without pertinence is never flagged", () => {
+  const dir = tmpProject(sampleProgress());
+
+  const entry = checkProject(dir);
+
+  assert.ok(![...entry.issues.errors, ...entry.issues.warnings].some((e) => /pertinence/.test(e.message)));
+});
