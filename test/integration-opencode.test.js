@@ -43,6 +43,7 @@ test("opencode actually discovers the skills ai-learn install generates", { skip
     "learn",
     "learn-next",
     "learn-status",
+    "learn-break",
   ]) {
     assert.ok(byName.has(name), `opencode did not discover the ${name} skill`);
   }

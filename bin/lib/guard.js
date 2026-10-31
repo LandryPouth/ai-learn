@@ -31,6 +31,9 @@ const {
 } = require("./platforms/codex-guard");
 
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+// Read tools only matter for one path: the secret of a code incident (story 10.04).
+const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
+const HOOK_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob";
 const DEFAULT_LEARNER_FILES = ["src/**"];
 const DEFAULT_BLOCKED_COMMANDS = ["git", "gh"];
 
@@ -119,6 +122,9 @@ const PROTECTED_FILES = [
   ".ai-learn/guard.log",
   ".ai-learn/guard-unchecked.jsonl",
   ".ai-learn/revisit.lock.json",
+  // The public half of a code incident (story 10.04): flipping `active` would
+  // end it without a repair.
+  ".ai-learn/incident.json",
   // The settings that set how strict the checks are (story 09.03): proof
   // required, norm thresholds, mutation scope, prediction journal. The AI has no
   // legitimate reason to write them; the learner edits them, and the AI records
@@ -1131,6 +1137,63 @@ function modeSwitchReason() {
   );
 }
 
+// An incident's site lives in `~/.ai-learn/incidents/`. Reading it (or listing,
+// or grepping a directory that contains it) would hand the AI the answer the
+// learner is meant to find. The wall only stands while a record exists, so
+// ordinary reads in the home are untouched the rest of the time.
+function incidentStoreHasRecords() {
+  try {
+    return fs.readdirSync(path.join(os.homedir(), ".ai-learn", "incidents")).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function readTargets(toolInput) {
+  if (!toolInput || typeof toolInput !== "object") {
+    return [];
+  }
+
+  const targets = [toolInput.file_path, toolInput.path];
+
+  if (typeof toolInput.pattern === "string") {
+    // A Glob pattern: the literal directory prefix before the first wildcard.
+    targets.push(toolInput.pattern.replace(/^[{[]+/, "").split(/[*?[{,]/)[0]);
+  }
+
+  return targets.filter((value) => typeof value === "string" && value);
+}
+
+function readsIncidentStore(root, toolInput) {
+  if (!incidentStoreHasRecords()) {
+    return false;
+  }
+
+  const store = normalizePortable(path.join(os.homedir(), ".ai-learn", "incidents"));
+  const realStore = resolveRealPath(store);
+
+  return readTargets(toolInput).some((target) => {
+    const expanded = expandHome(target);
+    const abs = normalizePortable(path.isAbsolute(expanded) ? path.normalize(expanded) : path.resolve(root, expanded));
+    const real = resolveRealPath(abs);
+    const stores = [store, realStore && normalizePortable(realStore)].filter(Boolean);
+
+    // Inside the store, or an ancestor of it (`~/.ai-learn`, `~`, `/`).
+    return [abs, real && normalizePortable(real)].filter(Boolean).some((candidate) => stores.some((dir) => matchesDir(candidate, dir) || matchesDir(dir, candidate)));
+  });
+}
+
+function revealsIncident(command) {
+  return splitSegments(command).some((segment) => /\bai-learn(?:\.js)?\b/.test(segment) && /\bbreak\b/.test(segment) && /--giveup\b/.test(segment));
+}
+
+function incidentStoreReason() {
+  return (
+    "ce chemin contient le secret d'un incident de code (~/.ai-learn/incidents/) : l'endroit de la panne est ce que l'apprenant doit trouver. " +
+    "Donne-lui des indices de méthode (relire la sortie du test, réduire le cas, poser une expérience), jamais l'endroit."
+  );
+}
+
 function homeStateReason(target, viaShell) {
   return viaShell
     ? `cette commande écrit dans ${target}, un ledger global d'ai-learn (hors du projet). ` +
@@ -1201,6 +1264,20 @@ function decide(hook, root) {
       };
     }
 
+    if (incidentStoreHasRecords() && /\.ai-learn[\\/]+incidents/i.test(command)) {
+      return { decision: "deny", command, reason: incidentStoreReason() };
+    }
+
+    if (revealsIncident(command)) {
+      return {
+        decision: "deny",
+        command,
+        reason:
+          "`ai-learn break --giveup` révèle le site de la panne et clôt l'incident : c'est un renoncement de l'apprenant, " +
+          "pas de l'IA. Demande-lui de lancer la commande lui-même (`! ai-learn break --giveup`).",
+      };
+    }
+
     if (invokesModeSwitch(command)) {
       return { decision: "deny", command, reason: modeSwitchReason() };
     }
@@ -1222,6 +1299,12 @@ function decide(hook, root) {
     }
 
     return { decision: "allow", reason: "no learner write target detected" };
+  }
+
+  if (READ_TOOLS.has(toolName)) {
+    return readsIncidentStore(root, toolInput)
+      ? { decision: "deny", reason: incidentStoreReason(), path: null }
+      : { decision: "allow", reason: `tool ${toolName} reads nothing protected` };
   }
 
   if (!WRITE_TOOLS.has(toolName)) {
@@ -1572,7 +1655,7 @@ function ensureGuardHook(dir) {
 
   const toolBin = path.join(__dirname, "..", "ai-learn.js");
   const command = guardHookCommand(toolBin);
-  const matcher = "Write|Edit|MultiEdit|NotebookEdit|Bash";
+  const matcher = HOOK_MATCHER;
 
   let settings = null;
 
@@ -1617,6 +1700,13 @@ function ensureGuardHook(dir) {
         if (!h || !isOwnGuardCommand(h.command)) {
           continue;
         }
+        // Story 10.04: an older install matched only the write tools; the
+        // incident wall needs Read/Grep/Glob too. Ours only, others untouched.
+        if (typeof entry.matcher === "string" && !HOOK_MATCHER.split("|").every((tool) => entry.matcher.split("|").includes(tool))) {
+          entry.matcher = [...new Set([...entry.matcher.split("|"), ...HOOK_MATCHER.split("|")])].join("|");
+          changed = true;
+        }
+
         if (hookScriptMissing(h.command, dir)) {
           h.command = command;
           changed = true;

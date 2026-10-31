@@ -313,7 +313,7 @@ test("the protocol template keeps its numbered sections present and in order", (
   const content = fs.readFileSync(PROTOCOL_TEMPLATE, "utf8");
   const ids = [...content.matchAll(/^###\s+([^\s.]+)\./gm)].map((match) => match[1]);
 
-  assert.deepStrictEqual(ids, ["1", "1bis", "2", "3", "3bis", "3ter", "3quater", "3quinquies", "4", "5", "5bis"]);
+  assert.deepStrictEqual(ids, ["1", "1bis", "2", "3", "3bis", "3ter", "3quater", "3quinquies", "3sexies", "4", "5", "5bis"]);
 });
 
 test("§1bis enumerates its five synthesis steps in order, between §1 and §2", () => {
@@ -515,7 +515,7 @@ test("AGENTS commands section lists only visible commands as the learner's", () 
   const section = template.slice(template.indexOf("## Commandes"));
   const intro = section.slice(0, section.indexOf("| Commande |"));
 
-  for (const visible of ["/learn", "/learn-next", "/learn-status"]) {
+  for (const visible of ["/learn", "/learn-next", "/learn-status", "/learn-break"]) {
     assert.ok(intro.includes(`\`${visible}\``), `${visible} is named as a learner command`);
   }
   assert.match(intro, /machinerie/);
@@ -527,6 +527,6 @@ test("AGENTS commands section lists only visible commands as the learner's", () 
   const learnerTable = readme.slice(readme.indexOf("### Les commandes de l'apprenant"), readme.indexOf("Il n'y a pas de `/verify`"));
   assert.deepStrictEqual(
     [...learnerTable.matchAll(/^\| `(\/[a-z-]+)` \|/gm)].map((m) => m[1]),
-    ["/learn", "/learn-status", "/learn-next"],
+    ["/learn", "/learn-status", "/learn-next", "/learn-break"],
   );
 });

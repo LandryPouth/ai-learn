@@ -12,6 +12,7 @@ const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { normalizePredictionsRequired } = require("./predictions");
 const { normProject, formatViolation } = require("./norm");
 const { revisitStatus, revisitNotice } = require("./revisit");
+const { incidentFact, incidentNotice } = require("./incident");
 
 // The done phases, split into the two ways one stops being actionable proof:
 // `broken` (never proven, or stale) and `revisits` (proven, but old enough to
@@ -101,6 +102,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
       done: true,
       phasesTotal: phases.length,
       revisitPending,
+      incident: incidentFact(dir),
       broken,
       stale,
       revisit,
@@ -117,6 +119,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
     outdated: scaffoldState(config).outdated,
     done: false,
     revisitPending,
+    incident: incidentFact(dir),
     broken,
     stale,
     revisit,
@@ -183,6 +186,12 @@ function nextCommand({ dir, json, now = new Date() }) {
   if (notice) {
     log(notice);
     log("");
+  }
+
+  const incident = incidentNotice(dir);
+
+  if (incident) {
+    log(`${incident}\n`);
   }
 
   const scaffold = scaffoldState(config);

@@ -357,3 +357,19 @@ test("a reveal is final and needs feedback", () => {
   assert.throws(() => revealPrediction(dir, sampleProgress(), entry.id, { score: "1/10" }), /already revealed/);
   assert.strictEqual(readPredictions(dir).data.entries[0].score, "7/10");
 });
+
+// Story 10.04 — type `debug`: the site of an incident, as `file` + `line`.
+test("a debug prediction stores its file and line; both are required", () => {
+  const { recordPrediction: record, readPredictions: read } = require("../bin/lib/predictions");
+  const { tmpProject: project, sampleProgress: sample } = require("./helpers");
+  const dir = project(sample());
+  const config = JSON.parse(fs.readFileSync(require("path").join(dir, "progress.json"), "utf8"));
+
+  record(dir, config, { phaseId: 0, type: "debug", prediction: "le test lit mal la valeur", file: "src/a.js", line: "12" });
+  const entry = read(dir).data.entries[0];
+
+  assert.strictEqual(entry.type, "debug");
+  assert.strictEqual(entry.file, "src/a.js");
+  assert.strictEqual(entry.line, 12);
+  assert.throws(() => record(dir, config, { phaseId: 0, type: "debug", prediction: "ailleurs" }), /--file/);
+});

@@ -59,7 +59,7 @@ function main() {
 
   // Commands that act on one project find it from any subfolder; an explicit
   // --dir (or init/update, which choose their own target) is taken as given.
-  const FROM_SUBDIR = ["status", "next", "verify", "predict", "norm", "mutate", "traps", "docs"];
+  const FROM_SUBDIR = ["status", "next", "verify", "predict", "break", "norm", "mutate", "traps", "docs"];
   const explicitDir = getFlagValue("--dir");
   const dir =
     !explicitDir && FROM_SUBDIR.includes(command)
@@ -176,6 +176,21 @@ function main() {
       break;
     }
 
+    case "break": {
+      const { breakCommand, resolveCommand, giveupCommand } = require("./lib/incident");
+
+      if (flags.has("--resolve")) {
+        resolveCommand({ dir });
+      } else if (flags.has("--giveup")) {
+        giveupCommand({ dir });
+      } else {
+        const level = Number.parseInt(getFlagValue("--level", "1"), 10);
+        breakCommand({ dir, level });
+      }
+
+      break;
+    }
+
     case "predict": {
       const { recordPrediction, revealPrediction } = require("./lib/predictions");
       const { readProgress, missingProgressMessage } = require("./lib/progress");
@@ -197,6 +212,8 @@ function main() {
         phaseId,
         type: getFlagValue("--type", null),
         prediction: getFlagValue("--prediction", null),
+        file: getFlagValue("--file", null),
+        line: getFlagValue("--line", null),
         gaps: getFlagValue("--gaps", null),
         score: getFlagValue("--score", null),
         strengths: getFlagValue("--strengths", null),
@@ -368,7 +385,9 @@ Usage:
   ai-learn revisit <phase-id> [--giveup] [--dir <dir>]
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert>] [--dir <dir>]
+  ai-learn break [--level 1|2] [--dir <dir>]
+  ai-learn break --resolve | --giveup [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--dir <dir>]
   ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]
@@ -417,6 +436,8 @@ Commands:
   mutate   Mutation testing: break the learner's code one way, run the phase
            checkpoint against it, report SURVÉCU (the test missed it) or TUÉ
            (the test caught it) per site — the file is always restored after
+  break    Incident de code : casse ton code sans dire où ; tu prédis le site (predict
+           --type debug), tu répares, --resolve prouve. --giveup restaure et révèle.
   predict  Record a prediction for a phase in .ai-learn/predictions.json (source of
            truth) and regenerate docs/plans/predictions.md from it — unless that
            file has been customized (no generated marker), in which case it is left

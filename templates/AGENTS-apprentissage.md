@@ -110,6 +110,19 @@ Cas valide : **« aucun site mutable trouvé »**. Une stack pauvre en opérateu
 
 Le tier « rouge d'abord » du ledger `~/.ai-learn/tracks/tests.json` n'est jamais déclaré : il est lu depuis les évidences de `verify` (un échec de mutation, puis un succès, sur la même phase). Inutile de le « raconter ».
 
+### 3sexies. Incident de code — diagnostiquer une panne dont on ne connaît pas le site
+
+`ai-learn break` casse le code de l'apprenant à un endroit que seul l'outil connaît (le secret vit hors du projet, dans `~/.ai-learn/incidents/`, fermé à ta lecture par le garde-fou). C'est la compétence la moins délégable du métier : partir d'un symptôme pour trouver une cause. Niveau 1 : la sortie du test qui tombe est montrée. Niveau 2 : elle ne nomme pas le fichier fautif.
+
+Protocole, dans l'ordre :
+
+1. **Symptôme** — montre la sortie du checkpoint telle quelle.
+2. **Prédiction avant toute ouverture de fichier** — l'apprenant écrit *où* (`fichier:ligne`) et *par quel mécanisme*. Enregistre-la : `ai-learn predict --phase <id> --type debug --file <fichier> --line <n> --prediction "..."`. Ouvrir un fichier avant, c'est perdre la prédiction.
+3. **Expérience, puis réparation** — par l'apprenant. Tu ne connais pas le site : tes indices portent sur la **méthode** (relire la sortie, réduire le cas, poser une expérience qui départage deux hypothèses), jamais sur l'endroit. Pas de `git diff`, pas de recherche du fichier modifié.
+4. **Preuve** — `ai-learn break --resolve`. Vert : site révélé, comparé à la prédiction (`exact` = même fichier, ligne à ±2). Rouge : l'incident reste actif. `ai-learn break --giveup` restaure le code et révèle le site, sans palier.
+
+Tant qu'un incident est actif, `ai-learn next` et `ai-learn status` l'annoncent en premier : il passe avant la phase suivante. Limite assumée : un apprenant qui lance `git diff` voit la modification — c'est son choix, et la prédiction ne vaut alors plus rien.
+
 ### 4. Reality checks — la seule boucle non truquable
 Régulièrement (au moins une fois par phase) : l'IA fait **prédire à l'utilisateur ce qui va se passer** à l'exécution (lancer le serveur, appeler la route, statut attendu, log attendu), puis on **observe ensemble**. Cette prédiction s'enregistre avec `--type reality` — c'est un type à part, que `verify` peut exiger séparément via `predictionsRequired: { "reality": 1 }`. C'est la seule boucle que l'IA et l'utilisateur ne peuvent pas compléter de connivence — le runtime ne pardonne pas les prédictions fausses.
 
@@ -170,7 +183,7 @@ anomalie à combler.
 
 ## Commandes
 
-L'apprenant ne retient que trois commandes : `/learn`, `/learn-next` et `/learn-status`.
+L'apprenant ne retient que quatre commandes : `/learn`, `/learn-next`, `/learn-status` et `/learn-break`.
 Le tableau ci-dessous est de la **machinerie** : c'est toi qui lances ces commandes,
 l'apprenant n'a jamais à les taper ni à les connaître. `/learn` route seul vers
 `scan`, `propose`, `check` et `docs`.
@@ -178,7 +191,8 @@ l'apprenant n'a jamais à les taper ni à les connaître. `/learn` route seul ve
 | Commande | Rôle |
 |---|---|
 | `ai-learn status` | Où j'en suis : phases et leur état — affiche aussi le résumé git/gh cross-projet (`~/.ai-learn/tracks/git.json`) quand il existe et l'état de la norme clean-code, automatique, rien à taper en plus |
-| `ai-learn next` | La prochaine phase à faire |
+| `ai-learn next` | La prochaine phase à faire (un incident de code actif passe avant) |
+| `ai-learn break [--level 1\|2]` | Incident de code : casse le code de l'apprenant sans dire où (§ 3sexies) ; `--resolve` prouve la réparation et révèle le site, `--giveup` restaure et révèle |
 | `ai-learn scan` | Analyse un projet existant, montre où tu en es, propose une suite d'approfondissement — jamais de reprise à zéro |
 | `ai-learn propose` | Propose des projets à construire quand tu ne sais pas quoi faire — tout est fait automatiquement, chaque étape sourcée |
 | `ai-learn docs list` | Sources de doc du projet (locales dans `docs/sources/`, ou URLs en mode online) |

@@ -19,16 +19,16 @@ L'apprenant s'entraîne à la compétence la moins délégable du métier : trou
 
 ## Acceptance Criteria
 
-- [ ] Given un arbre git sale, when `ai-learn break`, then exit 1 « arbre git non propre » et aucun fichier n'est modifié.
-- [ ] Given un projet dont un checkpoint couvre `src/a.js`, when `ai-learn break --level 1` (générateur fixé), then un seul site de `src/**` est modifié, `.ai-learn/incident.json` est actif et ne contient ni fichier ni ligne.
-- [ ] Given aucun site détectable en 20 essais, when `break`, then exit 1, message de couverture, et chaque fichier est identique à avant (octet par octet).
-- [ ] Given un incident de niveau 2, when on relit la sortie du checkpoint qui tombe, then elle ne contient pas le nom du fichier modifié.
-- [ ] Given un incident actif et la panne réparée, when `break --resolve`, then incident clos, site affiché, palier 1 atteint dans `debug.json`.
-- [ ] Given une prédiction `debug` `src/a.js:12` et un site réel `src/a.js:13`, when `--resolve` réussit, then la comparaison vaut `exact` et le palier 3 est atteint.
-- [ ] Given un incident actif, when `break --giveup`, then le fichier retrouve son contenu d'origine, la version de l'apprenant est dans `.ai-learn/incident-giveup/`, l'issue `abandon` est notée, aucun palier n'est atteint.
-- [ ] Given l'IA sous Claude Code, when elle tente `Read` sur `~/.ai-learn/incidents/x.json`, then le guard refuse.
-- [ ] Given un processus tué pendant `break`, when on relance une commande `ai-learn`, then le verrou orphelin est réparé et le code restauré (contrat `recoverOrphanLock`).
-- [ ] Given un incident actif, when `ai-learn next --json`, then `incident.active` vaut `true` et passe avant `next`.
+- [x] Given un arbre git sale, when `ai-learn break`, then exit 1 « arbre git non propre » et aucun fichier n'est modifié.
+- [x] Given un projet dont un checkpoint couvre `src/a.js`, when `ai-learn break --level 1` (générateur fixé), then un seul site de `src/**` est modifié, `.ai-learn/incident.json` est actif et ne contient ni fichier ni ligne.
+- [x] Given aucun site détectable en 20 essais, when `break`, then exit 1, message de couverture, et chaque fichier est identique à avant (octet par octet).
+- [x] Given un incident de niveau 2, when on relit la sortie du checkpoint qui tombe, then elle ne contient pas le nom du fichier modifié.
+- [x] Given un incident actif et la panne réparée, when `break --resolve`, then incident clos, site affiché, palier 1 atteint dans `debug.json`.
+- [x] Given une prédiction `debug` `src/a.js:12` et un site réel `src/a.js:13`, when `--resolve` réussit, then la comparaison vaut `exact` et le palier 3 est atteint.
+- [x] Given un incident actif, when `break --giveup`, then le fichier retrouve son contenu d'origine, la version de l'apprenant est dans `.ai-learn/incident-giveup/`, l'issue `abandon` est notée, aucun palier n'est atteint.
+- [x] Given l'IA sous Claude Code, when elle tente `Read` sur `~/.ai-learn/incidents/x.json`, then le guard refuse.
+- [x] Given un processus tué pendant `break`, when on relance une commande `ai-learn`, then le verrou orphelin est réparé et le code restauré (contrat `recoverOrphanLock`).
+- [x] Given un incident actif, when `ai-learn next --json`, then `incident.active` vaut `true` et passe avant `next`.
 
 ## Edge Cases
 

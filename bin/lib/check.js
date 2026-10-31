@@ -57,6 +57,7 @@ const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
 const { duplicateSlugs, reviewState } = require("./reviews");
 const { ledgerHealth, hasReplayableEvidence } = require("./ledgers");
 const { contractWarnings } = require("./contract");
+const { incidentFact } = require("./incident");
 
 // Signals that a docs/solutions/*.md reveal was deliberately left incomplete:
 // a bracketed placeholder, an ellipsis, a "TODO/à compléter/à finir" note, or
@@ -81,6 +82,15 @@ function checkProject(dir, { home, now = new Date() } = {}) {
   if (!config) {
     issues.errors.push({ file: "progress.json", message: missingProgressMessage(dir) });
     return { dir, config: null, issues };
+  }
+
+  // Story 10.04 — while a code incident is active the learner's code is broken
+  // on purpose: a red proof below is the incident, not drift.
+  if (incidentFact(dir).active) {
+    issues.warnings.push({
+      file: ".ai-learn/incident.json",
+      message: "a code incident is active: the proofs below may be red because of it. Repair it, then `ai-learn break --resolve` (or `--giveup`).",
+    });
   }
 
   // The learning mode lives in `.ai-learn/guard.json`; absent or typo'd, the

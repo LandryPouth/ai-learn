@@ -36,6 +36,11 @@ Une preuve périmée ne remplace jamais la prochaine action : elle est listée
 après. Si tout est fini et prouvé, `ai-learn next` le dit — dis-le simplement : le
 `check` silencieux a déjà confirmé que tout est prouvé.
 
+Si la sortie annonce un **incident de code actif** (ou si `incident.active` vaut
+`true` dans le JSON), il passe avant la phase suivante : rappelle le protocole de
+`/learn-break` (prédire le site avant d'ouvrir un fichier, réparer, puis
+`ai-learn break --resolve`). Ne cherche pas le site toi-même.
+
 Si la sortie annonce une **revisite échue**, lance `ai-learn revisit <id>` : l'outil
 retire de `src/**` ce que la phase avait ajouté et l'apprenant le retape de mémoire
 (sans notes). Tu ne lis pas le code retiré, ni la sauvegarde `.ai-learn/revisit/`, et

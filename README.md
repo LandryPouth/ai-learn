@@ -30,6 +30,7 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 | `ai-learn` (module git/gh) | Ledger cross-projet `~/.ai-learn/tracks/git.json` (jamais remis à zéro), hook `commit-msg` mécanique (Conventional Commits), tiers 1-6 de la banque git/gh — voir `AGENTS.md` §3bis |
 | `ai-learn norm` | Vérifie la norme clean-code (longueur fichier/fonction, imbrication, params) — bloque `verify`/`check` sur violation, lecture seule et standalone pour un retour rapide |
 | `ai-learn mode <apprenti\|dirigeant>` | Bascule le mode. `dirigeant` **se mérite** : tiers 1-3 du ledger global de tests atteints, sinon refus exit 1 nommant le tier manquant ; ledger absent/corrompu/version inconnue = refus. `apprenti` toujours permis. `check` signale l'écart si `guard.json` est passé en `dirigeant` à la main |
+| `ai-learn break` | Incident de code : casse `src/**` à un endroit que seul l'outil connaît (secret dans `~/.ai-learn/incidents/`, fermé à la lecture de l'IA sous Claude Code) ; l'apprenant prédit le site (`predict --type debug`), répare, `--resolve` prouve et compare, `--giveup` restaure. Niveau 2 : la sortie du test ne nomme pas le fichier fautif. Ledger `~/.ai-learn/tracks/debug.json`. Limite assumée : `git diff` montre la modification — c'est le choix de l'apprenant, et la prédiction ne vaut alors plus rien |
 | `ai-learn mutate` | Mutation testing : casse `src/**` d'une façon précise puis relance le checkpoint de la phase — un mutant **survécu** prouve qu'un test ne protège rien ; `verify` bloque sur les phases `mutation: true`, protocole de prédiction en `AGENTS.md` §3quinquies |
 
 ## Install / usage
@@ -49,8 +50,9 @@ bash scripts/install-claude.sh   # rend `ai-learn` dispo partout + skills Claude
 | `/learn` | Crée un parcours d'apprentissage : doc solide + questions + plan + `progress.json` |
 | `/learn-status` | Où j'en suis : phases et leur état |
 | `/learn-next` | La prochaine phase à faire |
+| `/learn-break` | Incident de code : l'outil casse ton code sans dire où, tu diagnostiques et tu répares |
 
-Trois commandes, pas plus. `/learn` route seul : projet existant sans parcours →
+Quatre commandes, pas plus. `/learn` route seul : projet existant sans parcours →
 analyse (`scan`), pas d'idée de projet → propositions (`propose`), parcours
 existant → reprise ; il lance lui-même `check` et `docs`. `/learn-next` lance
 `check` en silence. Ces flux vivent dans `learn/references/*.md`, à côté du skill

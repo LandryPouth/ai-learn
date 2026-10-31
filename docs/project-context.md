@@ -20,8 +20,8 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
 ## Utilisateurs
 
-1. **L'apprenant** — ne tape jamais de commande. Il passe par les 7 commandes
-   `/learn-*` de son agent (`/learn`, `/learn-status`, `/learn-next`) ; scan, propose,
+1. **L'apprenant** — ne tape jamais de commande. Il passe par les 4 commandes
+   `/learn-*` de son agent (`/learn`, `/learn-status`, `/learn-next`, `/learn-break`) ; scan, propose,
    check et docs tournent en machinerie, appelés par `/learn` (flux dans
    `learn/references/`). Les anciens noms et alias sont retirés (story 10.01).
    En mode `apprenti` (défaut), il tape **tout le code** de `src/**` ; en mode
@@ -49,6 +49,8 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 | Ledger plateforme cross-projet | `~/.ai-learn/tracks/platform.json` | 7 paliers, `achieved` par `verify` d'une phase taguée `platformTier` seulement ; ligne « plateforme : n/7 » dans `status` ; classement de `propose` |
 | Ledger de tests cross-projet | `~/.ai-learn/tracks/tests.json` | 6 tiers observés depuis les évidences `verify` |
 | Mode dirigeant mérité | `ai-learn mode` + `ai-learn check` | tiers 1-3 requis, ledger illisible = refus, écart signalé en erreur |
+| Incident de code | `ai-learn break` (`--resolve`, `--giveup`) → secret `~/.ai-learn/incidents/`, état `.ai-learn/incident.json` | moteur de `mutate` inversé ; secret fermé à `Read`/`Grep`/`Glob` (mur sous Claude Code, haie ailleurs) |
+| Ledger de débogage cross-projet | `~/.ai-learn/tracks/debug.json` | 3 tiers : incident résolu, niveau 2, site prédit exact |
 | Ledger de domaine cross-projet | `~/.ai-learn/domains/<stack>.json` | couverture de concepts |
 | Ledgers propres | `ai-learn ledgers --repair [--dry-run]` / `--sync` (machinerie, `update` synchronise) | écriture unique `tracks/store.js` ; refus du home réel sous `node --test` ; échec de synchro averti par `verify`, projet absent averti par `check` |
 | Profil apprenant | `ai-learn profile [--json]` / `profile set --json '<objet>'` (machinerie, appelée par `/learn`) | `~/.ai-learn/profile.json` v1, écrit par le CLI seul ; absent = aucun blocage, invalide = erreur `check` ; ligne « profil » dans `status` ; lu par `/learn` et `/learn-next` |

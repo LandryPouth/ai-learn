@@ -17,6 +17,7 @@ const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { revisitStatus, revisitNotice } = require("./revisit");
+const { incidentFact, incidentNotice } = require("./incident");
 const { predictionsToReview } = require("./predictions");
 
 // The mark and, where useful, the French label shown next to a phase —
@@ -336,6 +337,7 @@ function buildStatusReport(dir) {
     phasesTotal: phases.length,
     phases,
     revisitPending: pendingRevisit(dir),
+    incident: incidentFact(dir),
     uncommitted: uncommittedCount(dir),
     progressIssues: validateProgress(config).map((issue) => issue.message),
   };
@@ -356,6 +358,12 @@ function statusCommand({ dir, home, json }) {
 
   if (!exists || !config) {
     fail(missingProgressMessage(dir));
+  }
+
+  const incident = incidentNotice(dir);
+
+  if (incident) {
+    log(`${incident}\n`);
   }
 
   const notice = revisitNotice(dir);

@@ -69,14 +69,14 @@ test("parseCommandFile reads frontmatter and body from a real command file", () 
   assert.doesNotMatch(parsed.body, /^---/);
 });
 
-test("listCommandFiles finds the 3 visible source commands, references are not commands", () => {
+test("listCommandFiles finds the 4 visible source commands, references are not commands", () => {
   const files = listCommandFiles(COMMANDS_DIR);
-  assert.deepStrictEqual(files.map((f) => path.basename(f)), ["learn-next.md", "learn-status.md", "learn.md"]);
+  assert.deepStrictEqual(files.map((f) => path.basename(f)), ["learn-break.md", "learn-next.md", "learn-status.md", "learn.md"]);
   assert.deepStrictEqual(listReferences(COMMANDS_DIR).map((r) => r.name), ["check", "docs", "propose", "scan"]);
 });
 
 test("listCommands returns only the visible commands; legacy names are rebuilt for migration only", () => {
-  assert.deepStrictEqual(listCommands(COMMANDS_DIR).map((c) => c.name).sort(), ["learn", "learn-next", "learn-status"]);
+  assert.deepStrictEqual(listCommands(COMMANDS_DIR).map((c) => c.name).sort(), ["learn", "learn-break", "learn-next", "learn-status"]);
 
   const legacy = new Map(listLegacyCommands(COMMANDS_DIR).map((c) => [c.name, c]));
   for (const name of ["learn-scan", "learn-propose", "learn-check", "learn-docs", "next", "scan", "check"]) {
@@ -112,7 +112,7 @@ test("install claude symlinks the binary and writes skills, idempotently", () =>
 
   const binLink = path.join(home, ".local", "bin", "ai-learn");
   assert.ok(fs.lstatSync(binLink).isSymbolicLink());
-  assert.strictEqual(first.created.filter((file) => file.endsWith("SKILL.md")).length, 3);
+  assert.strictEqual(first.created.filter((file) => file.endsWith("SKILL.md")).length, 4);
   assert.ok(fs.existsSync(skillFile(home, "claude", "learn-next")));
   assert.ok(!fs.existsSync(skillFile(home, "claude", "next")));
   assert.ok(!fs.existsSync(path.join(home, ".claude", "commands")));
@@ -384,7 +384,7 @@ test("linkOrCopy re-throws errors unrelated to symlink permissions", () => {
 test("README documents the three commands and the removal of the old names", () => {
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
-  for (const name of ["learn", "learn-status", "learn-next"]) {
+  for (const name of ["learn", "learn-status", "learn-next", "learn-break"]) {
     assert.match(readme, new RegExp(`\`/${name}\``), `README lists /${name}`);
   }
 
@@ -457,7 +457,7 @@ test("fresh install writes only the visible skills and references", () => {
     const prefix = platform === "claude" || platform === "opencode" ? "" : "ai-learn-";
     const skills = fs.readdirSync(dir).sort();
 
-    assert.deepStrictEqual(skills, ["learn", "learn-next", "learn-status"].map((n) => `${prefix}${n}`).sort(), platform);
+    assert.deepStrictEqual(skills, ["learn", "learn-break", "learn-next", "learn-status"].map((n) => `${prefix}${n}`).sort(), platform);
 
     const references = fs.readdirSync(path.join(dir, `${prefix}learn`, "references")).sort();
     assert.deepStrictEqual(references, ["check.md", "docs.md", "propose.md", "scan.md"], platform);

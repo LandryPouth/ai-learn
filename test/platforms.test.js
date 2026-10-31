@@ -103,7 +103,7 @@ test("install antigravity writes one flat skill directory per visible command, a
   const skillsDir = path.join(home, ".gemini", "antigravity", "skills");
   const entries = fs.readdirSync(skillsDir, { withFileTypes: true }).filter((e) => e.isDirectory());
   assert.strictEqual(entries.length, listCommands(COMMANDS_DIR).length);
-  assert.strictEqual(entries.length, 3);
+  assert.strictEqual(entries.length, 4);
   assert.ok(fs.existsSync(path.join(skillsDir, "ai-learn-learn-next", "SKILL.md")));
   assert.ok(!fs.existsSync(path.join(skillsDir, "ai-learn-next")));
 
@@ -120,7 +120,7 @@ test("install gemini writes one namespaced SKILL.md per command", () => {
 
   const dir = path.join(home, ".gemini", "skills");
   const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  assert.strictEqual(entries.length, 3);
+  assert.strictEqual(entries.length, 4);
   assert.ok(fs.existsSync(path.join(dir, "ai-learn-learn-next", "SKILL.md")));
   assert.ok(!fs.existsSync(path.join(dir, "ai-learn-next")), "no alias ships");
 });
@@ -131,7 +131,7 @@ test("install opencode writes one SKILL.md per command", () => {
 
   const dir = path.join(home, ".config", "opencode", "skills");
   const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  assert.strictEqual(entries.length, 3);
+  assert.strictEqual(entries.length, 4);
   assert.ok(fs.existsSync(path.join(dir, "learn-next", "SKILL.md")));
   assert.ok(!fs.existsSync(path.join(dir, "next")), "no alias ships");
 });
@@ -142,7 +142,7 @@ test("install codex writes one namespaced SKILL.md per command", () => {
 
   const dir = path.join(home, ".codex", "skills");
   const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  assert.strictEqual(entries.length, 3);
+  assert.strictEqual(entries.length, 4);
   assert.ok(fs.existsSync(path.join(dir, "ai-learn-learn-next", "SKILL.md")));
   assert.ok(!fs.existsSync(path.join(dir, "ai-learn-next")), "no alias ships");
 });

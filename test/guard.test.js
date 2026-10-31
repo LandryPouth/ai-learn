@@ -1411,3 +1411,61 @@ test("the revisit lock and its backup are a wall for the AI (story 09.06)", () =
     assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, rel) }), dir).decision, "deny", rel);
   }
 });
+
+// Story 10.04 — le secret d'un incident vit dans ~/.ai-learn/incidents/ : l'IA ne
+// le lit pas (Read/Grep/Glob), ne l'écrit pas. Le mur ne ferme que ce chemin.
+test("Read on the incidents store is denied", () => {
+  const dir = tmpProject({ version: 1, project: "p", phases: [] });
+  const store = path.join(os.homedir(), ".ai-learn", "incidents");
+  fs.mkdirSync(store, { recursive: true });
+  fs.writeFileSync(path.join(store, "x.json"), "{}\n");
+
+  assert.strictEqual(decide(hookFor(dir, "Read", { file_path: path.join(store, "x.json") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Read", { file_path: "~/.ai-learn/incidents/x.json" }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "file", path: store }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "file", path: path.join(os.homedir(), ".ai-learn") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Glob", { pattern: `${store}/*.json` }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(store, "x.json") }), dir).decision, "deny");
+});
+
+test("Read elsewhere stays allowed, even with an incident store present", () => {
+  const dir = tmpProject({ version: 1, project: "p", phases: [] });
+  fs.mkdirSync(path.join(os.homedir(), ".ai-learn", "incidents"), { recursive: true });
+  fs.writeFileSync(path.join(os.homedir(), ".ai-learn", "incidents", "x.json"), "{}\n");
+
+  assert.strictEqual(decide(hookFor(dir, "Read", { file_path: path.join(dir, "src", "a.js") }), dir).decision, "allow");
+  assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x", path: dir }), dir).decision, "allow");
+});
+
+test("the project's incident state is protected from AI writes", () => {
+  assert.strictEqual(isProtectedPath(".ai-learn/incident.json"), true);
+});
+
+test("ensureGuardHook widens an old matcher to Read|Grep|Glob", () => {
+  const dir = tmpProject({ version: 1, project: "p", phases: [] });
+  ensureGuardHook(dir);
+  const settingsPath = path.join(dir, ".claude", "settings.json");
+  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  settings.hooks.PreToolUse[0].matcher = "Write|Edit|MultiEdit|NotebookEdit|Bash";
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+
+  ensureGuardHook(dir);
+
+  const matcher = JSON.parse(fs.readFileSync(settingsPath, "utf8")).hooks.PreToolUse[0].matcher.split("|");
+  for (const tool of ["Read", "Grep", "Glob", "Bash"]) {
+    assert.ok(matcher.includes(tool), tool);
+  }
+});
+
+test("Bash cannot read the incident store nor run break --giveup", () => {
+  const dir = tmpProject({ version: 1, project: "p", phases: [] });
+  const store = path.join(os.homedir(), ".ai-learn", "incidents");
+  fs.mkdirSync(store, { recursive: true });
+  fs.writeFileSync(path.join(store, "x.json"), "{}\n");
+
+  for (const command of ["cat ~/.ai-learn/incidents/x.json", "grep -r file ~/.ai-learn/incidents", "ai-learn break --giveup", "npx ai-learn break --giveup --dir ."]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "ai-learn break --resolve" }), dir).decision, "allow");
+  assert.strictEqual(decide(hookFor(dir, "Glob", { pattern: "{~/.ai-learn/incidents/x.json}" }), dir).decision, "deny");
+});

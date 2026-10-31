@@ -271,6 +271,15 @@ function recoverOrphanLock(dir) {
     return null;
   }
 
+  // Story 10.04: a code incident that was fully recorded owns the fault now —
+  // restoring here would silently repair it. Only the lock is stale.
+  const incident = readJson(path.join(dir, ".ai-learn", "incident.json"), null);
+
+  if (incident && incident.active === true) {
+    fs.unlinkSync(lockPath);
+    return null;
+  }
+
   const target = path.join(dir, lock.file);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, lock.original);

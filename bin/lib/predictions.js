@@ -18,7 +18,7 @@ const VERSION = 1;
 // Story 05.01 — a prediction carries a type so `verify` can require them
 // separately (`predictionsRequired: { code: 2, reality: 1 }`). Entries written
 // before this story have no `type` and count as `code` — no migration needed.
-const PREDICTION_TYPES = ["code", "casse", "reality", "transfert"];
+const PREDICTION_TYPES = ["code", "casse", "reality", "transfert", "debug"];
 const DEFAULT_PREDICTION_TYPE = "code";
 
 // `predictionsRequired` accepts an integer (legacy: any type combined) or an
@@ -264,6 +264,14 @@ function recordPrediction(dir, config, fields) {
     fail(`--type must be one of ${PREDICTION_TYPES.join(", ")}, got: ${type}`);
   }
 
+  // Story 10.04 — a `debug` prediction names the site it bets on, so `break
+  // --resolve` can compare it with the real one.
+  const line = /^\d+$/.test(String(fields.line).trim()) ? Number.parseInt(fields.line, 10) : NaN;
+
+  if (type === "debug" && (!fields.file || !Number.isFinite(line) || line < 1)) {
+    fail("a debug prediction needs --file <path> and --line <n>, ex: --file src/a.js --line 12");
+  }
+
   const existing = readPredictions(dir);
 
   if (existing.exists && !existing.valid) {
@@ -281,6 +289,7 @@ function recordPrediction(dir, config, fields) {
     phaseId: fields.phaseId,
     at: now,
     type,
+    ...(type === "debug" ? { file: path.posix.normalize(String(fields.file).replace(/\\/g, "/")), line } : {}),
     prediction: fields.prediction,
     gaps: fields.gaps || null,
     score: fields.score || null,

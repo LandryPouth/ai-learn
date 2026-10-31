@@ -78,7 +78,7 @@ test("learn-next runs check silently and does not send the learner to /learn-che
 test("the commands folder holds exactly the visible commands plus references", () => {
   assert.deepStrictEqual(
     fs.readdirSync(COMMANDS).sort(),
-    ["learn-next.md", "learn-status.md", "learn.md", "references"],
+    ["learn-break.md", "learn-next.md", "learn-status.md", "learn.md", "references"],
   );
   assert.deepStrictEqual(fs.readdirSync(path.join(COMMANDS, "references")).sort(), ["check.md", "docs.md", "propose.md", "scan.md"]);
 });

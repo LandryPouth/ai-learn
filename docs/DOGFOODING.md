@@ -431,3 +431,9 @@ Chaque entrée du `.ai-learn/dogfood.md` de l'apprenant porte désormais une lig
   continuer dans le checkout courant.
 - **Récurrence** : même refus le 2026-10-31 sur la story 10-02 ; exécutée en séquence dans le checkout courant, `lock` réussi. Aucune exemption de contrôle.
 - **Récurrence** : même refus le 2026-10-31 sur la story 10-03 (`├── s2 ── s3 ──┬── s6`) ; exécutée en séquence dans le checkout courant, `lock` réussi. Aucune exemption de contrôle.
+
+## 2026-10-31 — story 10-04 : `worktree place` et `autoland` refusent encore l'arbre de l'epic 10
+
+- **Friction** : même erreur que pour 10-01 (`dependency tree line does not resolve to exactly one story label: "├── s2 ── s3 ──┬── s6"`), cette fois sur `place` puis sur `autoland` après un verify vert. La story ne peut donc ni être placée ni atterrir automatiquement.
+- **Contournement** : worktree créé à la main (`ai-flow worktree add --story …`), à la demande explicite de l'utilisateur ; aucun contrôle relâché ni exempté.
+- **Piste** : tolérer les lignes `sA ── sB ──┬── sC`, ou ignorer les lignes qui ne concernent pas la story demandée.
