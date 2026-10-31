@@ -42,7 +42,7 @@ function git(dir, ...args) {
 
 function project({ checkpoint = CODE_CHECKPOINT, files = {} } = {}) {
   const dir = tmpProject(sampleProgress({ phases: [{ id: 0, name: "Phase zero", status: "done", checkpoint, artifacts: [], predictionsRequired: 0 }] }));
-  const all = { "src/a.js": A_JS, ".gitignore": ".env\n.ai-learn/\n", ...files };
+  const all = { "src/a.js": A_JS, ".gitignore": ".env\n.ai-learn/\n", "compose.yaml": "services: {}\n", ...files };
 
   for (const [rel, content] of Object.entries(all)) {
     writeFile(dir, rel, content);
@@ -383,4 +383,63 @@ test("giveup keeps the permissions of a 0600 .env and its secret record is priva
   assert.strictEqual(fs.statSync(incidentRecordPath(dir, { home })).mode & 0o777, 0o600);
   capture(() => giveupCommand({ dir, home, shell: NO_DOCKER }));
   assert.strictEqual(fs.statSync(path.join(dir, ".env")).mode & 0o777, 0o600);
+});
+
+// ---- revue 10.05 : risques résiduels ---------------------------------------
+
+test("a service fault needs a compose file in the project itself", () => {
+  const dir = project();
+  const answering = () => ({ status: 0, stdout: "web\n" });
+
+  assert.ok(applicableFaults(dir, { shell: answering }).includes("service"));
+
+  fs.rmSync(path.join(dir, "compose.yaml"));
+
+  assert.ok(!applicableFaults(dir, { shell: answering }).includes("service"));
+});
+
+test("a non-UTF-8 .env comes back byte for byte after giveup", () => {
+  const bytes = Buffer.concat([Buffer.from("GREETING=hello\nNAME=caf"), Buffer.from([0xe9, 0xff]), Buffer.from("\n")]);
+  const dir = project({ checkpoint: ENV_CHECKPOINT });
+  const home = tmpHome();
+  fs.writeFileSync(path.join(dir, ".env"), bytes);
+
+  capture(() => breakCommand({ dir, level: 3, home, random: FIRST, shell: NO_DOCKER }));
+  assert.notDeepStrictEqual(fs.readFileSync(path.join(dir, ".env")), bytes);
+
+  capture(() => giveupCommand({ dir, home }));
+
+  assert.deepStrictEqual(fs.readFileSync(path.join(dir, ".env")), bytes);
+});
+
+test("a crash after a service fault is undone by the next command", () => {
+  const dir = project();
+  const home = tmpHome();
+  const calls = [];
+  const shell = (cmd, args) => {
+    calls.push(args.join(" "));
+    return { status: 0, stdout: "" };
+  };
+  // Run interrupted: only the lock is left behind.
+  writeFile(dir, ".ai-learn/env-fault.lock.json", JSON.stringify({ kind: "service", service: "web" }));
+
+  capture(() => breakCommand({ dir, level: 1, home, random: FIRST, shell }));
+
+  assert.ok(calls.includes("compose start web"));
+  assert.ok(!fs.existsSync(path.join(dir, ".ai-learn", "env-fault.lock.json")));
+});
+
+test("a crash after a port fault stops only the recorded listener", async () => {
+  const dir = project();
+  const home = tmpHome();
+  const port = await freePort();
+  const { PORT_MARKER } = require("../bin/lib/incidents/env");
+  const listener = spawn(process.execPath, ["-e", "require('net').createServer().listen(Number(process.argv[2]))", PORT_MARKER, String(port)], { stdio: "ignore" });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  writeFile(dir, ".ai-learn/env-fault.lock.json", JSON.stringify({ kind: "port", pid: listener.pid, port }));
+
+  capture(() => breakCommand({ dir, level: 1, home, random: FIRST, shell: NO_DOCKER }));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  assert.ok(!isAlive(listener.pid));
 });

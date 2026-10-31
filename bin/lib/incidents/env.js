@@ -39,6 +39,16 @@ function envPath(dir) {
   return path.join(dir, ".env");
 }
 
+// `.env` is read and written as latin1 so any byte sequence (UTF-8 or not)
+// comes back identical: the restore must be byte-for-byte.
+function readEnv(dir) {
+  return fs.readFileSync(envPath(dir), "latin1");
+}
+
+function writeEnv(dir, text) {
+  fs.writeFileSync(envPath(dir), text, "latin1");
+}
+
 // A zombie (killed, not yet reaped by its parent) is gone for our purposes.
 function isAlive(pid) {
   try {
@@ -61,7 +71,7 @@ function portAnswers(port) {
 }
 
 function declaredPort(dir) {
-  const match = PORT_LINE.exec(fs.readFileSync(envPath(dir), "utf8"));
+  const match = PORT_LINE.exec(readEnv(dir));
   const port = match ? Number.parseInt(match[1], 10) : NaN;
   return port >= 1 && port <= 65535 ? port : null;
 }
@@ -70,7 +80,15 @@ function envTrackedByGit(dir) {
   return spawnGit(["-C", dir, "ls-files", "--error-unmatch", ".env"], { encoding: "utf8" }).status === 0;
 }
 
+const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"];
+
+// `docker compose` walks up to parent directories; only a compose file in the
+// project itself may put a service of ours at stake.
 function runningServices(dir, shell) {
+  if (!COMPOSE_FILES.some((f) => fs.existsSync(path.join(dir, f)))) {
+    return [];
+  }
+
   const res = shell("docker", ["compose", "ps", "--services", "--status", "running"], { cwd: dir });
   return res.status === 0 ? res.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : [];
 }
@@ -80,7 +98,7 @@ function applicableFaults(dir, { shell = defaultShell, platform = process.platfo
   const found = [];
   const hasEnv = fs.existsSync(envPath(dir)) && !envTrackedByGit(dir);
 
-  if (hasEnv && fs.readFileSync(envPath(dir), "utf8").split(/\r?\n/).some((l) => ENV_LINE.test(l))) {
+  if (hasEnv && readEnv(dir).split(/\r?\n/).some((l) => ENV_LINE.test(l))) {
     found.push("env");
   }
 
@@ -96,22 +114,23 @@ function applicableFaults(dir, { shell = defaultShell, platform = process.platfo
 }
 
 function injectEnv(dir, random) {
-  const original = fs.readFileSync(envPath(dir), "utf8");
+  const original = readEnv(dir);
   const lines = original.split("\n");
   const indexes = lines.map((l, i) => (ENV_LINE.test(l.replace(/\r$/, "")) ? i : -1)).filter((i) => i >= 0);
   const index = indexes[Math.min(indexes.length - 1, Math.floor(random() * indexes.length))];
   const eol = lines[index].endsWith("\r") ? "\r" : "";
   const [, key, value] = ENV_LINE.exec(lines[index].replace(/\r$/, ""));
   lines[index] = `${key}=${value}_${Math.floor(random() * 0xffff).toString(16)}${eol}`;
-  fs.writeFileSync(envPath(dir), lines.join("\n"));
+  writeEnv(dir, lines.join("\n"));
 
   return { file: ".env", line: index + 1, original, operator: "variable-corrompue" };
 }
 
-function injectPort(dir) {
+function injectPort(dir, onRecord) {
   const port = declaredPort(dir);
   const child = spawn(process.execPath, ["-e", LISTEN_SCRIPT, PORT_MARKER, String(port)], { detached: true, stdio: "ignore" });
   child.unref();
+  onRecord({ kind: "port", pid: child.pid, port });
 
   for (let attempt = 0; attempt < PROBE_ATTEMPTS; attempt += 1) {
     if (portAnswers(port) && isAlive(child.pid)) {
@@ -124,9 +143,11 @@ function injectPort(dir) {
   return null;
 }
 
-function injectService(dir, shell, random) {
+function injectService(dir, shell, random, onRecord) {
   const services = runningServices(dir, shell);
   const service = services[Math.min(services.length - 1, Math.floor(random() * services.length))];
+
+  onRecord({ kind: "service", service });
 
   if (shell("docker", ["compose", "stop", service], { cwd: dir }).status !== 0) {
     return null;
@@ -137,16 +158,16 @@ function injectService(dir, shell, random) {
 
 // Injects one fault of `type`; returns the fields to merge into the secret
 // record, or null when the injection did not take.
-function injectFault(type, dir, { random = Math.random, shell = defaultShell } = {}) {
+function injectFault(type, dir, { random = Math.random, shell = defaultShell, onRecord = () => {} } = {}) {
   if (type === "env") {
     return injectEnv(dir, random);
   }
 
   if (type === "port") {
-    return injectPort(dir);
+    return injectPort(dir, onRecord);
   }
 
-  return injectService(dir, shell, random);
+  return injectService(dir, shell, random, onRecord);
 }
 
 // Stops the process we recorded, and only it. Returns what happened:
@@ -188,7 +209,7 @@ function restoreFault(record, dir, { shell = defaultShell, keepFile = false } = 
   }
 
   if (!keepFile) {
-    fs.writeFileSync(envPath(dir), record.original);
+    writeEnv(dir, record.original);
   }
 
   return "restored";

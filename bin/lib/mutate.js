@@ -282,7 +282,7 @@ function recoverOrphanLock(dir) {
 
   const target = path.join(dir, lock.file);
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, lock.original);
+  fs.writeFileSync(target, lock.original, lock.encoding === "latin1" ? "latin1" : "utf8");
   fs.unlinkSync(lockPath);
 
   return lock.file;

@@ -217,6 +217,49 @@ function pickSite(candidates, random) {
   return candidates.splice(Math.min(candidates.length - 1, Math.floor(random() * candidates.length)), 1)[0];
 }
 
+// The recovery lock of a port/service fault: written the instant the fault
+// exists (before the first checkpoint run), so a crash right after never
+// leaves a stray listener or a stopped service without a trail.
+function faultLockPath(dir) {
+  return path.join(dir, ".ai-learn", "env-fault.lock.json");
+}
+
+function writeFaultLock(dir, record) {
+  const lock = faultLockPath(dir);
+  writeJson(lock, record);
+  fs.chmodSync(lock, 0o600);
+}
+
+// Undoes a fault left by a run that died before recording its incident. A
+// lock next to an active incident is stale: the incident owns the fault.
+function recoverFaultLock(dir, shell) {
+  const lock = faultLockPath(dir);
+  const record = readJson(lock, null);
+
+  if (!record) {
+    return;
+  }
+
+  const state = readIncident(dir);
+
+  if (!(state && state.active)) {
+    const outcome = envFaults.restoreFault(record, dir, { shell });
+
+    if (!RESTORED_OUTCOMES.includes(outcome)) {
+      fail(`Une panne d'environnement laissée par un run interrompu n'a pas pu être annulée (${describeFault(record)}) : rétablis-la à la main, puis relance.`);
+    }
+
+    log(`Panne d'environnement d'un run interrompu annulée : ${describeFault(record)}.`);
+  }
+
+  fs.rmSync(lock, { force: true });
+}
+
+function recoverOrphans(dir, shell) {
+  recoverOrphanLockAndLog(dir);
+  recoverFaultLock(dir, shell);
+}
+
 // Picks and injects an environment fault that a finished phase's checkpoint
 // detects; every attempt that goes unnoticed is undone on the spot. The lock
 // (same shape as the code engine's) lets an interrupted run restore `.env`.
@@ -228,14 +271,15 @@ function keepEnvFault({ dir, phases, random, execute, shell }) {
     const lockPath = mutateLockPath(dir);
 
     if (type === "env") {
-      writeJson(lockPath, { file: ".env", original: fs.readFileSync(path.join(dir, ".env"), "utf8") });
+      writeJson(lockPath, { file: ".env", original: fs.readFileSync(path.join(dir, ".env"), "latin1"), encoding: "latin1" });
       fs.chmodSync(lockPath, 0o600);
     }
 
-    const fault = envFaults.injectFault(type, dir, { random, shell });
+    const fault = envFaults.injectFault(type, dir, { random, shell, onRecord: (partial) => writeFaultLock(dir, partial) });
 
     if (!fault) {
       fs.rmSync(lockPath, { force: true });
+      fs.rmSync(faultLockPath(dir), { force: true });
       continue;
     }
 
@@ -249,6 +293,7 @@ function keepEnvFault({ dir, phases, random, execute, shell }) {
     } catch (error) {
       envFaults.restoreFault(record, dir, { shell });
       fs.rmSync(lockPath, { force: true });
+      fs.rmSync(faultLockPath(dir), { force: true });
       throw error;
     }
 
@@ -263,6 +308,7 @@ function keepEnvFault({ dir, phases, random, execute, shell }) {
     }
 
     fs.rmSync(lockPath, { force: true });
+    fs.rmSync(faultLockPath(dir), { force: true });
   }
 
   return null;
@@ -276,7 +322,7 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
   }
 
   // Repair a previous interrupted run first: the tree must be judged after it.
-  recoverOrphanLockAndLog(dir);
+  recoverOrphans(dir, shell);
 
   const phases = checkpointPhases(dir);
   assertPreconditions(dir, phases);
@@ -344,11 +390,13 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
     if (envFault) {
       envFaults.restoreFault(record, dir, { shell });
       fs.rmSync(lockPath, { force: true });
+      fs.rmSync(faultLockPath(dir), { force: true });
     }
     throw error;
   }
   writeJson(statePath(dir), { active: true, level, startedAt, failingPhases: failing.map((r) => r.phase.id) });
   fs.rmSync(lockPath, { force: true });
+  fs.rmSync(faultLockPath(dir), { force: true });
 
   log(
     envFault
@@ -492,7 +540,7 @@ function assertRestored(outcome) {
 }
 
 function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell }) {
-  recoverOrphanLockAndLog(dir);
+  recoverOrphans(dir, shell);
   const state = requireActive(dir);
   const record = readRecord(dir, home);
   const { failing } = runCheckpoints(checkpointPhases(dir), dir, execute);
@@ -532,7 +580,7 @@ function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell 
 }
 
 function giveupCommand({ dir, home = os.homedir(), shell }) {
-  recoverOrphanLockAndLog(dir);
+  recoverOrphans(dir, shell);
   const state = requireActive(dir);
   const record = readRecord(dir, home);
 
@@ -563,7 +611,7 @@ function giveupCommand({ dir, home = os.homedir(), shell }) {
   const partial = `${target}.ai-learn-tmp`;
   // Keep the file's own permissions (a 0600 `.env` must not become 0644).
   const mode = fs.existsSync(target) ? fs.statSync(target).mode & 0o777 : 0o644;
-  fs.writeFileSync(partial, record.original, { mode });
+  fs.writeFileSync(partial, record.original, { mode, encoding: record.kind === "env" ? "latin1" : "utf8" });
   fs.renameSync(partial, target);
   closeIncident(dir, home, state, "abandon");
 
