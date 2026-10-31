@@ -16,7 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { log, findLearningProjects, normalizePortable } = require("./util");
-const { readProgress } = require("./progress");
+const { readProgress, scaffoldState, stampToolVersion } = require("./progress");
 const { regenerateTraps } = require("./traps");
 const { ensureGuardHook } = require("./guard");
 const { ensureOpenCodeGuard, usesOpenCode, PLUGIN_RELATIVE } = require("./platforms/opencode-guard");
@@ -227,6 +227,10 @@ function updateCommand({ root, platform, home }) {
     }
 
     const protocol = syncProtocol(project, config);
+    const stamped = stampToolVersion(project);
+    const stampLine = stamped
+      ? null
+      : `  ⚠ ce projet vient d'une version plus récente de l'outil (${scaffoldState(config).toolVersion}) — rien n'est rétrogradé, mets l'outil à jour`;
 
     // Native memory backfill (story 04.01). With no --platform, every platform
     // that needs a stub AND is installed on this machine gets one: `update`
@@ -272,6 +276,10 @@ function updateCommand({ root, platform, home }) {
 
     log(`\n${path.basename(project)}`);
     log(`  protocol: ${protocol.file} ${protocol.action}`);
+
+    if (stampLine) {
+      log(stampLine);
+    }
 
     for (const memory of nativeMemory) {
       const detail =

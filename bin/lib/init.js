@@ -9,7 +9,7 @@
 const fs = require("fs");
 const path = require("path");
 const { log, fail, writeJson, mkdirp, normalizePortable } = require("./util");
-const { progressPath } = require("./progress");
+const { progressPath, TOOL_VERSION } = require("./progress");
 const { ensureGuardHook } = require("./guard");
 const { ensureOpenCodeGuard, usesOpenCode } = require("./platforms/opencode-guard");
 const { ensureCommitMsgHook } = require("./git-hooks");
@@ -32,6 +32,7 @@ function templatePath(name) {
 function defaultProgress({ project, technology, docSource, phases }) {
   return {
     version: 1,
+    toolVersion: TOOL_VERSION,
     project,
     technology: technology || "",
     docSource: docSource || null,
@@ -102,7 +103,7 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     writeJson(progressFile, defaultProgress({ project, technology, docSource, phases }));
     created.push(normalizePortable(path.relative(abs, progressFile)));
   } else {
-    log(`  kept    ${normalizePortable(path.relative(abs, progressFile))} (already exists)`);
+    log(`  conservé ${normalizePortable(path.relative(abs, progressFile))} (existe déjà)`);
   }
 
   const planFile = path.join(abs, "docs", "plans", "plan-apprentissage.md");
@@ -115,7 +116,7 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     fs.writeFileSync(planFile, plan);
     created.push(normalizePortable(path.relative(abs, planFile)));
   } else {
-    log(`  kept    ${normalizePortable(path.relative(abs, planFile))} (already exists)`);
+    log(`  conservé ${normalizePortable(path.relative(abs, planFile))} (existe déjà)`);
   }
 
   const journalFile = path.join(abs, "docs", "plans", "predictions.md");
@@ -124,7 +125,7 @@ function scaffold({ dir, project, technology, docSource, phases, platform }) {
     fs.writeFileSync(journalFile, fs.readFileSync(templatePath("predictions.md"), "utf8"));
     created.push(normalizePortable(path.relative(abs, journalFile)));
   } else {
-    log(`  kept    ${normalizePortable(path.relative(abs, journalFile))} (already exists)`);
+    log(`  conservé ${normalizePortable(path.relative(abs, journalFile))} (existe déjà)`);
   }
 
   // The learning protocol travels with the tool: it is written into the project

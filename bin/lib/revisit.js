@@ -243,7 +243,7 @@ function startRevisit({ dir, phaseId }) {
   const phase = findPhase(config, phaseId);
 
   if (!phase) {
-    fail(`No phase ${phaseId} in progress.json.`);
+    fail(`Phase ${phaseId} introuvable dans progress.json.`);
   }
 
   if (phase.status !== "done") {

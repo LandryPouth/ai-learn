@@ -91,7 +91,7 @@ test("predict records an entry and reports it, end to end through the CLI", () =
 test("init requires --technology", () => {
   const result = spawnSync(process.execPath, [BIN, "init"], { encoding: "utf8", env: isolatedEnv() });
   assert.strictEqual(result.status, 1);
-  assert.match(result.stderr, /requires --technology/);
+  assert.match(result.stderr, /exige --technology/);
 });
 
 test("any command with --platform mechanically installs that platform's commands first", () => {
@@ -143,7 +143,7 @@ test("verify accepts --dir before the positional phase id (story 01.05)", () => 
   const result = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0"], { encoding: "utf8", env: isolatedEnv() });
 
   assert.strictEqual(result.status, 0);
-  assert.match(result.stdout, /Phase 0 marked done/);
+  assert.match(result.stdout, /Phase 0 validée \(done\)/);
 });
 
 test("verify --revisit replays a proven phase via the CLI (story 07.02)", () => {
@@ -181,7 +181,7 @@ test("verify --revisit on a pending phase fails cleanly (story 07.02)", () => {
   const result = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0", "--revisit"], { encoding: "utf8", env: isolatedEnv() });
 
   assert.strictEqual(result.status, 1);
-  assert.match(result.stderr, /Revisit is only for a proven phase/);
+  assert.match(result.stderr, /Une revisite ne vaut que pour une phase prouvée/);
   assert.doesNotMatch(result.stderr, /at Object/);
 });
 
@@ -311,7 +311,7 @@ test("commands find the project from a subdirectory", () => {
   fs.mkdirSync(path.join(dir, "src"));
   const result = spawnSync(process.execPath, [BIN, "status"], { cwd: path.join(dir, "src"), encoding: "utf8", env: isolatedEnv() });
   assert.strictEqual(result.status, 0, result.stderr);
-  assert.doesNotMatch(result.stderr + result.stdout, /No progress\.json/);
+  assert.doesNotMatch(result.stderr + result.stdout, /Aucun progress\.json/);
 });
 
 test("a corrupt progress.json is named with its position, never init", () => {
@@ -323,4 +323,11 @@ test("a corrupt progress.json is named with its position, never init", () => {
   assert.match(out, /illisible/);
   assert.match(out, /ligne 3, colonne 14/);
   assert.match(out, /ne pas relancer `init`/);
+});
+
+test("help lists transfert and init --dir", () => {
+  const result = spawnSync(process.execPath, [BIN, "--help"], { encoding: "utf8", env: isolatedEnv() });
+
+  assert.match(result.stdout, /reality\|transfert/);
+  assert.match(result.stdout, /init --technology <name>.*\[--dir <dir>\]/);
 });

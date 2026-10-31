@@ -245,7 +245,7 @@ const VALID_CORRECTED_BY = ["apprenant", "IA"];
 // second. Feedback given here is the legacy one-step form (`at == revealedAt`).
 function recordPrediction(dir, config, fields) {
   if (!findPhase(config, fields.phaseId)) {
-    fail(`No phase ${fields.phaseId} in progress.json — cannot record a prediction for it.`);
+    fail(`Phase ${fields.phaseId} introuvable dans progress.json — impossible d'y enregistrer une prédiction.`);
   }
 
   if (!fields.prediction) {
@@ -439,13 +439,35 @@ function missingPerType(requiredByType, countByType) {
   return gaps;
 }
 
+// Story 09.07 — « À revoir » : the flash notes of the most recent revealed
+// predictions the learner scored under 7/10. A deterministic threshold, not a
+// grouping of free-text weaknesses (they never repeat word for word).
+const REVIEW_BELOW = 7;
+const REVIEW_MAX = 3;
+
+function predictionsToReview(dir) {
+  const read = readPredictions(dir);
+
+  if (!read.valid) {
+    return [];
+  }
+
+  return read.data.entries
+    .filter((entry) => entry.revealedAt && entry.flash)
+    .map((entry) => ({ entry, score: Number.parseFloat(String(entry.score || "").split("/")[0]) }))
+    .filter(({ score }) => Number.isFinite(score) && score < REVIEW_BELOW)
+    .sort((a, b) => Date.parse(b.entry.revealedAt) - Date.parse(a.entry.revealedAt))
+    .slice(0, REVIEW_MAX)
+    .map(({ entry }) => ({ phaseId: entry.phaseId, flash: entry.flash }));
+}
+
 // Shared by `verify` and `check` so a phase's missing-predictions warning
 // never reads different counts in two places (plan.md Decisions) — the one
 // divergence this story exists to close. A ventilated requirement names the
 // short type with its real/expected count, so "which prediction is missing"
 // is never left to guesswork.
 function formatPredictionsGap(phase, report) {
-  const base = `phase ${phase.id}: ${report.count}/${report.required} recorded predictions; ${report.missing} missing`;
+  const base = `phase ${phase.id}: ${report.count}/${report.required} prédictions enregistrées ; ${report.missing} manquante(s)`;
   const details = Object.entries(report.missingByType || {})
     .map(([type, gap]) => `${type} ${gap.actual}/${gap.expected}`)
     .join(", ");
@@ -471,4 +493,5 @@ module.exports = {
   renderJournal,
   predictionsReport,
   formatPredictionsGap,
+  predictionsToReview,
 };

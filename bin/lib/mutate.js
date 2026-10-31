@@ -368,6 +368,8 @@ function mutationReport({ dir, phase }) {
   const sites = allSites.slice(0, maxMutantsPerRun);
   const truncated = allSites.length > sites.length;
 
+  log(`Mutation : ${sites.length} mutants — ne modifie pas tes fichiers pendant ce temps (restauration automatique)`);
+
   let killed = 0;
   const survived = [];
   const killedOperators = new Set();
@@ -421,14 +423,14 @@ function mutateCommand({ dir, phaseId }) {
   const phase = findPhase(config, phaseId);
 
   if (!phase) {
-    fail(`No phase ${phaseId} in progress.json.`);
+    fail(`Phase ${phaseId} introuvable dans progress.json.`);
   }
 
   if (!phase.checkpoint) {
-    fail(`Phase ${phase.id} ("${phase.name}") has no checkpoint command. Add "checkpoint" to progress.json.`);
+    fail(`Phase ${phase.id} ("${phase.name}") n'a pas de commande de checkpoint. Ajoute "checkpoint" dans progress.json.`);
   }
 
-  log(`Mutating phase ${phase.id} — ${phase.name}`);
+  log(`Mutation de la phase ${phase.id} — ${phase.name}`);
   log(`Checkpoint: ${phase.checkpoint}\n`);
 
   recoverOrphanLockAndLog(dir);
@@ -459,6 +461,8 @@ function mutateCommand({ dir, phaseId }) {
       `Plafond de ${maxMutantsPerRun} mutant(s) par run atteint — ${allSites.length - sites.length} site(s) supplémentaire(s) non testé(s) cette fois.\n`,
     );
   }
+
+  log(`Mutation : ${sites.length} mutants — ne modifie pas tes fichiers pendant ce temps (restauration automatique)`);
 
   let killed = 0;
   let anySurvived = false;

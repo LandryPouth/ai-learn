@@ -28,10 +28,11 @@ test("next points to the first phase that is not done", () => {
 
   const out = capture(() => nextCommand({ dir }));
 
-  assert.match(out, /Next: Phase 1 — One/);
-  assert.match(out, /Checkpoint: node -e/);
-  assert.match(out, /Predictions required: 3/);
-  assert.match(out, /docs\/plans\/predictions\.md/);
+  assert.match(out, /Suivant : Phase 1 — One/);
+  assert.match(out, /Checkpoint : node -e/);
+  assert.match(out, /Prédictions exigées : 3/);
+  assert.match(out, /ai-learn predict --phase 1/);
+  assert.doesNotMatch(out, /docs\/plans\/predictions\.md/);
   assert.match(out, /ai-learn verify 1/);
 });
 
@@ -47,8 +48,8 @@ test("next points at an in_progress phase first (finish what was started)", () =
 
   const out = capture(() => nextCommand({ dir }));
 
-  assert.match(out, /Next: Phase 0 — Zero/);
-  assert.match(out, /Status: in_progress/);
+  assert.match(out, /Suivant : Phase 0 — Zero/);
+  assert.match(out, /Statut : in_progress/);
 });
 
 test("next warns when a done phase has no passing evidence", () => {
@@ -62,7 +63,7 @@ test("next warns when a done phase has no passing evidence", () => {
 
   const out = capture(() => nextCommand({ dir }));
 
-  assert.match(out, /unproven/);
+  assert.match(out, /non prouvée/);
 });
 
 test("next keeps unproven warnings before the next phase when no proof is stale (non-regression)", () => {
@@ -78,7 +79,7 @@ test("next keeps unproven warnings before the next phase when no proof is stale 
   const out = capture(() => nextCommand({ dir }));
 
   assert.ok(out.indexOf("⚠ Phase 0") !== -1);
-  assert.ok(out.indexOf("⚠ Phase 0") < out.indexOf("Next: Phase 1"));
+  assert.ok(out.indexOf("⚠ Phase 0") < out.indexOf("Suivant : Phase 1"));
 });
 
 test("with a stale and an unproven done phase, next names the real phase first and warns about both after", () => {
@@ -97,12 +98,12 @@ test("with a stale and an unproven done phase, next names the real phase first a
   writeFile(dir, "src/index.js", "console.log('changed');\n");
 
   const out = capture(() => nextCommand({ dir }));
-  const nextAt = out.indexOf("Next: Phase 2");
+  const nextAt = out.indexOf("Suivant : Phase 2");
 
   assert.ok(nextAt !== -1);
   assert.ok(out.indexOf("⚠ Phase 0") > nextAt);
   assert.ok(out.indexOf("⚠ Phase 1") > nextAt);
-  assert.match(out, /Phase 1 — One is marked done but has no passing evidence/);
+  assert.match(out, /Phase 1 — One est marquée done mais n.a aucune preuve qui passe/);
 });
 
 test("next reports completion when every phase is done", () => {
@@ -116,7 +117,7 @@ test("next reports completion when every phase is done", () => {
 
   const out = capture(() => nextCommand({ dir }));
 
-  assert.match(out, /All 1\/1 phases done/);
+  assert.match(out, /Les 1\/1 phases sont terminées/);
   assert.match(out, /ai-learn check/);
 });
 
@@ -132,11 +133,11 @@ test("next never presents a stale-only track as finished, and names the re-prove
 
   const out = capture(() => nextCommand({ dir }));
   assert.match(out, /stale/);
-  assert.match(out, /All 1\/1 phases are marked done, but 1 proof\(s\) do not hold/);
+  assert.match(out, /Les 1\/1 phases sont marquées done, mais 1 preuve\(s\) ne tiennent pas/);
   assert.match(out, /ai-learn verify --stale/);
   assert.doesNotMatch(out, /ai-learn verify \d/);
-  assert.doesNotMatch(out, /All 1\/1 phases done\./);
-  assert.doesNotMatch(out, /Next: Phase 0/);
+  assert.doesNotMatch(out, /Les 1\/1 phases sont terminées\./);
+  assert.doesNotMatch(out, /Suivant : Phase 0/);
 });
 
 test("next names the real following phase even when an earlier proof is stale", () => {
@@ -154,10 +155,10 @@ test("next names the real following phase even when an earlier proof is stale", 
   writeFile(dir, "src/index.js", "console.log('changed');\n");
 
   const out = capture(() => nextCommand({ dir }));
-  assert.match(out, /Next: Phase 1 — One/);
+  assert.match(out, /Suivant : Phase 1 — One/);
   assert.match(out, /⚠ Phase 0 — Zero .*stale/);
   assert.match(out, /ai-learn verify --stale/);
-  assert.doesNotMatch(out, /Next: Phase 0/);
+  assert.doesNotMatch(out, /Suivant : Phase 0/);
 });
 
 test("with several stale phases, next names the never-started phase and warns for each stale one", () => {
@@ -177,12 +178,12 @@ test("with several stale phases, next names the never-started phase and warns fo
   writeFile(dir, "src/index.js", "console.log('changed');\n");
 
   const out = capture(() => nextCommand({ dir }));
-  assert.match(out, /Next: Phase 2 — Two/);
+  assert.match(out, /Suivant : Phase 2 — Two/);
   assert.match(out, /⚠ Phase 0 — Zero .*stale/);
   assert.match(out, /⚠ Phase 1 — One .*stale/);
   assert.match(out, /ai-learn verify --stale/);
   assert.doesNotMatch(out, /re-prove it: `ai-learn verify \d`/);
-  assert.doesNotMatch(out, /Next: Phase 0/);
+  assert.doesNotMatch(out, /Suivant : Phase 0/);
 });
 
 test("with several stale phases and no phase left, next warns about all of them", () => {
@@ -201,10 +202,10 @@ test("with several stale phases and no phase left, next warns about all of them"
   writeFile(dir, "src/index.js", "console.log('changed');\n");
 
   const out = capture(() => nextCommand({ dir }));
-  assert.match(out, /All 2\/2 phases are marked done, but 2 proof\(s\) do not hold/);
+  assert.match(out, /Les 2\/2 phases sont marquées done, mais 2 preuve\(s\) ne tiennent pas/);
   assert.match(out, /ai-learn verify --stale/);
   assert.doesNotMatch(out, /ai-learn verify \d/);
-  assert.doesNotMatch(out, /Next: Phase/);
+  assert.doesNotMatch(out, /Suivant : Phase/);
 });
 
 // -----------------------------------------------------------------------
@@ -230,7 +231,7 @@ test("next proposes an overdue revisit after the normal suite, with an injected 
   const now = new Date(Date.parse(evidence.lastProvenAt) + 31 * DAY_MS);
   const out = capture(() => nextCommand({ dir, now }));
 
-  const nextAt = out.indexOf("Next: Phase 1");
+  const nextAt = out.indexOf("Suivant : Phase 1");
   const revisitAt = out.indexOf("Revisite échue");
 
   assert.ok(nextAt !== -1);
@@ -282,7 +283,7 @@ test("next fails cleanly without a progress.json", () => {
   const os = require("os");
   const empty = mkdtempSync(require("path").join(os.tmpdir(), "ai-learn-test-"));
 
-  assert.throws(() => nextCommand({ dir: empty }), /No progress.json/);
+  assert.throws(() => nextCommand({ dir: empty }), /Aucun progress.json/);
 });
 
 // Non-regression: the text renderer must be byte-identical to before --json
@@ -294,9 +295,13 @@ test("the text output is unchanged when --json is not passed", () => {
     }),
   );
 
+  const progress = JSON.parse(require("fs").readFileSync(require("path").join(dir, "progress.json"), "utf8"));
+  progress.toolVersion = require("../bin/lib/progress").TOOL_VERSION;
+  require("fs").writeFileSync(require("path").join(dir, "progress.json"), JSON.stringify(progress));
+
   const out = capture(() => nextCommand({ dir }));
 
-  assert.match(out, /^Next: Phase 0 — Zero\n/);
+  assert.match(out, /^Suivant : Phase 0 — Zero\n/);
   assert.doesNotMatch(out, /[{}[\]]/); // no stray JSON leaking into the text path
 });
 
@@ -384,7 +389,7 @@ test("next --json on a missing progress.json is a JSON error object, not a crash
   const parsed = JSON.parse(out);
 
   assert.strictEqual(parsed.version, 1);
-  assert.match(parsed.error, /No progress\.json/);
+  assert.match(parsed.error, /Aucun progress\.json/);
   assert.strictEqual(process.exitCode, 1);
 });
 
@@ -470,4 +475,29 @@ test("an orphan revisit lock comes first in next", () => {
   const out = capture(() => nextCommand({ dir }));
 
   assert.match(out.split("\n")[0], /Revisite interrompue.*ai-learn revisit 0 --giveup/);
+});
+
+test("next points to ai-learn predict", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 }],
+    }),
+  );
+
+  const out = capture(() => nextCommand({ dir }));
+
+  assert.match(out, /ai-learn predict --phase 0/);
+  assert.doesNotMatch(out, /predictions\.md/);
+});
+
+test("next reports an outdated scaffold until update", () => {
+  const { updateCommand } = require("../bin/lib/update");
+  const dir = tmpProject(sampleProgress());
+
+  assert.strictEqual(buildNextReport(dir).outdated, true);
+  assert.match(capture(() => nextCommand({ dir })), /ai-learn update/);
+
+  capture(() => updateCommand({ root: dir, platform: null, home: require("os").tmpdir() }));
+
+  assert.strictEqual(buildNextReport(dir).outdated, false);
 });

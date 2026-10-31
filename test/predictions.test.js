@@ -35,7 +35,7 @@ test("round-trip: recording a prediction writes it and it reads back the same", 
 test("recording for a phase that does not exist in progress.json fails cleanly", () => {
   const dir = tmpProject(sampleProgress());
 
-  assert.throws(() => recordPrediction(dir, sampleProgress(), { phaseId: 99, prediction: "x" }), /No phase 99/);
+  assert.throws(() => recordPrediction(dir, sampleProgress(), { phaseId: 99, prediction: "x" }), /Phase 99 introuvable/);
 });
 
 test("recording twice in a row keeps both entries distinct even if they landed in the same millisecond", () => {

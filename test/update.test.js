@@ -40,7 +40,11 @@ test("update refreshes a generated AGENTS.md with the current template", () => {
   assert.match(agents, /Fastify/); // {{technology}} replaced
   assert.doesNotMatch(agents, /OLD PROTOCOL/);
 
-  assert.strictEqual(fs.readFileSync(path.join(dir, "progress.json"), "utf8"), before);
+  // Story 09.07: `update` only adds `toolVersion` — the phases are untouched.
+  assert.deepStrictEqual(
+    { ...JSON.parse(fs.readFileSync(path.join(dir, "progress.json"), "utf8")), toolVersion: undefined },
+    { ...JSON.parse(before), toolVersion: undefined },
+  );
 });
 
 test("update never overwrites a customized AGENTS.md", () => {

@@ -197,7 +197,7 @@ test("revisit refuses outside git, without a phase commit, on a phase not done, 
   assert.throws(() => revisitCommand({ dir: plain, phaseId: 0 }), /pas un dépôt git/);
 
   const dir = revisitProject();
-  assert.throws(() => revisitCommand({ dir, phaseId: 7 }), /No phase 7/);
+  assert.throws(() => revisitCommand({ dir, phaseId: 7 }), /Phase 7 introuvable/);
 
   const noCommit = revisitProject();
   const cfg = readProgress(noCommit).config;

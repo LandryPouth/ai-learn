@@ -75,19 +75,23 @@ Une ligne par incident, la plus récente en premier. Court ; la valeur est dans 
 - **Workaround** : après `verify` vert, `unlock` la story et ne pas `land` tant que la chaîne n'est pas finie ; atterrir à la main (`ai-flow worktree land --story …`) une fois s3/s4 livrées.
 - **Résolution** : ouverte (paquet `coding-flow`). Piste : `autoland` devrait distinguer « arbre non supporté » de « chaîne non terminée » et nommer le `land` manuel quand c'est la suite, au lieu de recopier le remède de `place`.
 
-### Remontées du projet `fastify-traducteur-api` (outil 0.4.0, triées le 2026-10-16)
-Entrées encore ouvertes du `.ai-learn/dogfood.md` de l'apprenant ; les entrées déjà `résolu` côté outil n'y figurent pas. Détail complet : ce fichier-là.
+### Remontées du projet `fastify-traducteur-api` (outil 0.4.0, clos le 2026-10-31)
+Chaque entrée du `.ai-learn/dogfood.md` de l'apprenant porte désormais une ligne `Statut`. Les entrées résolues par les epics 04-07 ont été rejouées sur une copie mise à jour (`update`, puis `next`, `verify --stale`, `status`, `check`). Détail complet : ce fichier-là.
 
-- `high` — `AGENTS.md` n'est chargé par aucune session généraliste (aucun fichier mémoire natif). **Surface** : init/update. **Résolution** : planifiée, story-04-01.
-- `medium` — `next`/`status` répondent par une phase périmée avant la vraie suite. **Surface** : next, status. **Résolution** : planifiée, story-04-02.
-- `medium` — `stale` recouvre faux positif et régression réelle, sans moyen de les distinguer. **Surface** : verify, check. **Résolution** : résolue, story-04-03 (`verify --stale`).
-- `medium` — aucun rappel de commit entre deux réponses ; commande git donnée sans explication. **Surface** : status, verify. **Résolution** : planifiée, story-04-04.
-- `medium` — commandes `/…` sans préfixe commun, non découvrables. **Surface** : install. **Résolution** : planifiée, story-04-05.
-- `high` — règles de session dictées à la main : synthèse ciblée, relecture de `src/**`, cas d'échec, pas de solution avant la frappe, révélation dans le chat. **Surface** : AGENTS.md §1-§3. **Résolution** : planifiée, stories 05-02 à 05-04.
-- `low` — le reality check n'a pas de compteur (déjà listé ci-dessous) ; aide et preuve non configurables par apprenant. **Surface** : predictions, verify. **Résolution** : planifiée, stories 05-01, 05-05.
-- `high` — pré-lecture : 2-3 jours pour 1 h budgétée, ~1 % réutilisé ; plafond de 3 sources de `docs add`. **Surface** : docs, plan. **Résolution** : planifiée, epic-06.
-- `medium` — `norm` jamais déclenché au fil de l'eau. **Surface** : norm. **Résolution** : planifiée, story-07-03.
+- `high` — `AGENTS.md` non chargé par les sessions généralistes. **Résolution** : résolue, story-04-01.
+- `medium` — `next`/`status` répondent par une phase périmée avant la vraie suite. **Résolution** : résolue, story-04-02 (rejeu : « Suivant : Phase 6 »).
+- `medium` — `stale` recouvre faux positif et régression réelle. **Résolution** : résolue, story-04-03 (rejeu : 0 phase périmée).
+- `medium` — aucun rappel de commit ; commande git sans explication. **Résolution** : résolue, story-04-04 (rejeu : rappel expliqué).
+- `medium` — commandes `/…` sans préfixe commun. **Résolution** : résolue, story-04-05.
+- `high` — règles de session dictées à la main (synthèse, relecture, cas d'échec, pas de solution avant la frappe). **Résolution** : résolue, stories 05-02 à 05-04.
+- `high` — pré-lecture disproportionnée ; plafond de 3 sources. **Résolution** : résolue, stories 06-01 et 06-02.
+- `medium` — `norm` jamais déclenché au fil de l'eau. **Résolution** : story-07-03 rouverte (le hook ne voit pas les frappes de l'apprenant en mode apprenti), fermée par story-09-05.
+- `low` — format `docs/solutions` jugé inutile. **Résolution** : ouverte, préférence d'apprenant, rien à corriger côté outil.
 
+### Remontées des projets `mini-redis-cpp` et `tradelog-postgres-lab` (clos le 2026-10-31)
+
+- `medium` — `init --project` scaffolde dans le dossier courant (`mini-redis-cpp`). **Résolution** : résolue, story-09-04.
+- `medium` — `docs add` en clone git échoue sans étape ni cause (`tradelog-postgres-lab`). **Résolution** : résolue, story-09-07 (étape, délai de 180 s, `--regen`).
 
 ### `medium` — aucun mécanisme de reprise espacée : une phase prouvée n'est jamais rejouée
 - **Repo** : ai-learn (revue externe du protocole, pas un incident d'exécution)

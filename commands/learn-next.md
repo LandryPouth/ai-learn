@@ -8,7 +8,12 @@ allowed-tools: ["Bash"]
 
 Montre la prochaine phase à travailler dans le projet courant.
 
-Exécute :
+Commence par `ai-learn next --json` : si `outdated` est `true`, lance
+`ai-learn update` avant toute autre action et dis-le en une ligne (« Projet mis à
+niveau avec l'outil »). Un projet scaffoldé par une ancienne version n'a pas les
+derniers contrôles ; l'apprenant n'a pas à y penser.
+
+Puis exécute :
 
 ```bash
 ai-learn next

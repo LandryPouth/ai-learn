@@ -448,12 +448,12 @@ test("mutate fails with verify's own message when the phase has no checkpoint", 
     }),
   );
 
-  assert.throws(() => mutateCommand({ dir, phaseId: 0 }), /has no checkpoint command/);
+  assert.throws(() => mutateCommand({ dir, phaseId: 0 }), /pas de commande de checkpoint/);
 });
 
 test("mutate fails when the phase id does not exist", () => {
   const dir = tmpProject(sampleProgress());
-  assert.throws(() => mutateCommand({ dir, phaseId: 99 }), /No phase 99 in progress\.json/);
+  assert.throws(() => mutateCommand({ dir, phaseId: 99 }), /Phase 99 introuvable dans progress\.json/);
 });
 
 test("mutate mutes every site found (1 boolean, 2 comparisons): 2 killed / 1 survived, 3 report lines, 67% score, exit 1", () => {

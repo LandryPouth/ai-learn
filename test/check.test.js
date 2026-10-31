@@ -850,12 +850,13 @@ test("countJournalEntries counts every recorded prediction, not just the first (
 test("missing predictions in the journal is a warning", () => {
   const progress = sampleProgress();
   progress.phases[0].predictionsRequired = 2;
+  progress.phases[0].status = "in_progress";
   const dir = tmpProject(progress);
 
   writeFile(dir, "docs/plans/predictions.md", "# Journal\n");
 
   const entry = checkProject(dir);
-  assert.ok(entry.issues.warnings.some((w) => /recorded predictions/.test(w.message)));
+  assert.ok(entry.issues.warnings.some((w) => /prédictions enregistrées/.test(w.message)));
 });
 
 // -----------------------------------------------------------------------
@@ -866,8 +867,8 @@ test("missing predictions in the journal is a warning", () => {
 function twoPhaseProgress() {
   return sampleProgress({
     phases: [
-      { id: 0, name: "Phase zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
-      { id: 1, name: "Phase one", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
+      { id: 0, name: "Phase zero", status: "in_progress", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
+      { id: 1, name: "Phase one", status: "in_progress", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 2 },
     ],
   });
 }
@@ -892,8 +893,8 @@ test("the comptage des prédictions est par phase — 4 entries on phase 0 do no
 
   const entry = checkProject(dir);
 
-  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*recorded predictions/.test(w.message)));
-  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 recorded predictions; 2 missing/.test(w.message)));
+  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*prédictions enregistrées/.test(w.message)));
+  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 prédictions enregistrées ; 2 manquante\(s\)/.test(w.message)));
 });
 
 test("le séparateur tiret ordinaire est compté — legacy .md with a plain hyphen, no predictions.json", () => {
@@ -906,8 +907,8 @@ test("le séparateur tiret ordinaire est compté — legacy .md with a plain hyp
 
   const entry = checkProject(dir);
 
-  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*recorded predictions/.test(w.message)));
-  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 recorded predictions/.test(w.message)));
+  assert.ok(!entry.issues.warnings.some((w) => /phase 0:.*prédictions enregistrées/.test(w.message)));
+  assert.ok(entry.issues.warnings.some((w) => /phase 1: 0\/2 prédictions enregistrées/.test(w.message)));
 });
 
 test("predictions.json corrompu est une erreur, jamais silencieusement accepté", () => {
@@ -936,6 +937,7 @@ test("corrigé par IA est signalé — from predictions.json data", () => {
 test("un projet ayant les deux fichiers — le JSON fait foi, même vide, sur un .md hérité non vide", () => {
   const progress = sampleProgress();
   progress.phases[0].predictionsRequired = 1;
+  progress.phases[0].status = "in_progress";
   const dir = tmpProject(progress);
 
   writeFile(dir, "docs/plans/predictions.md", "# Journal\n\n### Phase 0 — prédiction 1/1\n- Prédiction : x\n");
@@ -948,7 +950,7 @@ test("un projet ayant les deux fichiers — le JSON fait foi, même vide, sur un
   // Found in review (story 01.03): the warning must explain itself — the
   // legacy .md's entries didn't vanish, an empty predictions.json just now
   // outranks them.
-  const warning = entry.issues.warnings.find((w) => /phase 0: 0\/1 recorded predictions/.test(w.message));
+  const warning = entry.issues.warnings.find((w) => /phase 0: 0\/1 prédictions enregistrées/.test(w.message));
   assert.ok(warning);
   assert.match(warning.message, /legacy entries.*takes precedence/);
 });
@@ -1785,4 +1787,23 @@ test("an OpenCode plugin pointing at a missing tool fails check", () => {
   fs.writeFileSync(plugin, `const BINARY = ${JSON.stringify(path.join(dir, "package.json"))};\n`);
   fs.writeFileSync(path.join(dir, "package.json"), "{}");
   assert.ok(!checkProject(dir).issues.errors.some((e) => /plugin OpenCode/.test(e.message)));
+});
+
+test("pending phases without predictions are one info line, not one warning each", () => {
+  const phases = [0, 1, 2, 3, 4].map((id) => ({
+    id,
+    name: `P${id}`,
+    status: "pending",
+    checkpoint: "node -e \"\"",
+    artifacts: [],
+    predictionsRequired: 2,
+  }));
+  const dir = tmpProject(sampleProgress({ phases }));
+
+  writeFile(dir, ".ai-learn/predictions.json", JSON.stringify(predictionsData([])));
+
+  const entry = checkProject(dir);
+
+  assert.ok(!entry.issues.warnings.some((w) => /prédictions enregistrées/.test(w.message)));
+  assert.strictEqual(entry.issues.infos.filter((i) => /pas encore commencée/.test(i.message)).length, 1);
 });

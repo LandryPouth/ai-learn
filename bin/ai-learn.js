@@ -97,7 +97,7 @@ function main() {
       }
 
       if (!technology) {
-        fail("init requires --technology <name>, ex: ai-learn init --technology Rust");
+        fail("init exige --technology <nom>, ex : ai-learn init --technology Rust");
       }
 
       const docSource = docSourceRaw
@@ -109,10 +109,10 @@ function main() {
       const platform = getFlagValue("--platform", null) || detectPlatform();
 
       const { created } = scaffold({ dir: target, project, technology, docSource, phases, platform });
-      log(`Initialized learning project "${project}" in ${target}`);
+      log(`Projet d'apprentissage "${project}" initialisé dans ${target}`);
 
       for (const file of created) {
-        log(`  created ${file}`);
+        log(`  créé ${file}`);
       }
       break;
     }
@@ -347,7 +347,7 @@ function main() {
 
 Usage:
   ai-learn version | --version | -v
-  ai-learn init --technology <name> [--project <name>] [--doc-source <path|url>] [--phases '<json>']
+  ai-learn init --technology <name> [--project <name>] [--dir <dir>] [--doc-source <path|url>] [--phases '<json>']
              [--platform <claude|codex|gemini|opencode|antigravity>]
   ai-learn status [--dir <dir>] [--json]
   ai-learn next [--dir <dir>] [--json]
@@ -358,7 +358,7 @@ Usage:
   ai-learn revisit <phase-id> [--giveup] [--dir <dir>]
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality>] [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert>] [--dir <dir>]
   ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]

@@ -13,9 +13,14 @@ Crée (sans rien écraser) :
 - `docs/plans/predictions.md` — le journal de prédictions
 - `checkpoint/` et `.ai-learn/runs/` — les tests de phase et les évidences
 
-## 2. Remplir les phases
+## 2. Construire le parcours avec `/learn`
 
-Dans `progress.json`, une phase ressemble à :
+Dans ton agent, lance `/learn` : il pose les questions, rédige le plan et
+écrit les phases dans `progress.json` à ta place. Tu n'édites pas `progress.json`
+à la main — `/learn-next` te dit toujours quelle est la prochaine action
+(et met le projet à niveau si l'outil a changé).
+
+Une phase ressemble à :
 
 ```json
 {
@@ -27,6 +32,9 @@ Dans `progress.json`, une phase ressemble à :
   "predictionsRequired": 2
 }
 ```
+
+Les prédictions se font en deux temps, avant la révélation :
+`ai-learn predict --phase 1 --prediction "..."`, puis `ai-learn predict --reveal <id> ...`.
 
 ## 3. Valider une phase
 

@@ -22,16 +22,16 @@ L'apprenant lit chaque sortie de l'outil dans une seule langue, sait toujours qu
 
 ## Acceptance Criteria
 
-- [ ] Given un échec de `verify` sur la norme seule, when on lit la sortie, then la dernière ligne commence par « → Prochaine action : » et cite la commande `ai-learn norm`.
-- [ ] Given les sorties texte de `verify`, `next`, `status`, `init` sur une fixture, when un test cherche une liste de chaînes anglaises connues, then aucune n'apparaît.
-- [ ] Given une phase qui exige des prédictions, when `ai-learn next`, then la sortie cite `ai-learn predict` et ne demande pas d'éditer `predictions.md`.
-- [ ] Given 5 phases `pending` sans prédictions, when `check`, then 0 avertissement pour elles et une ligne d'information unique.
-- [ ] Given un `fetch` git tué par le délai sans stderr, when `docs add` échoue, then le message nomme `fetch`, le délai, et `--regen`.
-- [ ] Given 3 prédictions révélées notées 4/10, 6/10, 9/10, when `status`, then « À revoir » liste les `flash` des deux premières.
-- [ ] Given un projet sans `toolVersion`, when `next --json`, then `outdated: true` ; after `update`, then `outdated: false`.
-- [ ] Given `commands/learn-next.md`, when on le lit, then il lance `ai-learn update` quand `outdated` est vrai, avant le reste.
-- [ ] Given `predict --help` et l'usage, when on les lit, then `transfert` et `init --dir` y figurent.
-- [ ] Given les trois journaux de friction, when on les relit, then plus aucune entrée n'est sans statut, et `DOGFOODING.md` reprend chaque résolution avec la story.
+- [x] Given un échec de `verify` sur la norme seule, when on lit la sortie, then la dernière ligne commence par « → Prochaine action : » et cite la commande `ai-learn norm`.
+- [x] Given les sorties texte de `verify`, `next`, `status`, `init` sur une fixture, when un test cherche une liste de chaînes anglaises connues, then aucune n'apparaît.
+- [x] Given une phase qui exige des prédictions, when `ai-learn next`, then la sortie cite `ai-learn predict` et ne demande pas d'éditer `predictions.md`.
+- [x] Given 5 phases `pending` sans prédictions, when `check`, then 0 avertissement pour elles et une ligne d'information unique.
+- [x] Given un `fetch` git tué par le délai sans stderr, when `docs add` échoue, then le message nomme `fetch`, le délai, et `--regen`.
+- [x] Given 3 prédictions révélées notées 4/10, 6/10, 9/10, when `status`, then « À revoir » liste les `flash` des deux premières.
+- [x] Given un projet sans `toolVersion`, when `next --json`, then `outdated: true` ; after `update`, then `outdated: false`.
+- [x] Given `commands/learn-next.md`, when on le lit, then il lance `ai-learn update` quand `outdated` est vrai, avant le reste.
+- [x] Given `predict --help` et l'usage, when on les lit, then `transfert` et `init --dir` y figurent.
+- [x] Given les trois journaux de friction, when on les relit, then plus aucune entrée n'est sans statut, et `DOGFOODING.md` reprend chaque résolution avec la story.
 
 ## Edge Cases
 

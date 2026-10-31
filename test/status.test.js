@@ -96,7 +96,7 @@ test("statusCommand includes the git/gh summary when a ledger exists for the inj
   writeGitTracks(config, { home });
 
   const out = capture(() => statusCommand({ dir, home }));
-  assert.match(out, /Phases: 0\/1 done/);
+  assert.match(out, /Phases : 0\/1 terminées/);
   assert.match(out, /Git\/gh — maîtrise cross-projet/);
   assert.match(out, /Tiers atteints : 2/);
 });
@@ -253,8 +253,8 @@ test("the text output is unchanged when --json is not passed", () => {
 
   const out = capture(() => statusCommand({ dir, home }));
 
-  assert.match(out, /^Project: demo · Node\n/);
-  assert.match(out, /Phases: 0\/1 done/);
+  assert.match(out, /^Projet : demo · Node\n/);
+  assert.match(out, /Phases : 0\/1 terminées/);
   assert.doesNotMatch(out, /[{}[\]]/); // no stray JSON leaking into the text path
 });
 
@@ -291,7 +291,7 @@ test("status --json on a missing progress.json is a JSON error object, not a cra
   const parsed = JSON.parse(out);
 
   assert.strictEqual(parsed.version, 1);
-  assert.match(parsed.error, /No progress\.json/);
+  assert.match(parsed.error, /Aucun progress\.json/);
   assert.strictEqual(process.exitCode, 1);
   process.exitCode = 0;
 });
@@ -550,4 +550,21 @@ test("statusCommand shows the active tutor profile on one line", () => {
   const out = capture(() => statusCommand({ dir, home: tmpHome() }));
 
   assert.match(out, /Tuteur : assistance=strict · preuve=transfert/);
+});
+
+test("status lists flash notes of low-scored predictions", () => {
+  const { predictionsToReview } = require("../bin/lib/predictions");
+  const dir = tmpProject(sampleProgress());
+  const entry = (n, score, flash) => ({
+    id: `id-${n}`, phaseId: 0, at: `2026-10-0${n}T00:00:00.000Z`, type: "code", prediction: "x", score,
+    flash, revealedAt: `2026-10-0${n}T01:00:00.000Z`, correctedBy: "apprenant",
+  });
+  writeFile(dir, ".ai-learn/predictions.json", JSON.stringify({
+    version: 1,
+    entries: [entry(1, "4/10", "flash-quatre"), entry(2, "6/10", "flash-six"), entry(3, "9/10", "flash-neuf")],
+  }));
+
+  assert.deepStrictEqual(predictionsToReview(dir).map((item) => item.flash), ["flash-six", "flash-quatre"]);
+  assert.match(capture(() => statusCommand({ dir })), /À revoir :\n  Phase 0 — flash-six\n  Phase 0 — flash-quatre/);
+  assert.doesNotMatch(capture(() => statusCommand({ dir })), /flash-neuf/);
 });

@@ -144,6 +144,47 @@ function failureDetail(outcome) {
   return "échec sans détail";
 }
 
+// Story 09.07 — the last line of a red verify: the remedy of the first failing
+// check, in the order the checks are reported above. Reuses the evidence the
+// run just built, so it can never disagree with the lines before it.
+function nextAction(phase, evidence, { transfertMissing }) {
+  const failed = (evidence.results || []).find((result) => !result.ok);
+
+  if (failed) {
+    return `relis la sortie du checkpoint ci-dessus et corrige ton code, puis \`ai-learn verify ${phase.id}\``;
+  }
+
+  if (evidence.zeroTests) {
+    return "écris au moins un test que le checkpoint exécute vraiment";
+  }
+
+  if (evidence.norm && evidence.norm.ok === false) {
+    return "explique chaque violation avec `ai-learn norm`, puis corrige ton code";
+  }
+
+  if (evidence.missingArtifacts.length > 0) {
+    return `écris l'artefact manquant (${evidence.missingArtifacts.join(", ")})`;
+  }
+
+  if (evidence.proof.configInvalid) {
+    return "corrige `.ai-learn/tutor.json`";
+  }
+
+  if (evidence.predictions.missing > 0) {
+    return `\`ai-learn predict --phase ${phase.id} --prediction "..."\`, puis \`--reveal\``;
+  }
+
+  if (transfertMissing) {
+    return `\`ai-learn predict --phase ${phase.id} --type transfert --prediction "..."\``;
+  }
+
+  if (evidence.mutation.ok === false) {
+    return `\`ai-learn mutate --phase ${phase.id}\` pour voir quels mutants survivent`;
+  }
+
+  return null;
+}
+
 // `ai-learn verify --stale` — re-prove every done phase whose proof is stale,
 // one phase at a time through the normal `verifyCommand` path, then separate
 // "toujours vert" (the proof no longer covered the code, but the checkpoint
@@ -227,7 +268,7 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   const phase = findPhase(config, phaseId);
 
   if (!phase) {
-    fail(`No phase ${phaseId} in progress.json.`);
+    fail(`Phase ${phaseId} introuvable dans progress.json.`);
   }
 
   // A revisit redoes a phase the learner already proved, from memory (story
@@ -236,8 +277,8 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   // untouched.
   if (revisit && phase.status !== "done") {
     fail(
-      `Revisit is only for a proven phase: phase ${phase.id} is "${phase.status}". ` +
-        `Prove it first with \`ai-learn verify ${phase.id}\`.`,
+      `Une revisite ne vaut que pour une phase prouvée : la phase ${phase.id} est "${phase.status}". ` +
+        `Prouve-la d'abord avec \`ai-learn verify ${phase.id}\`.`,
     );
   }
 
@@ -250,7 +291,7 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   }
 
   if (!phase.checkpoint) {
-    fail(`Phase ${phase.id} ("${phase.name}") has no checkpoint command. Add "checkpoint" to progress.json.`);
+    fail(`Phase ${phase.id} ("${phase.name}") n'a pas de commande de checkpoint. Ajoute "checkpoint" dans progress.json.`);
   }
 
   // `verifyCommand` itself now mutates and restores files one mutant at a
@@ -263,8 +304,8 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
   // (review finding, story 02.03).
   recoverOrphanLockAndLog(dir);
 
-  log(`Verifying phase ${phase.id} — ${phase.name}`);
-  log(`Command: ${phase.checkpoint}\n`);
+  log(`Vérification de la phase ${phase.id} — ${phase.name}`);
+  log(`Commande : ${phase.checkpoint}\n`);
 
   const result = runCommand(phase.checkpoint, dir);
   const results = [result];
@@ -515,7 +556,7 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
         log(formatSyncFailure(failure));
       }
 
-      log(`Phase ${phase.id} marked done.`);
+      log(`Phase ${phase.id} validée (done).`);
 
       // AGENTS.md §3bis forbids the AI from running git itself — only the
       // human learner types it. Without a nudge here, nothing prompts a
@@ -545,14 +586,19 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
     // (never `pending`, see plan.md Decisions).
     setPhaseStatus(dir, phase.id, "in_progress");
     log("");
-    log(`Phase ${phase.id} demoted: done → in_progress — the checkpoint or its checks no longer pass.`);
-    log(`Fix it, then re-run \`ai-learn verify ${phase.id}\` to prove it again.`);
+    log(`Phase ${phase.id} rétrogradée : done → in_progress — le checkpoint ou ses contrôles ne passent plus.`);
+    log(`Corrige, puis relance \`ai-learn verify ${phase.id}\` pour la prouver à nouveau.`);
   }
 
-  log(`Evidence: ${outputPath}`);
+  log(`Preuve : ${outputPath}`);
 
   if (!ok) {
     process.exitCode = 1;
+    const action = nextAction(phase, evidence, { transfertMissing });
+
+    if (action) {
+      log(`→ Prochaine action : ${action}`);
+    }
   }
 
   return { ok, phaseId: phase.id, phaseName: phase.name, results, evidence, outputPath };

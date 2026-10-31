@@ -121,7 +121,7 @@ function missingProgressMessage(dir) {
     }
   }
 
-  return `No progress.json in ${dir}. Run \`ai-learn init\` first.`;
+  return `Aucun progress.json dans ${dir}. Lance d'abord \`ai-learn init\`.`;
 }
 
 // Walks up from `start` to the nearest directory holding a progress.json,
@@ -396,7 +396,49 @@ function setPhaseReviewAfterDays(dir, id, days) {
   return true;
 }
 
+// Story 09.07 — the tool version a project was last scaffolded/updated with.
+// `outdated` is true when it is absent or older; a project written by a newer
+// tool is reported as `ahead` and never downgraded.
+const TOOL_VERSION = require("../../package.json").version;
+
+function compareVersions(a, b) {
+  const left = String(a).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = String(b).split(".").map((part) => Number.parseInt(part, 10) || 0);
+
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const diff = (left[i] || 0) - (right[i] || 0);
+
+    if (diff !== 0) {
+      return diff < 0 ? -1 : 1;
+    }
+  }
+
+  return 0;
+}
+
+function scaffoldState(config) {
+  const have = config && typeof config.toolVersion === "string" ? config.toolVersion : null;
+  const order = have === null ? -1 : compareVersions(have, TOOL_VERSION);
+
+  return { outdated: order < 0, ahead: order > 0, toolVersion: have };
+}
+
+function stampToolVersion(dir) {
+  const { config, exists } = readProgress(dir);
+
+  if (!exists || !config || scaffoldState(config).ahead) {
+    return false;
+  }
+
+  config.toolVersion = TOOL_VERSION;
+  writeJson(progressPath(dir), config);
+  return true;
+}
+
 module.exports = {
+  TOOL_VERSION,
+  scaffoldState,
+  stampToolVersion,
   PHASE_STATUSES,
   progressPath,
   runsDir,

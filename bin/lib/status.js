@@ -15,6 +15,7 @@ const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { revisitStatus, revisitNotice } = require("./revisit");
+const { predictionsToReview } = require("./predictions");
 
 // The mark and, where useful, the French label shown next to a phase —
 // derived from the same verdict `check` and `next` consume, not re-derived
@@ -96,11 +97,11 @@ function mutationSummary(phase, ev) {
 function printStatus(config, { dir }) {
   const done = config.phases.filter((phase) => phase.status === "done").length;
 
-  log(`Project: ${config.project || path.basename(dir)}${config.technology ? ` · ${config.technology}` : ""}`);
-  log(`Phases: ${done}/${config.phases.length} done\n`);
+  log(`Projet : ${config.project || path.basename(dir)}${config.technology ? ` · ${config.technology}` : ""}`);
+  log(`Phases : ${done}/${config.phases.length} terminées\n`);
 
   if (config.phases.length === 0) {
-    log("No phases yet. Add them to progress.json, then run `ai-learn verify <id>` for each checkpoint.");
+    log("Aucune phase pour l'instant. Ajoute-les dans progress.json, puis lance `ai-learn verify <id>` pour chaque checkpoint.");
     return;
   }
 
@@ -115,7 +116,7 @@ function printStatus(config, { dir }) {
     const verdict = phaseVerdict({ phase, evidence: ev, currentHash, checkpointFileExists: Boolean(checkpointFile) });
     const { mark, label } = verdictDisplay(verdict.state, verdict.reason);
 
-    const evNote = ev ? ` — evidence ${new Date(ev.generatedAt).toISOString().slice(0, 10)}` : "";
+    const evNote = ev ? ` — preuve ${new Date(ev.generatedAt).toISOString().slice(0, 10)}` : "";
     const labelNote = label ? ` (${label})` : "";
     log(`  ${mark} Phase ${phase.id} — ${phase.name}${evNote}${labelNote}`);
     if (phase.checkpoint) {
@@ -209,6 +210,22 @@ function printNormSummary({ dir }) {
 
   if (report.violations.length > 0) {
     log(`\nNorme (clean code) : ${report.violations.length} violation(s) — voir \`ai-learn norm\`.`);
+  }
+}
+
+// Story 09.07: what the learner struggled with, straight from the flash notes
+// of their own low-scored predictions. Silent when there is none.
+function printReviewList({ dir }) {
+  const items = predictionsToReview(dir);
+
+  if (items.length === 0) {
+    return;
+  }
+
+  log("\nÀ revoir :");
+
+  for (const item of items) {
+    log(`  Phase ${item.phaseId} — ${item.flash}`);
   }
 }
 
@@ -324,11 +341,12 @@ function statusCommand({ dir, home, json }) {
   printStatus(config, { dir });
   printTutorProfile({ dir });
   printReviewSummary({ dir, config });
+  printReviewList({ dir });
 
   const issues = validateProgress(config);
 
   if (issues.length > 0) {
-    log("\nprogress.json issues:");
+    log("\nProblèmes dans progress.json :");
     for (const issue of issues) {
       log(`  - ${issue.message}`);
     }

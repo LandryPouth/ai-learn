@@ -501,10 +501,19 @@ function checkProject(dir, { home, now = new Date() } = {}) {
     // legacy `.md`-only case has no JSON to feed that function, so it keeps
     // its own count here — informative only (a warning, never a block; see
     // predictionsReport's own retro-compat contract).
+    const pendingWithoutPredictions = [];
+
     for (const phase of config.phases || []) {
       const phaseRequired = normalizePredictionsRequired(phase.predictionsRequired).total;
 
       if (phaseRequired <= 0) {
+        continue;
+      }
+
+      // Story 09.07 — a phase not started yet cannot have predictions: it is
+      // summarised in one info line below, never one warning each.
+      if (phase.status === "pending") {
+        pendingWithoutPredictions.push(phase.id);
         continue;
       }
 
@@ -523,6 +532,14 @@ function checkProject(dir, { home, now = new Date() } = {}) {
           message: `${formatPredictionsGap(phase, report)}${legacyHint}`,
         });
       }
+    }
+
+    if (pendingWithoutPredictions.length > 0) {
+      issues.infos.push({
+        file: countsSource,
+        message: `${pendingWithoutPredictions.length} phase(s) pas encore commencée(s) (${pendingWithoutPredictions.join(", ")}) : ` +
+          "prédictions attendues quand elles démarrent",
+      });
     }
   }
 
