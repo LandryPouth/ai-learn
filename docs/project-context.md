@@ -53,6 +53,7 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 | Ledger de débogage cross-projet | `~/.ai-learn/tracks/debug.json` | 3 tiers : incident résolu, niveau 2, site prédit exact |
 | Ledger de domaine cross-projet | `~/.ai-learn/domains/<stack>.json` | couverture de concepts |
 | Ledgers propres | `ai-learn ledgers --repair [--dry-run]` / `--sync` (machinerie, `update` synchronise) | écriture unique `tracks/store.js` ; refus du home réel sous `node --test` ; échec de synchro averti par `verify`, projet absent averti par `check` |
+| Bilan de fin de projet | `docs/bilan.md` (généré par `verify` à la dernière phase, jamais écrasé) | 5 sections à compléter par l'apprenant, exactement une décision (`intégrer`/`labo`/`simplifier`/`abandonner`) ; `check` l'exige seulement parcours terminé ; ligne « bilan » dans `status` ; `/learn-next` conduit la complétion |
 | Profil apprenant | `ai-learn profile [--json]` / `profile set --json '<objet>'` (machinerie, appelée par `/learn`) | `~/.ai-learn/profile.json` v1, écrit par le CLI seul ; absent = aucun blocage, invalide = erreur `check` ; ligne « profil » dans `status` ; lu par `/learn` et `/learn-next` |
 | Journal de friction | `.ai-learn/dogfood.md` (par projet) + `docs/DOGFOODING.md` (agrégé) | prose |
 

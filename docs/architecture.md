@@ -13,6 +13,7 @@ bin/lib/
   source-hash.js         empreinte sha256 du code prouvé (checkpointFilePath, computeSourceHash)
   citation.js            citations vérifiables (URL de PR, fichier:ligne)
   reviews.js             revue dirigeant : docs/reviews/<brique>.md (citation + décision)
+  bilan.js               bilan de fin de projet : docs/bilan.md (généré par verify, exigé par check)
   verify.js              LA commande d'écriture : exécute, prouve, marque done
   check.js               LE scanner : croise le ledger contre la réalité
   status.js / next.js    lecture seule
@@ -117,6 +118,9 @@ commands/                les 7 commandes /learn-* (markdown, format Claude Code)
   `status.js` consomment `reviews.js` ; `status.js` importe aussi
   `loadGuardConfig` pour ne produire le résumé qu'en mode `dirigeant`. Pas de
   cycle : `guard.js` n'importe ni `reviews.js` ni `citation.js`.
+- `bilan.js` importe `progress.js`, `predictions.js`, `tracks/store.js` ; `verify.js` (génération),
+  `update.js` (rattrapage), `check.js` et `status.js` le consomment. `check` ne l'exige que
+  pour un parcours dont toutes les phases sont `done`.
 - `verify.js` importe `norm.js`, `tracks/git.js`, `tracks/domain.js`.
 
 ## Ce que le guard ne voit pas

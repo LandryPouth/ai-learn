@@ -33,7 +33,7 @@ function withoutNodeTestContext(fn) {
 }
 
 function tmpProject(progress) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-test-"));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-test-")));
   fs.writeFileSync(path.join(dir, "progress.json"), `${JSON.stringify(progress, null, 2)}\n`);
   return dir;
 }

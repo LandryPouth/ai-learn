@@ -1150,7 +1150,7 @@ test("a verified checkpoint file passes cleanly", () => {
   progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
   const dir = tmpProject(progress);
 
-  writeFile(dir, "src/index.js", "export const ready = true;\n");
+  writeFile(dir, "src/index.js", "module.exports = { ready: true };\n");
   writeFile(dir, "checkpoint/phase-0.test.mjs", "import { test } from 'node:test'; import '../src/index.js'; test('ok', () => {});");
 
   capture(() => verifyCommand({ dir, phaseId: 0, home }));
@@ -1663,7 +1663,7 @@ function provenWithTestFile(checkpointBody = "import { test } from 'node:test'; 
   progress.phases[0].checkpoint = "node --test checkpoint/phase-0.test.mjs";
   const dir = tmpProject(progress);
 
-  writeFile(dir, "src/index.js", "export const ready = true;\n");
+  writeFile(dir, "src/index.js", "module.exports = { ready: true };\n");
   writeFile(dir, "checkpoint/phase-0.test.mjs", checkpointBody);
   withoutNodeTestContext(() => capture(() => verifyCommand({ dir, phaseId: 0, home })));
   writeCompleteBilan(dir);
