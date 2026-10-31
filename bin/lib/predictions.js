@@ -268,8 +268,11 @@ function recordPrediction(dir, config, fields) {
   // --resolve` can compare it with the real one.
   const line = /^\d+$/.test(String(fields.line).trim()) ? Number.parseInt(fields.line, 10) : NaN;
 
-  if (type === "debug" && (!fields.file || !Number.isFinite(line) || line < 1)) {
-    fail("a debug prediction needs --file <path> and --line <n>, ex: --file src/a.js --line 12");
+  // Story 10.05 — an environment fault has no file: the learner names its cause.
+  const cause = typeof fields.cause === "string" && fields.cause.trim() ? fields.cause.trim() : null;
+
+  if (type === "debug" && !cause && (!fields.file || !Number.isFinite(line) || line < 1)) {
+    fail("a debug prediction needs --file <path> and --line <n> (ex: --file src/a.js --line 12), or --cause <text> for an environment fault");
   }
 
   const existing = readPredictions(dir);
@@ -289,7 +292,8 @@ function recordPrediction(dir, config, fields) {
     phaseId: fields.phaseId,
     at: now,
     type,
-    ...(type === "debug" ? { file: path.posix.normalize(String(fields.file).replace(/\\/g, "/")), line } : {}),
+    ...(type === "debug" && cause ? { cause } : {}),
+    ...(type === "debug" && !cause ? { file: path.posix.normalize(String(fields.file).replace(/\\/g, "/")), line } : {}),
     prediction: fields.prediction,
     gaps: fields.gaps || null,
     score: fields.score || null,

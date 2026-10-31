@@ -12,7 +12,7 @@ const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { normalizePredictionsRequired } = require("./predictions");
 const { normProject, formatViolation } = require("./norm");
 const { revisitStatus, revisitNotice } = require("./revisit");
-const { incidentFact, incidentNotice } = require("./incident");
+const { incidentFact, incidentNotice, incidentDue } = require("./incident");
 
 // The done phases, split into the two ways one stops being actionable proof:
 // `broken` (never proven, or stale) and `revisits` (proven, but old enough to
@@ -67,7 +67,15 @@ function learnerNorm(dir) {
   }
 }
 
-function buildNextReport(dir, { now = new Date() } = {}) {
+// The one place `next` writes anything: an incident draw is recorded (outside
+// the project) so each proven phase is rolled for exactly once. `random` and
+// `home` are injectable for tests.
+function incidentOffer(dir, { random, home } = {}) {
+  const fact = incidentFact(dir);
+  return { ...fact, due: !fact.active && incidentDue(dir, { random, home }) };
+}
+
+function buildNextReport(dir, { now = new Date(), random, home } = {}) {
   const { config, exists } = readProgress(dir);
 
   if (!exists || !config) {
@@ -102,7 +110,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
       done: true,
       phasesTotal: phases.length,
       revisitPending,
-      incident: incidentFact(dir),
+      incident: incidentOffer(dir, { random, home }),
       broken,
       stale,
       revisit,
@@ -119,7 +127,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
     outdated: scaffoldState(config).outdated,
     done: false,
     revisitPending,
-    incident: incidentFact(dir),
+    incident: incidentOffer(dir, { random, home }),
     broken,
     stale,
     revisit,
@@ -141,9 +149,9 @@ function buildNextReport(dir, { now = new Date() } = {}) {
   };
 }
 
-function nextCommand({ dir, json, now = new Date() }) {
+function nextCommand({ dir, json, now = new Date(), random, home }) {
   if (json) {
-    const report = buildNextReport(dir, { now });
+    const report = buildNextReport(dir, { now, random, home });
     log(JSON.stringify(report));
 
     if (report.error) {

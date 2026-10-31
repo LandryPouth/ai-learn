@@ -22,8 +22,13 @@ const { gitState } = require("./scan");
 const { runCommand } = require("./exec");
 const { readPredictions } = require("./predictions");
 const { projectKey, assertWritable } = require("./tracks/store");
-const { recordDebugTiers } = require("./tracks/debug");
+const { recordDebugTiers, readOrDefaultDebugTracks } = require("./tracks/debug");
+const { readOrDefaultPlatformTracks } = require("./tracks/platform");
+const { latestEvidenceForPhase } = require("./progress");
+const { readTutorConfig, incidentChance } = require("./tutor");
+const envFaults = require("./incidents/env");
 
+const RESTORED_OUTCOMES = ["gone", "stopped", "restarted", "restored"];
 const MAX_ATTEMPTS = 20;
 const EXACT_LINE_TOLERANCE = 2;
 // A prediction counts as "before the repair" when it is not later than the
@@ -69,8 +74,69 @@ function incidentNotice(dir) {
 
   return (
     `⚠ Incident de code actif (niveau ${incident.level}) : une panne est cachée dans ton code — elle passe avant la phase suivante.\n` +
-    "  Prédis le site (`ai-learn predict --type debug --file … --line …`), répare, puis `ai-learn break --resolve` (ou `--giveup`)."
+    (incident.level === 3
+      ? "  La panne est dans l'environnement : prédis sa cause (`ai-learn predict --type debug --cause \"variable | port | service\" --prediction …`), diagnostique, puis `ai-learn break --resolve` (ou `--giveup`)."
+      : "  Prédis le site (`ai-learn predict --type debug --file … --line …`), répare, puis `ai-learn break --resolve` (ou `--giveup`).")
   );
+}
+
+// Story 10.05 — the level an automatic incident gets: 1 by default, 2 once the
+// learner has resolved a first one, 3 (environment) once they also showed
+// platform skills in containers (tier 4) or observability (tier 6).
+function chooseLevel({ home = os.homedir() } = {}) {
+  const debug = readOrDefaultDebugTracks({ home }).tiers;
+  const platform = readOrDefaultPlatformTracks({ home }).tiers;
+  const platformReady = Boolean((platform["4"] || {}).achieved || (platform["6"] || {}).achieved);
+
+  if ((debug["2"] || {}).achieved && platformReady) {
+    return 3;
+  }
+
+  return (debug["1"] || {}).achieved ? 2 : 1;
+}
+
+function offerPath(dir, { home = os.homedir() } = {}) {
+  return path.join(home, ".ai-learn", "incidents", `${projectId(dir)}.offer.json`);
+}
+
+// The instant of the latest passing verify across the finished phases.
+function lastProofAt(dir, phases) {
+  const stamps = phases
+    .filter((p) => p && p.status === "done")
+    .map((p) => latestEvidenceForPhase(dir, p.id))
+    .filter((ev) => ev && typeof ev.generatedAt === "string")
+    .map((ev) => ev.generatedAt)
+    .sort();
+
+  return stamps.length > 0 ? stamps[stamps.length - 1] : null;
+}
+
+// Whether `next` should hand the learner an incident now. The moment is safe
+// only right after a proof, on a clean tree, with nothing already broken; the
+// dice are rolled once per proof (recorded outside the project), so asking
+// again never improves the odds. `random` is injectable, `Math.random` in use.
+function incidentDue(dir, { home = os.homedir(), random = Math.random } = {}) {
+  const chance = incidentChance(readTutorConfig(dir).config);
+  const { config } = readProgress(dir);
+  const phases = config && Array.isArray(config.phases) ? config.phases : [];
+  const state = readIncident(dir);
+  const git = gitState(dir);
+  const proofAt = lastProofAt(dir, phases);
+  const hasCheckpoint = phases.some((p) => p && p.status === "done" && p.checkpoint);
+
+  if (chance <= 0 || !proofAt || !hasCheckpoint || (state && state.active) || loadGuardConfig(dir).mode === MODE_DIRIGEANT || !git.isRepo || git.uncommitted > 0) {
+    return false;
+  }
+
+  const marker = readJson(offerPath(dir, { home }), null);
+
+  if (marker && marker.proofAt === proofAt) {
+    return false;
+  }
+
+  const due = random() < chance;
+  writeJson(offerPath(dir, { home }), { proofAt, rolledAt: new Date().toISOString(), due });
+  return due;
 }
 
 function checkpointPhases(dir) {
@@ -151,9 +217,62 @@ function pickSite(candidates, random) {
   return candidates.splice(Math.min(candidates.length - 1, Math.floor(random() * candidates.length)), 1)[0];
 }
 
-function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.random, execute = runCommand }) {
-  if (level !== 1 && level !== 2) {
-    fail("--level doit valoir 1 ou 2.");
+// Picks and injects an environment fault that a finished phase's checkpoint
+// detects; every attempt that goes unnoticed is undone on the spot. The lock
+// (same shape as the code engine's) lets an interrupted run restore `.env`.
+function keepEnvFault({ dir, phases, random, execute, shell }) {
+  const types = envFaults.applicableFaults(dir, { shell });
+
+  while (types.length > 0) {
+    const type = types.splice(Math.min(types.length - 1, Math.floor(random() * types.length)), 1)[0];
+    const lockPath = mutateLockPath(dir);
+
+    if (type === "env") {
+      writeJson(lockPath, { file: ".env", original: fs.readFileSync(path.join(dir, ".env"), "utf8") });
+      fs.chmodSync(lockPath, 0o600);
+    }
+
+    const fault = envFaults.injectFault(type, dir, { random, shell });
+
+    if (!fault) {
+      fs.rmSync(lockPath, { force: true });
+      continue;
+    }
+
+    const record = { kind: type, ...fault };
+    let failing;
+
+    // A throw here must not leave the fault in place (a stray listener, a
+    // stopped service): undo it, then let the error through.
+    try {
+      ({ failing } = runCheckpoints(phases, dir, execute));
+    } catch (error) {
+      envFaults.restoreFault(record, dir, { shell });
+      fs.rmSync(lockPath, { force: true });
+      throw error;
+    }
+
+    if (failing.length > 0) {
+      return { record, lockPath, failing };
+    }
+
+    const outcome = envFaults.restoreFault(record, dir, { shell });
+
+    if (!RESTORED_OUTCOMES.includes(outcome)) {
+      fail(`Une panne d'environnement non détectée n'a pas pu être annulée (${describeFault(record)}) : rétablis-la à la main (\`docker compose start\` ou arrêt du processus).`);
+    }
+
+    fs.rmSync(lockPath, { force: true });
+  }
+
+  return null;
+}
+
+function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.random, execute = runCommand, shell }) {
+  const auto = level === "auto";
+
+  if (!auto && ![1, 2, 3].includes(level)) {
+    fail("--level doit valoir 1, 2 ou 3.");
   }
 
   // Repair a previous interrupted run first: the tree must be judged after it.
@@ -168,9 +287,26 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
     fail(`Le checkpoint de la phase ${baseline.failing[0].phase.id} est déjà rouge : répare-le avant de provoquer un incident.`);
   }
 
-  const candidates = findAllSites(dir);
-  let attempts = 0;
   let kept = null;
+  let envFault = null;
+
+  if (auto) {
+    level = chooseLevel({ home });
+  }
+
+  if (level === 3) {
+    envFault = keepEnvFault({ dir, phases, random, execute, shell });
+
+    if (envFault) {
+      kept = { site: null, lockPath: envFault.lockPath, failing: envFault.failing };
+    } else {
+      level = 2;
+      log("Aucune panne d'environnement applicable (pas de `.env` non suivi, de `PORT` libre ni de service en cours) : repli sur le niveau 2.");
+    }
+  }
+
+  const candidates = envFault ? [] : findAllSites(dir);
+  let attempts = 0;
 
   while (candidates.length > 0 && attempts < MAX_ATTEMPTS && !kept) {
     attempts += 1;
@@ -194,28 +330,58 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
   const { site, lockPath, failing } = kept;
   const startedAt = new Date().toISOString();
   const id = crypto.randomUUID();
-  const record = { id, dir: projectKey(dir), startedAt, level, file: site.file.rel, line: site.line, operator: site.operator, original: site.original };
+  const record = site
+    ? { id, dir: projectKey(dir), startedAt, level, file: site.file.rel, line: site.line, operator: site.operator, original: site.original }
+    : { id, dir: projectKey(dir), startedAt, level, ...envFault.record };
   const recordPath = incidentRecordPath(dir, { home });
 
-  assertWritable(recordPath);
-  writeJson(recordPath, record);
+  try {
+    assertWritable(recordPath);
+    writeJson(recordPath, record);
+    fs.chmodSync(recordPath, 0o600);
+  } catch (error) {
+    // Nothing recorded means nothing could undo the fault later: undo it now.
+    if (envFault) {
+      envFaults.restoreFault(record, dir, { shell });
+      fs.rmSync(lockPath, { force: true });
+    }
+    throw error;
+  }
   writeJson(statePath(dir), { active: true, level, startedAt, failingPhases: failing.map((r) => r.phase.id) });
-  fs.unlinkSync(lockPath);
+  fs.rmSync(lockPath, { force: true });
 
-  log(`Incident de niveau ${level} : une panne est cachée dans ton code. Tu ne sais pas où — c'est le but.`);
+  log(
+    envFault
+      ? "Incident de niveau 3 : une panne est cachée dans l'environnement, pas dans ton code. Tu ne sais pas où — c'est le but."
+      : `Incident de niveau ${level} : une panne est cachée dans ton code. Tu ne sais pas où — c'est le but.`,
+  );
   log("");
   log(`Symptôme (checkpoint de la phase ${failing[0].phase.id} — ${failing[0].phase.name}) :`);
   log(tail(outputOf(failing[0].result)) || "(le checkpoint échoue sans afficher de sortie)");
   log("");
-  log("Avant d'ouvrir un fichier, écris où tu penses que se trouve la cause et pourquoi :");
-  log(`  ai-learn predict --phase ${failing[0].phase.id} --type debug --file <fichier> --line <n> --prediction "<mécanisme>"`);
+  if (envFault) {
+    log("Avant de lancer une commande, écris quelle cause tu soupçonnes (variable d'environnement, port occupé ou service arrêté) :");
+    log(`  ai-learn predict --phase ${failing[0].phase.id} --type debug --cause "<type de panne>" --prediction "<mécanisme>"`);
+  } else {
+    log("Avant d'ouvrir un fichier, écris où tu penses que se trouve la cause et pourquoi :");
+    log(`  ai-learn predict --phase ${failing[0].phase.id} --type debug --file <fichier> --line <n> --prediction "<mécanisme>"`);
+  }
+
   log("Puis cherche, répare, et lance `ai-learn break --resolve`. Bloqué ? `ai-learn break --giveup`.");
 }
 
 function readRecord(dir, home) {
   const record = readJson(incidentRecordPath(dir, { home }), null);
 
-  if (!record || typeof record.file !== "string" || typeof record.original !== "string") {
+  const valid =
+    record &&
+    (record.kind === "port"
+      ? Number.isInteger(record.pid)
+      : record.kind === "service"
+        ? typeof record.service === "string"
+        : typeof record.file === "string" && typeof record.original === "string");
+
+  if (!valid) {
     fail("Le secret de l'incident est introuvable (~/.ai-learn/incidents/) : abandonne-le avec `ai-learn break --giveup`.");
   }
 
@@ -238,11 +404,44 @@ function closeIncident(dir, home, state, outcome, extra = {}) {
 }
 
 // The learner's last `debug` prediction made during this incident.
-function lastDebugPrediction(dir, startedAt) {
+function lastDebugPrediction(dir, startedAt, field = "file") {
   const { data } = readPredictions(dir);
   const entries = data && Array.isArray(data.entries) ? data.entries : [];
-  const mine = entries.filter((e) => e.type === "debug" && typeof e.file === "string" && e.at >= startedAt);
+  const mine = entries.filter((e) => e.type === "debug" && typeof e[field] === "string" && e.at >= startedAt);
   return mine.length > 0 ? mine[mine.length - 1] : null;
+}
+
+const CAUSE_WORDS = {
+  env: /(\.env\b|\benv\b|\bvariables?\b)/i,
+  port: /\bport\b/i,
+  service: /\b(service|conteneur|container)\b/i,
+};
+
+// Level 3 compares the fault *type* the learner named, not a file and line:
+// `exact` only when exactly one type is named and it is the right one.
+function compareCause(prediction, record) {
+  if (!prediction) {
+    return "aucune";
+  }
+
+  const named = Object.keys(CAUSE_WORDS).filter((type) => CAUSE_WORDS[type].test(prediction.cause));
+  return named.length === 1 && named[0] === record.kind ? "exact" : "manqué";
+}
+
+function isEnvironmentFault(record) {
+  return record.kind === "env" || record.kind === "port" || record.kind === "service";
+}
+
+function describeFault(record) {
+  if (record.kind === "port") {
+    return `le port ${record.port} tenu par un processus parasite (pid ${record.pid})`;
+  }
+
+  if (record.kind === "service") {
+    return `le service « ${record.service} » arrêté`;
+  }
+
+  return `${record.file}:${record.line} (${record.operator})`;
 }
 
 function comparePrediction(prediction, record) {
@@ -264,6 +463,12 @@ function comparePrediction(prediction, record) {
 // implementation files is what counts. Touching the site afterwards still
 // passes: a documented limit, like `git diff`.
 function predictedBeforeRepair(prediction, record, dir) {
+  // Only `.env` leaves a modification time to compare; the other faults have no
+  // repair instant the tool can observe (documented limit).
+  if (record.kind === "port" || record.kind === "service") {
+    return true;
+  }
+
   const files = new Set([record.file, ...findAllSites(dir).map((s) => s.file.rel)]);
   let latest = 0;
 
@@ -278,7 +483,15 @@ function predictedBeforeRepair(prediction, record, dir) {
   return Date.parse(prediction.at) <= latest + MTIME_SLACK_MS;
 }
 
-function resolveCommand({ dir, home = os.homedir(), execute = runCommand }) {
+// A fault only counts as undone when the restore says so; otherwise the
+// incident stays active rather than claiming an environment that is not back.
+function assertRestored(outcome) {
+  if (!RESTORED_OUTCOMES.includes(outcome)) {
+    fail("Impossible de rétablir l'environnement (processus non reconnu ou `docker compose start` en échec) : l'incident reste actif, vérifie à la main puis relance.");
+  }
+}
+
+function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell }) {
   recoverOrphanLockAndLog(dir);
   const state = requireActive(dir);
   const record = readRecord(dir, home);
@@ -291,11 +504,12 @@ function resolveCommand({ dir, home = os.homedir(), execute = runCommand }) {
     return;
   }
 
-  const prediction = lastDebugPrediction(dir, record.startedAt);
-  const verdict = comparePrediction(prediction, record);
+  const environment = isEnvironmentFault(record);
+  const prediction = lastDebugPrediction(dir, record.startedAt, environment ? "cause" : "file");
+  const verdict = environment ? compareCause(prediction, record) : comparePrediction(prediction, record);
   const tiers = [1];
 
-  if (record.level === 2) {
+  if (record.level >= 2) {
     tiers.push(2);
   }
 
@@ -303,19 +517,33 @@ function resolveCommand({ dir, home = os.homedir(), execute = runCommand }) {
     tiers.push(3);
   }
 
-  recordDebugTiers({ home, dir: projectKey(dir), incidentId: record.id, tiers, detail: `${record.file}:${record.line}` });
+  if (environment) {
+    tiers.push(4);
+    assertRestored(envFaults.restoreFault(record, dir, { keepFile: true, shell }));
+  }
+
+  recordDebugTiers({ home, dir: projectKey(dir), incidentId: record.id, tiers, detail: describeFault(record) });
   closeIncident(dir, home, state, "resolu", { prediction: verdict });
 
   log("Incident résolu : tous les checkpoints repassent au vert.");
-  log(`Le site était ${record.file}:${record.line} (${record.operator}).`);
+  log(`${environment ? "La panne était" : "Le site était"} ${describeFault(record)}.`);
   log(`Ta prédiction : ${verdict}.`);
   log(`Paliers atteints : ${tiers.join(", ")} (~/.ai-learn/tracks/debug.json).`);
 }
 
-function giveupCommand({ dir, home = os.homedir() }) {
+function giveupCommand({ dir, home = os.homedir(), shell }) {
   recoverOrphanLockAndLog(dir);
   const state = requireActive(dir);
   const record = readRecord(dir, home);
+
+  if (record.kind === "port" || record.kind === "service") {
+    assertRestored(envFaults.restoreFault(record, dir, { shell }));
+    closeIncident(dir, home, state, "abandon");
+    log("Incident abandonné : l'environnement est revenu à son état d'avant la panne.");
+    log(`La panne était ${describeFault(record)}.`);
+    return;
+  }
+
   const target = path.join(dir, record.file);
 
   if (fs.existsSync(target)) {
@@ -333,13 +561,15 @@ function giveupCommand({ dir, home = os.homedir() }) {
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const partial = `${target}.ai-learn-tmp`;
-  fs.writeFileSync(partial, record.original);
+  // Keep the file's own permissions (a 0600 `.env` must not become 0644).
+  const mode = fs.existsSync(target) ? fs.statSync(target).mode & 0o777 : 0o644;
+  fs.writeFileSync(partial, record.original, { mode });
   fs.renameSync(partial, target);
   closeIncident(dir, home, state, "abandon");
 
   log("Incident abandonné : ton code est revenu à son état d'avant la panne.");
-  log(`Le site était ${record.file}:${record.line} (${record.operator}).`);
+  log(`${record.kind === "env" ? "La panne était" : "Le site était"} ${describeFault(record)}.`);
   log(`Ta version du fichier est gardée dans ${normalizePortable(path.join(".ai-learn", "incident-giveup", record.file))}.`);
 }
 
-module.exports = { incidentFact, incidentNotice, breakCommand, resolveCommand, giveupCommand, readIncident, incidentRecordPath, statePath };
+module.exports = { chooseLevel, incidentDue, incidentFact, incidentNotice, breakCommand, resolveCommand, giveupCommand, readIncident, incidentRecordPath, statePath };

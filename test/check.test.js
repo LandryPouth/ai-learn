@@ -1586,6 +1586,22 @@ test("check errors on an unknown tutor assistance or proof value", () => {
   assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /unknown proof "magie"/.test(issue.message)));
 });
 
+test("check errors when tutor incidents.chance is out of range", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "indices", proof: "explication", incidents: { chance: 2 } }));
+
+  const entry = checkProject(dir);
+
+  assert.ok(entry.issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json" && /incidents\.chance 2 is out of range/.test(issue.message)));
+});
+
+test("check accepts a tutor profile without incidents and with chance 0", () => {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "indices", proof: "explication", incidents: { chance: 0 } }));
+
+  assert.ok(!checkProject(dir).issues.errors.some((issue) => issue.file === ".ai-learn/tutor.json"));
+});
+
 // -----------------------------------------------------------------------
 // Story 07.02 — a proven phase past its revisit delay is a warning, not a lie
 // -----------------------------------------------------------------------

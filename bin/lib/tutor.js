@@ -15,6 +15,7 @@ const ASSISTANCE_LEVELS = ["libre", "indices", "strict"];
 const PROOF_LEVELS = ["tests", "explication", "transfert"];
 const DEFAULT_ASSISTANCE = "indices";
 const DEFAULT_PROOF = "explication";
+const DEFAULT_INCIDENT_CHANCE = 0.25;
 
 function tutorConfigPath(dir) {
   return path.join(dir, ".ai-learn", "tutor.json");
@@ -42,6 +43,16 @@ function validateTutorConfig(data) {
 
   if (!PROOF_LEVELS.includes(data.proof)) {
     issues.push(`unknown proof ${JSON.stringify(data.proof)} (expected one of ${PROOF_LEVELS.join(", ")})`);
+  }
+
+  // Story 10.05 — `incidents.chance` is how often `next` offers an incident
+  // after a proven phase; an absent field is the default, never an error.
+  if (data.incidents !== undefined) {
+    const chance = data.incidents && typeof data.incidents === "object" ? data.incidents.chance : undefined;
+
+    if (chance !== undefined && !(typeof chance === "number" && chance >= 0 && chance <= 1)) {
+      issues.push(`incidents.chance ${JSON.stringify(chance)} is out of range (expected a number between 0 and 1)`);
+    }
   }
 
   return issues;
@@ -92,6 +103,13 @@ function ensureTutorConfig(dir) {
   return { created: true };
 }
 
+// The probability of an automatic incident, 0 = never. A missing or invalid
+// profile falls back to the default (`check` reports the invalid one).
+function incidentChance(config) {
+  const chance = config && config.incidents ? config.incidents.chance : undefined;
+  return typeof chance === "number" && chance >= 0 && chance <= 1 ? chance : DEFAULT_INCIDENT_CHANCE;
+}
+
 // The proof ladder: `tests` is the mechanical checkpoint, `explication` is the
 // protocol promise, `transfert` additionally needs a real `transfert`
 // prediction for the phase. `mastery` is null when the configured level was
@@ -119,6 +137,8 @@ module.exports = {
   PROOF_LEVELS,
   DEFAULT_ASSISTANCE,
   DEFAULT_PROOF,
+  DEFAULT_INCIDENT_CHANCE,
+  incidentChance,
   tutorConfigPath,
   defaultTutorConfig,
   validateTutorConfig,

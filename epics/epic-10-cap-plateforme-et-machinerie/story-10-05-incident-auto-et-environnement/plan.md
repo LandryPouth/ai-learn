@@ -36,10 +36,10 @@ Rouge d'abord : `next` (due / chance 0 / déjà proposé) ; validation `tutor.js
 
 | Critère | Preuve |
 |---|---|
-| due | test/next.test.js::next offers an incident after a fresh proof |
-| chance 0 | test/next.test.js::chance zero never offers an incident |
-| un seul | test/next.test.js::one incident per proven phase |
-| check | test/tutor.test.js::incidents chance out of range is an error |
+| due | test/incident-env.test.js::next offers an incident after a fresh proof |
+| chance 0 | test/incident-env.test.js::chance zero never offers an incident |
+| un seul | test/incident-env.test.js::one incident per proven phase |
+| check | test/check.test.js::check errors when tutor incidents.chance is out of range |
 | niveau | test/incident-env.test.js::level follows the debug and platform ledgers |
 | .env | test/incident-env.test.js::env fault round-trips the file byte for byte |
 | port | test/incident-env.test.js::port fault kills only the recorded pid |

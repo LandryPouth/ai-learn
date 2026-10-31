@@ -20,9 +20,9 @@ test("tracksPath is ~/.ai-learn/tracks/debug.json", () => {
   assert.strictEqual(tracksPath({ home }), path.join(home, ".ai-learn", "tracks", "debug.json"));
 });
 
-test("defaultDebugTracks has tiers 1-3, unachieved", () => {
+test("defaultDebugTracks has tiers 1-4, unachieved", () => {
   const config = defaultDebugTracks();
-  assert.deepStrictEqual(TIER_IDS, [1, 2, 3]);
+  assert.deepStrictEqual(TIER_IDS, [1, 2, 3, 4]);
   assert.deepStrictEqual(validateDebugTracks(config), []);
   assert.ok(TIER_IDS.every((tier) => config.tiers[String(tier)].achieved === false));
 });

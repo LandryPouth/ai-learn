@@ -22,15 +22,15 @@ L'apprenant n'a rien à demander : de temps en temps, `/learn-next` lui sert un 
 
 ## Acceptance Criteria
 
-- [ ] Given une phase tout juste prouvée, un arbre propre et un tirage sous `chance`, when `ai-learn next --json`, then `incident.due` vaut `true`.
-- [ ] Given `chance: 0`, when `next`, then aucun incident n'est jamais proposé.
-- [ ] Given un incident déjà proposé après la dernière phase prouvée, when `next` est relancé, then aucun second incident n'est proposé.
-- [ ] Given `chance: 2`, when `ai-learn check`, then erreur nommant `tutor.json` et la plage.
-- [ ] Given palier debug 1 atteint et pas le 2, when un incident automatique part, then son niveau est 2.
-- [ ] Given les conditions du niveau 3 et un `.env` non suivi, when l'incident part avec la panne « variable », then `.env` est modifié, un checkpoint tombe, et `--giveup` rend `.env` identique octet par octet.
-- [ ] Given la panne « port », when `--resolve` ou `--giveup`, then le processus enregistré n'existe plus et aucun autre processus n'a été tué.
-- [ ] Given aucune panne d'environnement applicable, when le niveau 3 est choisi, then l'outil retombe au niveau 2 et le dit.
-- [ ] Given la panne « service » et Docker absent, when on liste les pannes applicables, then elle n'y figure pas (test auto-skip si Docker présent mais pas de compose de test).
+- [x] Given une phase tout juste prouvée, un arbre propre et un tirage sous `chance`, when `ai-learn next --json`, then `incident.due` vaut `true`.
+- [x] Given `chance: 0`, when `next`, then aucun incident n'est jamais proposé.
+- [x] Given un incident déjà proposé après la dernière phase prouvée, when `next` est relancé, then aucun second incident n'est proposé.
+- [x] Given `chance: 2`, when `ai-learn check`, then erreur nommant `tutor.json` et la plage.
+- [x] Given palier debug 1 atteint et pas le 2, when un incident automatique part, then son niveau est 2.
+- [x] Given les conditions du niveau 3 et un `.env` non suivi, when l'incident part avec la panne « variable », then `.env` est modifié, un checkpoint tombe, et `--giveup` rend `.env` identique octet par octet.
+- [x] Given la panne « port », when `--resolve` ou `--giveup`, then le processus enregistré n'existe plus et aucun autre processus n'a été tué.
+- [x] Given aucune panne d'environnement applicable, when le niveau 3 est choisi, then l'outil retombe au niveau 2 et le dit.
+- [x] Given la panne « service » et Docker absent, when on liste les pannes applicables, then elle n'y figure pas (test auto-skip si Docker présent mais pas de compose de test).
 
 ## Edge Cases
 

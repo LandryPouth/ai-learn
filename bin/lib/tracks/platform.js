@@ -128,6 +128,7 @@ module.exports = {
   tracksPath,
   defaultPlatformTracks,
   readPlatformTracks,
+  readOrDefaultPlatformTracks,
   validatePlatformTracks,
   writePlatformTracks,
   missingPlatformTiers,

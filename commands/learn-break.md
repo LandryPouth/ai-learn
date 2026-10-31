@@ -16,7 +16,7 @@ qui tombe ne nomme pas le fichier fautif (la victime n'est pas le coupable).
 Exécute :
 
 ```bash
-ai-learn break --level <niveau>
+ai-learn break --level <niveau>   # 1, 2 ; 3 = panne d'environnement (repli sur 2 si aucune n'est applicable)
 ```
 
 Si la commande refuse (arbre git non propre, aucune phase terminée, incident déjà

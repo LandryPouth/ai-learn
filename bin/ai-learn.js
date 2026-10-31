@@ -184,7 +184,7 @@ function main() {
       } else if (flags.has("--giveup")) {
         giveupCommand({ dir });
       } else {
-        const level = Number.parseInt(getFlagValue("--level", "1"), 10);
+        const level = flags.has("--auto") ? "auto" : Number.parseInt(getFlagValue("--level", "1"), 10);
         breakCommand({ dir, level });
       }
 
@@ -220,6 +220,7 @@ function main() {
         weaknesses: getFlagValue("--weaknesses", null),
         flash: getFlagValue("--flash", null),
         corrected: getFlagValue("--corrected", null),
+        cause: getFlagValue("--cause", null),
         correctedBy: getFlagValue("--corrected-by", revealId ? null : "apprenant"),
       };
       const { entry, render } = revealId ? revealPrediction(dir, config, revealId, fields) : recordPrediction(dir, config, fields);
@@ -385,9 +386,9 @@ Usage:
   ai-learn revisit <phase-id> [--giveup] [--dir <dir>]
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
-  ai-learn break [--level 1|2] [--dir <dir>]
+  ai-learn break [--level 1|2|3 | --auto] [--dir <dir>]
   ai-learn break --resolve | --giveup [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--file <f> --line <n> | --cause <text>] [--dir <dir>]
   ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]

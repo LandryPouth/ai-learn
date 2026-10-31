@@ -36,6 +36,15 @@ Une preuve périmée ne remplace jamais la prochaine action : elle est listée
 après. Si tout est fini et prouvé, `ai-learn next` le dit — dis-le simplement : le
 `check` silencieux a déjà confirmé que tout est prouvé.
 
+Si `incident.due` vaut `true` dans le JSON de `ai-learn next --json`, lance toi-même
+`ai-learn break --auto` **sans demander** : l'outil choisit le niveau (1, 2, ou 3 =
+panne d'environnement) selon la progression de l'apprenant, puis montre le symptôme.
+Annonce-le en une phrase (« Un incident vient de tomber ») et applique le protocole de
+`/learn-break` : prédiction avant toute ouverture de fichier ou commande, tu ne
+cherches pas la cause. Niveau 3 : la prédiction porte sur le type de panne
+(`ai-learn predict --type debug --cause "<variable | port | service>" …`). L'apprenant
+règle la fréquence dans `.ai-learn/tutor.json` (`incidents.chance`, `0` = jamais).
+
 Si la sortie annonce un **incident de code actif** (ou si `incident.active` vaut
 `true` dans le JSON), il passe avant la phase suivante : rappelle le protocole de
 `/learn-break` (prédire le site avant d'ouvrir un fichier, réparer, puis
