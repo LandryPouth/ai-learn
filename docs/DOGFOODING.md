@@ -437,3 +437,13 @@ Chaque entrée du `.ai-learn/dogfood.md` de l'apprenant porte désormais une lig
 - **Friction** : même erreur que pour 10-01 (`dependency tree line does not resolve to exactly one story label: "├── s2 ── s3 ──┬── s6"`), cette fois sur `place` puis sur `autoland` après un verify vert. La story ne peut donc ni être placée ni atterrir automatiquement.
 - **Contournement** : worktree créé à la main (`ai-flow worktree add --story …`), à la demande explicite de l'utilisateur ; aucun contrôle relâché ni exempté.
 - **Piste** : tolérer les lignes `sA ── sB ──┬── sC`, ou ignorer les lignes qui ne concernent pas la story demandée.
+
+## 2026-10-31 — story 10-05 : coding-flow ne voit pas les dépendances de données entre stories
+
+- **Friction** : `ai-flow worktree add --story …10-05… --from story-10-04-incident-de-code` a créé le worktree sans broncher, alors que 10-05 ne peut pas être faite : elle lit le ledger plateforme (`~/.ai-learn/tracks/platform.json`, paliers 4 et 6) que crée 10-03, et 10-03 était `planned`. Rien dans `place`, `worktree add`, `lock`, `status` ni `/flow-run` ne l'a signalé ; je m'en suis aperçu en lisant la spec à la main.
+- **Pourquoi l'outil est passé à côté** :
+  1. L'arbre de l'epic (`index.md`) n'exprime pas la dépendance : `s3` y est une branche qui se referme sur `s6` (`├── s2 ── s3 ──┬── s6`), et l'arête `s5` → `s3` n'existe que dans la prose sous l'arbre (« `s5` lit le ledger plateforme (arête vers `s3`) »). L'outil ne lit que l'arbre, et il ne sait même pas parser cette ligne : `place` et `autoland` échouent dessus (voir les deux entrées précédentes).
+  2. `worktree add` avec `--from` ne vérifie que la ref, pas que les stories dont la story dépend sont `done`. Il n'y a pas de notion « story bloquée par une autre » dans `status`/`next` : 10-05 apparaît `planned`, comme si elle était prête.
+  3. Le dos de l'arbre (10-04 → 10-05) donne une fausse impression : la chaîne `s4 ── s5` était valide, la dépendance transversale `s3` → `s5` ne l'était pas.
+- **Contournement** : worktree 10-05 supprimé sans aucun commit (branche vide supprimée aussi). 10-03 est implémentée dans le projet principal par le mainteneur ; 10-04 sera landée ensuite, puis 10-05 démarrera à partir de l'état qui contient les deux. Aucun contrôle relâché ni exempté.
+- **Piste** : (a) accepter un champ explicite `Depends on: s3, s4` par story (spec.md ou index) et le lire ; (b) `worktree add`/`place`/`/flow-run` refusent une story dont une dépendance n'est pas `done`, en la nommant ; (c) `status` et `next` affichent `blocked by 10-03` plutôt que `planned` ; (d) tolérer les arbres à embranchement dans le parseur.
