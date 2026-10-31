@@ -635,7 +635,7 @@ function checkProject(dir, { home, now = new Date() } = {}) {
               message:
                 `phase ${phase.id} ("${phase.name}") has not been revisited since ${revisit.lastProvenAt.slice(0, 10)} ` +
                 `(more than ${revisit.reviewAfterDays} day(s)). Redo it from memory, without notes or the prediction journal: ` +
-                `\`ai-learn verify ${phase.id} --revisit\`.`,
+                `\`ai-learn revisit ${phase.id}\`.`,
             });
           }
         }

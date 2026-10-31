@@ -55,6 +55,10 @@ Découpe en **6-10 phases** progressives, chacune avec :
 - `artifacts`: le doc de phase qui sera rédigé (ex. `docs/phase-N-<sujet>.md`)
 - `predictionsRequired`: nombre de prédictions écrites exigées (2-3 par phase
   pour un protocole solide)
+- `reviewAfterDays`: `7` sur chaque phase **sauf la phase 0** — délai avant la
+  première revisite espacée (`ai-learn revisit <id>` retire le code de la phase,
+  l'apprenant le retape de mémoire). Jamais modifié à la main : `verify` double
+  l'intervalle à chaque revisite réussie.
 - `sections`: les plages de doc que la phase doit lire,
   `[{ source, file, from, to }]` (lignes 1-indexées, inclusives).
   `ai-learn docs digest --phase <id>` en fait un extrait

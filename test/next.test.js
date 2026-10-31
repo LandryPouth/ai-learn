@@ -236,7 +236,7 @@ test("next proposes an overdue revisit after the normal suite, with an injected 
   assert.ok(nextAt !== -1);
   assert.ok(revisitAt > nextAt, "the revisit is a separate mention after the normal next action");
   assert.match(out, /Phase 0 — Zero .*prouvée le/);
-  assert.match(out, /ai-learn verify 0/);
+  assert.match(out, /ai-learn revisit 0/);
 });
 
 test("next --json exposes overdue revisit ids separately from next", () => {
@@ -457,4 +457,17 @@ test("next caps the text norm list but keeps the full list in json", () => {
 
   assert.strictEqual(buildNextReport(dir).norm.violations.length, 7);
   assert.match(capture(() => nextCommand({ dir })), /… et 2 autre\(s\)/);
+});
+
+test("an orphan revisit lock comes first in next", () => {
+  const dir = tmpProject(
+    sampleProgress({
+      phases: [{ id: 0, name: "Zero", status: "pending", checkpoint: "node -e \"\"", artifacts: [], predictionsRequired: 0 }],
+    }),
+  );
+  require("./helpers").activeRevisitLock(dir, 0, { state: "applying" });
+
+  const out = capture(() => nextCommand({ dir }));
+
+  assert.match(out.split("\n")[0], /Revisite interrompue.*ai-learn revisit 0 --giveup/);
 });

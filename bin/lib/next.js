@@ -11,6 +11,7 @@ const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { normalizePredictionsRequired } = require("./predictions");
 const { normProject, formatViolation } = require("./norm");
+const { revisitStatus, revisitNotice } = require("./revisit");
 
 // The done phases, split into the two ways one stops being actionable proof:
 // `broken` (never proven, or stale) and `revisits` (proven, but old enough to
@@ -79,6 +80,8 @@ function buildNextReport(dir, { now = new Date() } = {}) {
 
   const phases = Array.isArray(config.phases) ? config.phases : [];
   const { broken: brokenDone, revisits } = analyzeDonePhases(dir, phases, now);
+  const pending = revisitStatus(dir);
+  const revisitPending = pending.state === "none" ? null : { state: pending.state, phaseId: pending.lock ? pending.lock.phaseId : null };
   const broken = brokenDone.map(({ phase, verdict }) => ({ id: phase.id, name: phase.name, verdict: verdict.state }));
   // Stale proofs no longer replace the real next action (story 04.02): they are
   // reported separately so a consumer sees "where the learner goes next" and
@@ -96,6 +99,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
       dir: normalizePortable(dir),
       done: true,
       phasesTotal: phases.length,
+      revisitPending,
       broken,
       stale,
       revisit,
@@ -110,6 +114,7 @@ function buildNextReport(dir, { now = new Date() } = {}) {
     version: 1,
     dir: normalizePortable(dir),
     done: false,
+    revisitPending,
     broken,
     stale,
     revisit,
@@ -156,6 +161,7 @@ function nextCommand({ dir, json, now = new Date() }) {
   // where the learner actually goes, then lists what must be re-proven.
   const { broken: brokenDone, revisits } = analyzeDonePhases(dir, phases, now);
   const staleDone = brokenDone.filter((entry) => entry.verdict.state === "stale");
+  const notice = revisitNotice(dir);
   const next = phases.find((phase) => phase && phase.status !== "done");
 
   const logBroken = (entries) => {
@@ -169,6 +175,13 @@ function nextCommand({ dir, json, now = new Date() }) {
       }
     }
   };
+
+  // Story 09.06 — a revisit under way outranks everything: the learner's files
+  // are in a half-removed state until it ends.
+  if (notice) {
+    log(notice);
+    log("");
+  }
 
   // No stale proof: keep the pre-04.02 output order byte-for-byte (warnings
   // first, then the next action) — this story only moves stale re-proofs.
@@ -229,7 +242,7 @@ function nextCommand({ dir, json, now = new Date() }) {
 
     for (const { phase, lastProvenAt: provenAt, reviewAfterDays } of revisits) {
       log(`  Phase ${phase.id} — ${phase.name} — prouvée le ${provenAt.slice(0, 10)}, revisite conseillée après ${reviewAfterDays} jour(s).`);
-      log(`    Rejouez son checkpoint de mémoire : \`ai-learn verify ${phase.id}\`.`);
+      log(`    Lancez \`ai-learn revisit ${phase.id}\` : le code de la phase est retiré, vous le retapez de mémoire.`);
     }
   }
 

@@ -160,6 +160,7 @@ test("verify --revisit replays a proven phase via the CLI (story 07.02)", () => 
   const first = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0"], { encoding: "utf8", env: isolatedEnv() });
   assert.strictEqual(first.status, 0);
 
+  require("./helpers").activeRevisitLock(dir, 0);
   const replay = spawnSync(process.execPath, [BIN, "verify", "--dir", dir, "0", "--revisit"], { encoding: "utf8", env: isolatedEnv() });
 
   assert.strictEqual(replay.status, 0);

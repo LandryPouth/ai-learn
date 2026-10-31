@@ -14,6 +14,7 @@ const { readTutorConfig } = require("./tutor");
 const { reviewStates } = require("./reviews");
 const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
+const { revisitStatus, revisitNotice } = require("./revisit");
 
 // The mark and, where useful, the French label shown next to a phase —
 // derived from the same verdict `check` and `next` consume, not re-derived
@@ -247,6 +248,12 @@ function printReviewSummary({ dir, config }) {
 // reshaped into a stable, versioned object. Never throws — a missing or
 // corrupt progress.json becomes an `error` field on the object instead of a
 // stack, so --json always produces valid JSON (see spec.md's edge cases).
+function pendingRevisit(dir) {
+  const pending = revisitStatus(dir);
+
+  return pending.state === "none" ? null : { state: pending.state, phaseId: pending.lock ? pending.lock.phaseId : null };
+}
+
 function buildStatusReport(dir) {
   const { config, exists } = readProgress(dir);
 
@@ -285,6 +292,7 @@ function buildStatusReport(dir) {
     phasesDone: phases.filter((phase) => phase.status === "done").length,
     phasesTotal: phases.length,
     phases,
+    revisitPending: pendingRevisit(dir),
     uncommitted: uncommittedCount(dir),
     progressIssues: validateProgress(config).map((issue) => issue.message),
   };
@@ -305,6 +313,12 @@ function statusCommand({ dir, home, json }) {
 
   if (!exists || !config) {
     fail(missingProgressMessage(dir));
+  }
+
+  const notice = revisitNotice(dir);
+
+  if (notice) {
+    log(`${notice}\n`);
   }
 
   printStatus(config, { dir });

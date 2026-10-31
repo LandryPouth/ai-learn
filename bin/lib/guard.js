@@ -118,6 +118,7 @@ const PROTECTED_FILES = [
   // fail-open journal. An AI that can erase them can hide its own unjudged write.
   ".ai-learn/guard.log",
   ".ai-learn/guard-unchecked.jsonl",
+  ".ai-learn/revisit.lock.json",
   // The settings that set how strict the checks are (story 09.03): proof
   // required, norm thresholds, mutation scope, prediction journal. The AI has no
   // legitimate reason to write them; the learner edits them, and the AI records
@@ -133,7 +134,9 @@ const PROTECTED_FILES = [
 // `.opencode/plugins` (and its singular alias) is code OpenCode loads at
 // startup with the user's authority: a new file there defeats the guard on the
 // next session just as surely as rewriting the generated plugin.
-const PROTECTED_DIRS = [".ai-learn/runs", ".opencode/plugins", ".opencode/plugin"];
+// `.ai-learn/revisit` holds a revisit's backup (story 09.06): writing it would
+// forge the removal `verify --revisit` requires, or alter what `--giveup` restores.
+const PROTECTED_DIRS = [".ai-learn/runs", ".ai-learn/revisit", ".opencode/plugins", ".opencode/plugin"];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
 
 // Commands that merely wrap another command — unwrapped so `sudo git log` or

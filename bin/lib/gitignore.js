@@ -18,6 +18,8 @@ const LINES = [
   "!.env.example",
   ".ai-learn/runs/",
   ".ai-learn/guard.log",
+  ".ai-learn/revisit/",
+  ".ai-learn/revisit.lock.json",
   "__pycache__/",
   ".venv/",
   "target/",

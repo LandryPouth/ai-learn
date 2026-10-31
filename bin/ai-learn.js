@@ -149,6 +149,20 @@ function main() {
       break;
     }
 
+    case "revisit": {
+      const { revisitCommand } = require("./lib/revisit");
+      const { parseArgs } = require("./lib/args");
+      const { positionals } = parseArgs(commandArgs, { valueFlags: ["--dir"] });
+      const phaseId = Number.parseInt(positionals[0] || "", 10);
+
+      if (!Number.isFinite(phaseId)) {
+        fail("revisit requires a phase id, ex: ai-learn revisit 2 [--giveup]");
+      }
+
+      revisitCommand({ dir, phaseId, giveup: flags.has("--giveup") });
+      break;
+    }
+
     case "mutate": {
       const { mutateCommand } = require("./lib/mutate");
       const phaseRaw = getFlagValue("--phase", null);
@@ -341,6 +355,7 @@ Usage:
   ai-learn propose [--dir <dir>] [--stack <c|javascript|typescript|python|go|rust>] [--level <1-5>] [--limit <n>]
              propose --validate <project.json>
   ai-learn verify <phase-id> [--dir <dir>] [--no-mark] [--revisit]
+  ai-learn revisit <phase-id> [--giveup] [--dir <dir>]
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
   ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality>] [--dir <dir>]
@@ -383,8 +398,11 @@ Commands:
   verify   Run a phase checkpoint, record executed evidence, mark it done on success.
            --stale re-proves every done phase whose proof went stale, and separates
            "toujours vert" (fresh proof) from "régression" (the checkpoint now fails)
-           --revisit replays a proven phase from memory: it refreshes lastProvenAt on
-           success, never demotes on failure, and never rewrites the ledger status
+           --revisit proves a phase retyped from memory after "ai-learn revisit": it
+           refreshes lastProvenAt and doubles the interval on success, never demotes on
+           failure, and never rewrites the ledger status; refused without a removal
+  revisit  Remove from your files what a done phase added (reverse of its feat(phase-N)
+           commits) so you retype it from memory; --giveup restores your files exactly
   mutate   Mutation testing: break the learner's code one way, run the phase
            checkpoint against it, report SURVÉCU (the test missed it) or TUÉ
            (the test caught it) per site — the file is always restored after

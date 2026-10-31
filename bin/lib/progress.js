@@ -381,6 +381,21 @@ function setPhaseStatus(dir, id, status) {
   return true;
 }
 
+// `reviewAfterDays` is written by `verify`/`revisit` only (story 09.06): the
+// interval grows from proof, never from a hand edit.
+function setPhaseReviewAfterDays(dir, id, days) {
+  const { config, exists } = readProgress(dir);
+  const phase = exists && config ? findPhase(config, id) : null;
+
+  if (!phase) {
+    return false;
+  }
+
+  phase.reviewAfterDays = days;
+  writeJson(progressPath(dir), config);
+  return true;
+}
+
 module.exports = {
   PHASE_STATUSES,
   progressPath,
@@ -391,6 +406,7 @@ module.exports = {
   validateProgress,
   findPhase,
   setPhaseStatus,
+  setPhaseReviewAfterDays,
   latestEvidenceForPhase,
   latestAnyEvidenceForPhase,
   allEvidenceForPhase,

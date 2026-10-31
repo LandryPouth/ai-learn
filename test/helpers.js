@@ -119,4 +119,16 @@ function withHome(home, fn) {
   }
 }
 
-module.exports = { ISOLATED_HOME, tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit, withoutNodeTestContext };
+// Story 09.06 — a revisit lock as `ai-learn revisit` leaves it once the code is
+// removed, for tests that exercise `verify --revisit` on its own.
+function activeRevisitLock(dir, phaseId, extra = {}) {
+  const backup = path.join(dir, ".ai-learn", "revisit", String(phaseId));
+  fs.mkdirSync(backup, { recursive: true });
+  fs.writeFileSync(path.join(backup, "manifest.json"), "[]\n");
+  fs.writeFileSync(
+    path.join(dir, ".ai-learn", "revisit.lock.json"),
+    `${JSON.stringify({ phaseId, startedAt: new Date().toISOString(), state: "active", files: [], ...extra })}\n`,
+  );
+}
+
+module.exports = { activeRevisitLock, ISOLATED_HOME, tmpProject, writeFile, capture, sampleProgress, homeEnvOverrides, withHome, spawnGit, withoutNodeTestContext };

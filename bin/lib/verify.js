@@ -14,6 +14,7 @@ const { normProject, formatViolation } = require("./norm");
 const { checkpointFilePath, computeSourceHash, computeLearnerHash, computeCheckpointHash } = require("./source-hash");
 const { predictionsReport, formatPredictionsGap } = require("./predictions");
 const { readTutorConfig, masteryLevel } = require("./tutor");
+const { requireActiveRevisit, completeRevisit, refuseDuringRevisit } = require("./revisit");
 const { mutationReport, formatMutationGap, emptyMutationReport, recoverOrphanLockAndLog } = require("./mutate");
 const { runCommand, portabilityHint, zeroTestsRan } = require("./exec");
 
@@ -156,6 +157,8 @@ function staleCommand({ dir, home }) {
     fail(missingProgressMessage(dir));
   }
 
+  refuseDuringRevisit(dir);
+
   const stale = findStalePhases(dir, config);
 
   if (stale.length === 0) {
@@ -236,6 +239,14 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
       `Revisit is only for a proven phase: phase ${phase.id} is "${phase.status}". ` +
         `Prove it first with \`ai-learn verify ${phase.id}\`.`,
     );
+  }
+
+  // Story 09.06 — a revisit without a removal proves nothing: the checkpoint
+  // would just replay on the unchanged code.
+  if (revisit) {
+    requireActiveRevisit(dir, phase.id);
+  } else {
+    refuseDuringRevisit(dir);
   }
 
   if (!phase.checkpoint) {
@@ -486,7 +497,13 @@ function verifyCommand({ dir, phaseId, noMark = false, revisit = false, home }) 
       // The phase is already `done`; this run only records fresh proof of
       // retention. No status write, no track sync, no commit nudge — the
       // learner is not closing a phase, they are remembering one.
-      log(`Revisite prouvée — lastProvenAt rafraîchi, phase ${phase.id} reste done.`);
+      // `--no-mark` is an observation: the lock stays and the interval is kept.
+      if (noMark) {
+        log(`Revisite verte (--no-mark) — verrou conservé, relancez sans --no-mark pour la clore.`);
+      } else {
+        completeRevisit(dir, phase.id);
+        log(`Revisite prouvée — code retapé conservé, lastProvenAt rafraîchi, prochain rappel espacé, phase ${phase.id} reste done.`);
+      }
     } else if (!noMark) {
       setPhaseStatus(dir, phase.id, "done");
 

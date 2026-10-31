@@ -20,15 +20,15 @@ Quand une phase revient en revisite, l'outil retire de `src/**` exactement ce qu
 
 ## Acceptance Criteria
 
-- [ ] Given une phase 2 `done` dont le commit `feat(phase-2): …` a ajouté 12 lignes dans `src/app.ts`, when `revisit 2`, then ces 12 lignes sont retirées, la sortie dit « src/app.ts : 12 lignes retirées », la sauvegarde et le verrou existent.
-- [ ] Given cette revisite, when `verify 2 --revisit` sans rien retaper, then rouge, verrou conservé, phase toujours `done`.
-- [ ] Given l'apprenant a retapé, when `verify 2 --revisit` passe, then verrou levé, code retapé conservé, `reviewAfterDays` doublé, `lastProvenAt` rafraîchi.
-- [ ] Given `verify 2 --revisit` sans revisite active, when il tourne, then exit 1 avec le message « une revisite sans retrait ne prouve rien ».
-- [ ] Given `revisit 2 --giveup`, when il tourne, then les fichiers sont identiques à l'état d'avant la revisite (octet pour octet) et l'évidence trace l'abandon.
-- [ ] Given un arbre git modifié, when `revisit 2`, then refus nommant les fichiers non commités, rien n'est modifié.
-- [ ] Given du code de la phase 2 retravaillé par la phase 3 de façon incompatible, when `revisit 2`, then refus « retravaillée depuis », rien n'est modifié.
-- [ ] Given un verrou orphelin, when `next`, then la première ligne le signale avec la commande de résolution.
-- [ ] Given `commands/learn.md`, when on le lit, then les phases générées portent `reviewAfterDays: 7` (sauf phase 0).
+- [x] Given une phase 2 `done` dont le commit `feat(phase-2): …` a ajouté 12 lignes dans `src/app.ts`, when `revisit 2`, then ces 12 lignes sont retirées, la sortie dit « src/app.ts : 12 lignes retirées », la sauvegarde et le verrou existent.
+- [x] Given cette revisite, when `verify 2 --revisit` sans rien retaper, then rouge, verrou conservé, phase toujours `done`.
+- [x] Given l'apprenant a retapé, when `verify 2 --revisit` passe, then verrou levé, code retapé conservé, `reviewAfterDays` doublé, `lastProvenAt` rafraîchi.
+- [x] Given `verify 2 --revisit` sans revisite active, when il tourne, then exit 1 avec le message « une revisite sans retrait ne prouve rien ».
+- [x] Given `revisit 2 --giveup`, when il tourne, then les fichiers sont identiques à l'état d'avant la revisite (octet pour octet) et l'évidence trace l'abandon.
+- [x] Given un arbre git modifié, when `revisit 2`, then refus nommant les fichiers non commités, rien n'est modifié.
+- [x] Given du code de la phase 2 retravaillé par la phase 3 de façon incompatible, when `revisit 2`, then refus « retravaillée depuis », rien n'est modifié.
+- [x] Given un verrou orphelin, when `next`, then la première ligne le signale avec la commande de résolution.
+- [x] Given `commands/learn.md`, when on le lit, then les phases générées portent `reviewAfterDays: 7` (sauf phase 0).
 
 ## Edge Cases
 

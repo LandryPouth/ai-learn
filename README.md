@@ -16,6 +16,7 @@ The problem it answers is the same one Coding Flow answers for engineering work,
 |---|---|
 | `ai-learn init` | Scaffolde un projet d'apprentissage : `progress.json` (le ledger), `docs/plans/`, `checkpoint/`, journal de prédictions |
 | `ai-learn verify <phase>` | Exécute le checkpoint de la phase, capture la sortie verbatim, écrit l'évidence, marque `done` **seulement si ça passe vraiment** |
+| `ai-learn revisit <phase>` | Revisite espacée : retire de `src/**` ce que la phase avait ajouté (inverse de ses commits `feat(phase-N)`) pour le retaper de mémoire, puis `verify --revisit` prouve ; `--giveup` restaure tout |
 | `ai-learn check` | Scan une racine (ex. un monorepo) : croise chaque `progress.json` contre la réalité — phase `done` sans évidence = erreur |
 | `ai-learn status` | Vue lisible des phases et de leur état |
 | `ai-learn next` | La prochaine phase à faire (et alerte sur les phases `done` sans évidence) |

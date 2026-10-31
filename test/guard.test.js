@@ -1403,3 +1403,11 @@ test("shell writes to tuning files are denied", () => {
     }
   }
 });
+
+test("the revisit lock and its backup are a wall for the AI (story 09.06)", () => {
+  const dir = tmpProject({ version: 1, project: "demo", technology: "X", docSource: null, phases: [] });
+
+  for (const rel of [".ai-learn/revisit.lock.json", ".ai-learn/revisit/2/manifest.json"]) {
+    assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, rel) }), dir).decision, "deny", rel);
+  }
+});

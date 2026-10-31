@@ -1589,7 +1589,7 @@ test("check warns (never errors) when a proven phase is past its revisit delay, 
   assert.strictEqual(entry.issues.errors.length, 0);
   assert.ok(
     entry.issues.warnings.some(
-      (warning) => /phase 0 \("Zero"\) has not been revisited/.test(warning.message) && /--revisit/.test(warning.message),
+      (warning) => /phase 0 \("Zero"\) has not been revisited/.test(warning.message) && /ai-learn revisit 0/.test(warning.message),
     ),
   );
 });

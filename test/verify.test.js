@@ -12,7 +12,7 @@ const { computeSourceHash } = require("../bin/lib/source-hash");
 const { readGitTracks } = require("../bin/lib/tracks/git");
 const { recordPrediction } = require("../bin/lib/predictions");
 const { mutateConfigPath, mutateLockPath } = require("../bin/lib/mutate");
-const { capture, sampleProgress, tmpProject, writeFile, spawnGit, withoutNodeTestContext } = require("./helpers");
+const { activeRevisitLock, capture, sampleProgress, tmpProject, writeFile, spawnGit, withoutNodeTestContext } = require("./helpers");
 
 // A checkpoint that never inspects the return value of the mutated function —
 // it stays green whether the boolean literal is `true` or `false`, so the
@@ -1172,6 +1172,7 @@ function provenPhaseProject() {
 
 test("verify --revisit refreshes lastProvenAt, records revisit: true, and keeps the phase done", () => {
   const dir = provenPhaseProject();
+  activeRevisitLock(dir, 0);
   const before = latestVerifyEvidence(dir);
 
   const out = capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
@@ -1202,6 +1203,7 @@ test("verify --revisit on a phase that is not done is a clear usage error and wr
 
 test("a failed revisit keeps the phase done but traces the failure in the evidence", () => {
   const dir = provenPhaseProject();
+  activeRevisitLock(dir, 0);
   const progress = readProgress(dir).config;
   progress.phases[0].checkpoint = 'node -e "process.exit(3)"';
   fs.writeFileSync(progressPath(dir), `${JSON.stringify(progress, null, 2)}\n`);
@@ -1221,6 +1223,7 @@ test("a failed revisit keeps the phase done but traces the failure in the eviden
 
 test("verify --revisit with --no-mark still leaves the phase done and the ledger untouched", () => {
   const dir = provenPhaseProject();
+  activeRevisitLock(dir, 0);
 
   capture(() => verifyCommand({ dir, phaseId: 0, revisit: true, noMark: true }));
 
@@ -1232,6 +1235,7 @@ test("verify --revisit with --no-mark still leaves the phase done and the ledger
 
 test("a green revisit on a stale phase refreshes the proof against the current code (documented tradeoff)", () => {
   const dir = provenPhaseProject();
+  activeRevisitLock(dir, 0);
   writeFile(dir, "src/index.js", "console.log('changed');\n");
 
   capture(() => verifyCommand({ dir, phaseId: 0, revisit: true }));
@@ -1264,4 +1268,13 @@ test("verify writes learnerHash and checkpointHash next to the unchanged sourceH
   assert.ok(evidence.sourceHash.digest);
   assert.match(evidence.learnerHash.digest, /^[0-9a-f]{64}$/);
   assert.match(evidence.checkpointHash.digest, /^[0-9a-f]{64}$/);
+});
+
+test("verify --revisit refuses without an active revisit", () => {
+  const dir = provenPhaseProject();
+  const runsBefore = fs.readdirSync(runsDir(dir)).length;
+
+  assert.throws(() => verifyCommand({ dir, phaseId: 0, revisit: true }), /une revisite sans retrait ne prouve rien/i);
+
+  assert.strictEqual(fs.readdirSync(runsDir(dir)).length, runsBefore, "nothing is run or written");
 });
