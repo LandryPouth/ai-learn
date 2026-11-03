@@ -52,14 +52,16 @@ const CHECKPOINT =
   "if (m['eq' + i](1, 1) !== true || m['eq' + i](1, 2) !== false) process.exit(1); " +
   "if (m['has' + i]([1]) !== true || m['has' + i]([]) !== false) process.exit(1) }\"";
 
-function project({ hook = false } = {}) {
+function project({ hook = false, journalTracked = false } = {}) {
   const dir = tmpProject(
     sampleProgress({
       phases: [{ id: 0, name: "Phase zero", status: "done", checkpoint: CHECKPOINT, artifacts: [], predictionsRequired: 0 }],
     }),
   );
   writeFile(dir, "src/a.js", sources());
-  writeFile(dir, ".gitignore", ".ai-learn/incident.json\n.ai-learn/bisect.lock.json\n.ai-learn/predictions.json\n.ai-learn/predictions.md\n");
+  // `journalTracked` mirrors a real project: `ensureGitignore` leaves the journal tracked.
+  const ignored = journalTracked ? "" : ".ai-learn/predictions.json\n.ai-learn/predictions.md\n";
+  writeFile(dir, ".gitignore", `.ai-learn/incident.json\n.ai-learn/bisect.lock.json\n${ignored}`);
   git(dir, "init", "-q");
 
   if (hook) {
@@ -367,4 +369,49 @@ test("neutral regexes skip operands that bind tighter than the comparison", () =
   for (const text of ["!x.length > 0", "-x.length > 0"]) {
     assert.strictEqual(length.exec(text), null, text);
   }
+});
+
+test("a journal committed on the throwaway branch survives the return to the original branch", () => {
+  const dir = project({ journalTracked: true });
+  const home = tmpHome();
+  const record = build(dir, home);
+  const { config } = readProgress(dir);
+
+  recordPrediction(dir, config, { phaseId: 0, type: "debug", commit: record.sha.slice(0, 8), prediction: "ce commit" });
+  git(dir, "revert", "--no-edit", "-n", record.sha);
+  git(dir, "add", "-A");
+  git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--no-verify", "-m", "revert");
+  const out = capture(() => resolveCommand({ dir, home }));
+
+  assert.match(out, /Palier git 7/);
+  assert.strictEqual(git(dir, "branch", "--show-current"), record.origin);
+  const kept = JSON.parse(fs.readFileSync(path.join(dir, ".ai-learn", "predictions.json"), "utf8"));
+  assert.ok(kept.entries.some((e) => e.commit === record.sha.slice(0, 8)));
+  assert.match(fs.readFileSync(path.join(dir, "docs", "plans", "predictions.md"), "utf8"), /ce commit/);
+});
+
+test("an uncommitted journal does not block the resolve", () => {
+  const dir = project({ journalTracked: true });
+  const home = tmpHome();
+  const record = build(dir, home);
+  const { config } = readProgress(dir);
+
+  recordPrediction(dir, config, { phaseId: 0, type: "debug", commit: record.sha.slice(0, 8), prediction: "ce commit" });
+  git(dir, "revert", "--no-edit", "-n", "--", record.sha);
+  git(dir, "add", "src");
+  git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--no-verify", "-m", "revert");
+
+  assert.match(capture(() => resolveCommand({ dir, home })), /Incident résolu/);
+});
+
+test("a crash right after the branch is created is undone at the next run", () => {
+  const dir = project();
+  const origin = git(dir, "branch", "--show-current");
+  git(dir, "checkout", "-q", "-b", "ai-learn/bisect-early");
+  writeFile(dir, ".ai-learn/bisect.lock.json", JSON.stringify({ origin, branch: "ai-learn/bisect-early" }));
+
+  capture(() => breakCommand({ dir, level: 1, home: tmpHome(), random: FIRST }));
+
+  assert.strictEqual(git(dir, "branch", "--show-current"), origin);
+  assert.strictEqual(git(dir, "branch", "--list", "ai-learn/*"), "");
 });

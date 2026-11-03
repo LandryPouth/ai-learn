@@ -14,6 +14,7 @@ const { log, fail, readJson, writeJson, spawnGit } = require("../util");
 const { findAllSites, applyMutant, restoreOriginal } = require("../mutate");
 const { projectKey } = require("../tracks/store");
 const { recordIncidentTier } = require("../tracks/git");
+const { predictionsPath, journalPath } = require("../predictions");
 const { recordSecondOpinion } = require("../tracks/debug");
 const { runCommand } = require("../exec");
 
@@ -59,9 +60,19 @@ function currentBranch(dir) {
   return git(dir, ["branch", "--show-current"]).out;
 }
 
-// The learner's repair, not the tool's own state (`.ai-learn/` holds predictions).
+function relPosix(dir, file) {
+  return path.relative(dir, file).split(path.sep).join("/");
+}
+
+// The journal is the tool's own state, not the learner's repair: predictions.json
+// and its rendered journal are tracked, and a bet made during the incident writes both.
+function journalFiles(dir) {
+  return [predictionsPath(dir), journalPath(dir)];
+}
+
 function isClean(dir) {
-  const res = git(dir, ["status", "--porcelain", "--untracked-files=no", "--", ".", ":(exclude).ai-learn"]);
+  const excludes = [".ai-learn", ...journalFiles(dir).map((f) => relPosix(dir, f))].map((p) => `:(exclude)${p}`);
+  const res = git(dir, ["status", "--porcelain", "--untracked-files=no", "--", ".", ...excludes]);
   return res.ok && res.out === "";
 }
 
@@ -181,7 +192,7 @@ function clampCommits(requested) {
 }
 
 function bisectCommand({ dir, commits, home = os.homedir(), random = Math.random, execute = runCommand, shell }) {
-  const { assertPreconditions, checkpointPhases, runCheckpoints, statePath, incidentRecordPath } = incident();
+  const { assertPreconditions, checkpointPhases, runCheckpoints } = incident();
 
   incident().recoverOrphans(dir, shell);
   const phases = checkpointPhases(dir);
@@ -342,6 +353,11 @@ function compareCommit(dir, prediction, record) {
   }
 
   const res = git(dir, ["rev-parse", "--verify", "--quiet", `${prediction.commit}^{commit}`]);
+
+  if (!res.ok) {
+    log(`Le sha prédit (${prediction.commit}) n'est pas un commit unique du dépôt (inconnu ou ambigu) : compté comme manqué.`);
+  }
+
   return res.ok && res.out === record.sha ? "exact" : "manqué";
 }
 
@@ -376,6 +392,22 @@ function backToOrigin(dir, record) {
   }
 }
 
+// The journal written during the incident may have been committed on the
+// throwaway branch: the checkout back would drop it from the learner's branch.
+// Its text is kept across the switch and put back.
+function backToOriginKeepingJournal(dir, record) {
+  const kept = journalFiles(dir).map((file) => ({ file, text: fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null }));
+
+  backToOrigin(dir, record);
+
+  for (const { file, text } of kept) {
+    if (text !== null && (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== text)) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    }
+  }
+}
+
 function resolveBisect({ dir, home, execute, state }) {
   const { checkpointPhases, runCheckpoints, closeIncident } = incident();
   const record = readBisectRecord(dir, home);
@@ -400,7 +432,7 @@ function resolveBisect({ dir, home, execute, state }) {
   const verdicts = bets(dir, record);
   const tiers = verdicts.learnerVerdict === "exact" ? [TIER] : [];
 
-  backToOrigin(dir, record);
+  backToOriginKeepingJournal(dir, record);
 
   if (tiers.length > 0) {
     recordIncidentTier({ home, dir: projectKey(dir), incidentId: record.id, tier: TIER, kind: "bisect", detail: `${record.file}:${record.line}` });
@@ -423,7 +455,7 @@ function giveupBisect({ dir, home, state }) {
   const record = readBisectRecord(dir, home);
   const verdicts = bets(dir, record);
 
-  backToOrigin(dir, record);
+  backToOriginKeepingJournal(dir, record);
   closeIncident(dir, home, state, "abandon");
 
   log("Incident abandonné : tu es revenu sur ta branche d'origine.");
