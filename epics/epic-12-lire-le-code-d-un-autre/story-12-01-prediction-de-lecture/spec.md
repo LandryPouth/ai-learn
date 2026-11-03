@@ -17,13 +17,13 @@ Avant d'ouvrir le code de Fastify, de Node ou de `pg-boss`, l'apprenant écrit o
 
 ## Acceptance Criteria
 
-- [ ] Given une racine inexistante, when `predict --type lecture --root /nope …`, then exit 1 et rien n'est écrit.
-- [ ] Given une prédiction `lib/route.js:100` et `--found lib/route.js:107`, when `--reveal`, then le score est `exact`.
-- [ ] Given une prédiction `lib/route.js` sans ligne et `--found lib/reply.js:12`, when `--reveal`, then le score est `dossier`.
-- [ ] Given `--found lib/route.js:99999` (au-delà de la fin), when `--reveal`, then exit 1 et la prédiction reste non révélée.
-- [ ] Given `--found ../../etc/passwd:1`, when `--reveal`, then exit 1 (hors racine, liens symboliques compris).
-- [ ] Given une phase `predictionsRequired: {lecture: 2}` et une seule prédiction révélée, when `verify`, then la phase reste bloquée pour une prédiction `lecture` manquante.
-- [ ] Given une prédiction révélée, when `status`, then la ligne « lecture » apparaît.
+- [x] Given une racine inexistante, when `predict --type lecture --root /nope …`, then exit 1 et rien n'est écrit.
+- [x] Given une prédiction `lib/route.js:100` et `--found lib/route.js:107`, when `--reveal`, then le score est `exact`.
+- [x] Given une prédiction `lib/route.js` sans ligne et `--found lib/reply.js:12`, when `--reveal`, then le score est `dossier`.
+- [x] Given `--found lib/route.js:99999` (au-delà de la fin), when `--reveal`, then exit 1 et la prédiction reste non révélée.
+- [x] Given `--found ../../etc/passwd:1`, when `--reveal`, then exit 1 (hors racine, liens symboliques compris).
+- [x] Given une phase `predictionsRequired: {lecture: 2}` et une seule prédiction révélée, when `verify`, then la phase reste bloquée pour une prédiction `lecture` manquante.
+- [x] Given une prédiction révélée, when `status`, then la ligne « lecture » apparaît.
 
 ## Edge Cases
 

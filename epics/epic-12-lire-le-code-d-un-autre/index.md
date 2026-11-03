@@ -14,7 +14,7 @@ Origine : 2 entrées du `.ai-learn/dogfood.md` de ce dépôt (2026-11-03) : pas 
 
 Inclus :
 
-- [ ] Type de prédiction `lecture` : prédire un emplacement dans une source déclarée, révéler l'emplacement trouvé, score mécanique.
+- [x] Type de prédiction `lecture` : prédire un emplacement dans une source déclarée, révéler l'emplacement trouvé, score mécanique.
 - [ ] `check` vérifie chaque `fichier:ligne` cité dans `docs/carte-du-code*.md` contre la racine déclarée dans la carte.
 - [ ] `ai-learn review` : kata de revue sur le code de l'apprenant, défauts injectés (banque `faults`) mêlés à des changements neutres (`NEUTRAL_TRANSFORMS`), secret hors projet, score trouvés / faux positifs, ledger `tracks/review.json`.
 - [ ] Le même kata sur du code d'autrui (`--from <chemin>`).

@@ -231,6 +231,8 @@ function main() {
         corrected: getFlagValue("--corrected", null),
         cause: getFlagValue("--cause", null),
         commit: getFlagValue("--commit", null),
+        root: getFlagValue("--root", null),
+        found: getFlagValue("--found", null),
         by: getFlagValue("--by", null),
         correctedBy: getFlagValue("--corrected-by", revealId ? null : "apprenant"),
       };
@@ -400,8 +402,8 @@ Usage:
   ai-learn break [--level 1|2|3|4 | --auto] [--dir <dir>]
   ai-learn break --bisect [--commits <6-32>] [--dir <dir>]
   ai-learn break --resolve | --giveup [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--file <f> --line <n> | --cause <text> | --commit <sha>] [--by <apprenant|ia>] [--dir <dir>]
-  ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug|lecture>] [--file <f> --line <n> | --cause <text> | --commit <sha> | --root <source> --file <f> [--line <n>]] [--by <apprenant|ia>] [--dir <dir>]
+  ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>] [--found <fichier:ligne>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]
   ai-learn docs <add|list|remove|update> [--dir <dir>] [--online] [--regen] [--secondary] [--path <subdir>]

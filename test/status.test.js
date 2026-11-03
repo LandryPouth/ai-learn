@@ -598,3 +598,18 @@ test("status shows the second opinion line", () => {
 
   assert.match(capture(() => printSecondOpinionSummary({ home })), /second avis : toi 1\/2 exacts · IA 1\/2/);
 });
+
+test("status shows the reading line once a reading bet is revealed", () => {
+  const { printReadingSummary } = require("../bin/lib/status");
+  const { recordPrediction, revealPrediction } = require("../bin/lib/predictions");
+  const dir = tmpProject(sampleProgress());
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-status-src-"));
+  writeFile(source, "lib/route.js", "a\nb\n");
+
+  assert.strictEqual(capture(() => printReadingSummary({ dir })), "");
+  const { entry } = recordPrediction(dir, sampleProgress(), { phaseId: 0, type: "lecture", root: source, file: "lib/route.js", prediction: "ici" });
+  assert.strictEqual(capture(() => printReadingSummary({ dir })), "");
+  revealPrediction(dir, sampleProgress(), entry.id, { found: "lib/route.js:2", gaps: "0/1", score: "8/10", strengths: "s", weaknesses: "w", flash: "f" });
+
+  assert.match(capture(() => printReadingSummary({ dir })), /lecture : 1 exactes \/ 1/);
+});

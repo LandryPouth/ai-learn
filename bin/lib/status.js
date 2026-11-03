@@ -20,7 +20,7 @@ const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { revisitStatus, revisitNotice } = require("./revisit");
 const { incidentFact, incidentNotice } = require("./incident");
-const { predictionsToReview } = require("./predictions");
+const { predictionsToReview, readingSummary } = require("./predictions");
 
 // The mark and, where useful, the French label shown next to a phase —
 // derived from the same verdict `check` and `next` consume, not re-derived
@@ -205,6 +205,15 @@ function printSecondOpinionSummary({ home } = {}) {
   }
 
   log(`\nsecond avis : toi ${opinion.learner.exact}/${opinion.incidents} exacts · IA ${opinion.ai.exact}/${opinion.incidents}`);
+}
+
+// Story 12.01 — "lecture" line, silent until a reading bet was revealed.
+function printReadingSummary({ dir }) {
+  const reading = readingSummary(dir);
+
+  if (reading) {
+    log(`\nlecture : ${reading.exact} exactes / ${reading.total}`);
+  }
 }
 
 // Additive, read-only summary of the domain mastery ledger (see
@@ -424,6 +433,7 @@ function statusCommand({ dir, home, json }) {
   printGitTracksSummary({ home });
   printPlatformSummary({ home });
   printSecondOpinionSummary({ home });
+  printReadingSummary({ dir });
   printDomainSummary({ dir, home });
   printNormSummary({ dir });
   printCommitReminder(dir);
@@ -436,6 +446,7 @@ module.exports = {
   printGitTracksSummary,
   printPlatformSummary,
   printSecondOpinionSummary,
+  printReadingSummary,
   printProfile,
   printDomainSummary,
   printNormSummary,

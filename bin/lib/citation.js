@@ -6,6 +6,7 @@
 // `check` for a tier-6 PR URL and for the dirigeant review's `file:line`.
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { normalizePortable } = require("./util");
 
@@ -114,7 +115,61 @@ function findRealFileLine(content, dir, isAllowed) {
   return null;
 }
 
+// Story 12.01 — a declared root other than the project (a framework in
+// `node_modules/`, a clone elsewhere): absolute, `~/…`, or relative to `dir`.
+// Null unless it is an existing directory.
+function resolveReadingRoot(raw, dir, home = os.homedir()) {
+  const text = String(raw ?? "").trim();
+
+  if (!text) {
+    return null;
+  }
+
+  const expanded = text === "~" || text.startsWith("~/") ? path.join(home, text.slice(1)) : text;
+  const resolved = path.resolve(dir, expanded);
+
+  try {
+    return fs.statSync(resolved).isDirectory() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+// `file:line` (either separator) must name a real file under `root`, links
+// followed, with the line inside it. `ok: false` carries the reason.
+function checkFileLineUnderRoot(root, citation) {
+  const match = /^(.+):(\d+)$/.exec(String(citation ?? "").trim());
+
+  if (!match) {
+    return { ok: false, reason: "attendu : <fichier>:<ligne>" };
+  }
+
+  const file = normalizePortable(path.posix.normalize(match[1].replace(/\\/g, "/")));
+  const line = Number(match[2]);
+  const resolved = path.resolve(root, file);
+
+  if (line < 1 || !isInsideRoot(path.relative(root, resolved))) {
+    return { ok: false, reason: `${match[1]}:${match[2]} est hors de la racine ${root}` };
+  }
+
+  try {
+    if (!isInsideRoot(path.relative(fs.realpathSync(root), fs.realpathSync(resolved)))) {
+      return { ok: false, reason: `${file} sort de la racine ${root} (lien symbolique)` };
+    }
+
+    if (line > countLines(fs.readFileSync(resolved, "utf8"))) {
+      return { ok: false, reason: `${file} n'a pas de ligne ${line}` };
+    }
+  } catch {
+    return { ok: false, reason: `${file} est introuvable ou illisible sous ${root}` };
+  }
+
+  return { ok: true, file, line };
+}
+
 module.exports = {
+  resolveReadingRoot,
+  checkFileLineUnderRoot,
   MIN_CONTENT_BEYOND_CITATION,
   citesRealPRUrl,
   citesWithSubstance,

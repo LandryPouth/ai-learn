@@ -8,7 +8,7 @@ Une entrée par prédiction écrite **avant** révélation. Une prédiction doit
 
 ```md
 ### Phase <N> — prédiction <k>/<total>
-- Type : <code | casse | reality>  <!-- défaut : code ; casse = ce qui casse sous stress, reality = ce qui se passe à l'exécution -->
+- Type : <code | casse | reality | lecture>  <!-- défaut : code ; lecture = où vit un mécanisme dans une source lue (racine, pari, emplacement trouvé, résultat) ; casse = ce qui casse sous stress, reality = ce qui se passe à l'exécution -->
 - Prédiction : <méthode + chemin, handler, statuts, erreurs, flux>
 - Écarts : <x>/<y> — Note : <x>/10
 - Points forts : <ce qui était exact>

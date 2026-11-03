@@ -454,3 +454,97 @@ test("the rendered journal marks the ai entry", () => {
   assert.match(md, /second avis \(IA\)/);
   assert.match(md, /Type : debug \(IA\)/);
 });
+
+// Story 12.01 — `lecture`: bet where a mechanism lives in a source, then find it.
+const os = require("os");
+const path = require("path");
+
+function lectureFixture() {
+  const config = sampleProgress({ phases: [{ id: 0, name: "P", status: "pending", checkpoint: "true", artifacts: [], predictionsRequired: { lecture: 2 } }] });
+  const dir = tmpProject(config);
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-lecture-"));
+  fs.mkdirSync(path.join(source, "lib"), { recursive: true });
+  fs.writeFileSync(path.join(source, "lib", "route.js"), `${"x\n".repeat(150)}`);
+  fs.writeFileSync(path.join(source, "lib", "reply.js"), `${"y\n".repeat(20)}`);
+  fs.mkdirSync(path.join(source, "other"));
+  fs.writeFileSync(path.join(source, "other", "z.js"), "z\n");
+  return { dir, source, config };
+}
+
+const FEEDBACK = { gaps: "1/2", score: "6/10", strengths: "s", weaknesses: "w", flash: "f" };
+
+function bet(fx, extra = {}) {
+  return recordPrediction(fx.dir, fx.config, { phaseId: 0, type: "lecture", root: fx.source, file: "lib/route.js", line: "100", prediction: "la 404 est posée ici", ...extra }).entry;
+}
+
+test("a reading prediction needs an existing root", () => {
+  const fx = lectureFixture();
+
+  assert.throws(() => bet(fx, { root: "/nope/never" }), /racine/);
+  assert.throws(() => bet(fx, { root: undefined }), /--root/);
+  assert.throws(() => bet(fx, { file: undefined }), /--file/);
+  assert.strictEqual(readPredictions(fx.dir).exists, false);
+});
+
+test("a found line within ten lines is exact", () => {
+  const fx = lectureFixture();
+  const entry = bet(fx);
+  const { entry: revealed } = revealPrediction(fx.dir, fx.config, entry.id, { ...FEEDBACK, found: "lib/route.js:107" });
+
+  assert.strictEqual(revealed.result, "exact");
+  assert.strictEqual(revealed.found, "lib/route.js:107");
+  assert.strictEqual(revealPrediction(fx.dir, fx.config, bet(fx).id, { ...FEEDBACK, found: "lib/route.js:111" }).entry.result, "fichier");
+});
+
+test("a sibling file scores dossier, another folder misses", () => {
+  const fx = lectureFixture();
+
+  assert.strictEqual(revealPrediction(fx.dir, fx.config, bet(fx, { line: undefined }).id, { ...FEEDBACK, found: "lib/reply.js:12" }).entry.result, "dossier");
+  assert.strictEqual(revealPrediction(fx.dir, fx.config, bet(fx).id, { ...FEEDBACK, found: "other/z.js:1" }).entry.result, "manqué");
+});
+
+test("a prediction without a line is exact on the right file", () => {
+  const fx = lectureFixture();
+
+  assert.strictEqual(revealPrediction(fx.dir, fx.config, bet(fx, { line: undefined }).id, { ...FEEDBACK, found: "lib/route.js:3" }).entry.result, "exact");
+});
+
+test("reveal refuses a line past the end of the file, or outside the root, and writes nothing", () => {
+  const fx = lectureFixture();
+  const entry = bet(fx);
+
+  for (const found of ["lib/route.js:99999", "../../etc/passwd:1", undefined]) {
+    assert.throws(() => revealPrediction(fx.dir, fx.config, entry.id, { ...FEEDBACK, found }));
+  }
+
+  assert.strictEqual(readPredictions(fx.dir).data.entries[0].revealedAt, undefined);
+});
+
+test("reveal names the root when it has gone", () => {
+  const fx = lectureFixture();
+  const entry = bet(fx);
+  fs.rmSync(fx.source, { recursive: true });
+
+  assert.throws(() => revealPrediction(fx.dir, fx.config, entry.id, { ...FEEDBACK, found: "lib/route.js:1" }), new RegExp(fx.source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("unrevealed reading predictions do not count", () => {
+  const fx = lectureFixture();
+  const phase = fx.config.phases[0];
+  const first = bet(fx);
+  bet(fx);
+  revealPrediction(fx.dir, fx.config, first.id, { ...FEEDBACK, found: "lib/route.js:100" });
+
+  const report = predictionsReport({ dir: fx.dir, phase });
+  assert.strictEqual(report.missing, 1);
+  assert.deepStrictEqual(report.missingByType, { lecture: { expected: 2, actual: 1, missing: 1 } });
+});
+
+test("the journal shows the root, the bet, the find and the score", () => {
+  const fx = lectureFixture();
+  revealPrediction(fx.dir, fx.config, bet(fx).id, { ...FEEDBACK, found: "lib/route.js:101" });
+  const md = fs.readFileSync(journalPath(fx.dir), "utf8");
+
+  assert.match(md, /Type : lecture/);
+  assert.match(md, /Trouvé : lib\/route\.js:101 — Résultat : exact/);
+});

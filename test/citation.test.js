@@ -124,3 +124,40 @@ test("findRealFileLine accepts a symlink that stays inside the project root", ()
 
   assert.strictEqual(findRealFileLine("src/link.js:2", dir), "src/link.js:2");
 });
+
+// Story 12.01 — a `file:line` checked under a root other than the project.
+const { resolveReadingRoot, checkFileLineUnderRoot } = require("../bin/lib/citation");
+
+function readingRoot() {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-root-"));
+  fs.mkdirSync(path.join(base, "src", "lib"), { recursive: true });
+  fs.writeFileSync(path.join(base, "src", "lib", "route.js"), "a\nb\nc\n");
+  fs.writeFileSync(path.join(base, "secret.txt"), "top\n");
+  return { base, root: path.join(base, "src") };
+}
+
+test("a root must exist and be a directory", () => {
+  const { base } = readingRoot();
+
+  assert.strictEqual(resolveReadingRoot("/nope/never", base), null);
+  assert.strictEqual(resolveReadingRoot("src/lib/route.js", base), null);
+  assert.strictEqual(resolveReadingRoot("src", base), path.join(base, "src"));
+});
+
+test("a citation under the root resolves, a line past the end does not", () => {
+  const { root } = readingRoot();
+
+  assert.deepStrictEqual(checkFileLineUnderRoot(root, "lib/route.js:3"), { ok: true, file: "lib/route.js", line: 3 });
+  assert.strictEqual(checkFileLineUnderRoot(root, "lib/route.js:4").ok, false);
+  assert.strictEqual(checkFileLineUnderRoot(root, "lib\\route.js:2").ok, true);
+});
+
+test("a citation escaping the declared root is refused", () => {
+  const { base, root } = readingRoot();
+  fs.symlinkSync(path.join(base, "secret.txt"), path.join(root, "link.txt"));
+
+  assert.strictEqual(checkFileLineUnderRoot(root, "../secret.txt:1").ok, false);
+  assert.strictEqual(checkFileLineUnderRoot(root, "../../etc/passwd:1").ok, false);
+  assert.strictEqual(checkFileLineUnderRoot(root, "link.txt:1").ok, false);
+  assert.strictEqual(checkFileLineUnderRoot(root, "lib/route.js").ok, false);
+});

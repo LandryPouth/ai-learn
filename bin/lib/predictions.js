@@ -12,13 +12,14 @@ const path = require("path");
 const crypto = require("crypto");
 const { fail } = require("./util");
 const { findPhase } = require("./progress");
+const { resolveReadingRoot, checkFileLineUnderRoot } = require("./citation");
 
 const VERSION = 1;
 
 // Story 05.01 — a prediction carries a type so `verify` can require them
 // separately (`predictionsRequired: { code: 2, reality: 1 }`). Entries written
 // before this story have no `type` and count as `code` — no migration needed.
-const PREDICTION_TYPES = ["code", "casse", "reality", "transfert", "debug"];
+const PREDICTION_TYPES = ["code", "casse", "reality", "transfert", "debug", "lecture"];
 const DEFAULT_PREDICTION_TYPE = "code";
 
 // `predictionsRequired` accepts an integer (legacy: any type combined) or an
@@ -206,6 +207,21 @@ function renderAiBlock(entry) {
   ].join("\n");
 }
 
+// Story 12.01 — where a `lecture` bet pointed, what was found, how close.
+function renderReading(entry) {
+  if (entry.type !== "lecture") {
+    return [];
+  }
+
+  const bet = entry.line ? `${entry.file}:${entry.line}` : entry.file;
+
+  return [
+    `- Source : ${escapeField(entry.root)}`,
+    `- Pari : ${escapeField(bet)}`,
+    `- Trouvé : ${entry.found ? escapeField(entry.found) : "pas encore"} — Résultat : ${entry.result || "pas encore"}`,
+  ];
+}
+
 // Renders the full file: the template's own header (title, Format, Règles —
 // unchanged, still the documentation a human reads) followed by the recorded
 // entries, chronological, in the exact per-entry format that header
@@ -226,6 +242,7 @@ function renderJournal(dir, config, data) {
     return [
       `### Phase ${entry.phaseId} — prédiction ${seenPerPhase[entry.phaseId]}/${total}`,
       `- Type : ${predictionTypeOf(entry)}`,
+      ...renderReading(entry),
       `- Prédiction : ${escapeField(entry.prediction)}`,
       `- Écarts : ${escapeField(entry.gaps)} — Note : ${escapeField(entry.score)}`,
       `- Points forts : ${escapeField(entry.strengths)}`,
@@ -301,6 +318,44 @@ function assertSecondOpinionAllowed(dir, entries, hasCause, hasCommit = false) {
   }
 }
 
+// Story 12.01 — a `lecture` bet: a source root that exists now, a file under it
+// (which need not exist: a wrong guess is a miss), an optional line.
+function readingBet(dir, fields) {
+  if (!fields.root || !fields.file) {
+    fail("a lecture prediction needs --root <source> and --file <path under the root> (ex: --root node_modules/fastify --file lib/route.js [--line 100])");
+  }
+
+  if (!resolveReadingRoot(fields.root, dir)) {
+    fail(`--root ${fields.root}: racine introuvable (un dossier existant est attendu).`);
+  }
+
+  const file = path.posix.normalize(String(fields.file).replace(/\\/g, "/")).replace(/^\.\//, "");
+
+  if (path.posix.isAbsolute(file) || file === ".." || file.startsWith("../")) {
+    fail("--file must be relative to --root and stay under it");
+  }
+
+  const rawLine = fields.line === undefined || fields.line === null ? null : String(fields.line).trim();
+
+  if (rawLine !== null && !/^[1-9]\d*$/.test(rawLine)) {
+    fail("--line must be a positive integer");
+  }
+
+  return { root: String(fields.root).trim(), file, ...(rawLine ? { line: Number.parseInt(rawLine, 10) } : {}) };
+}
+
+// Same file within this many lines of the bet is `exact`: a mechanism spans a
+// function, not a single faulty line.
+const READING_TOLERANCE = 10;
+
+function scoreReading(entry, found) {
+  if (found.file === entry.file) {
+    return !entry.line || Math.abs(found.line - entry.line) <= READING_TOLERANCE ? "exact" : "fichier";
+  }
+
+  return path.posix.dirname(found.file) === path.posix.dirname(entry.file) ? "dossier" : "manqué";
+}
+
 const REVEAL_FIELDS = ["gaps", "score", "strengths", "weaknesses", "flash", "corrected"];
 const VALID_CORRECTED_BY = ["apprenant", "IA"];
 
@@ -356,6 +411,8 @@ function recordPrediction(dir, config, fields) {
     fail("a debug prediction needs --file <path> and --line <n> (ex: --file src/a.js --line 12), --cause <text> for an environment fault, or --commit <sha> for a regression");
   }
 
+  const reading = type === "lecture" ? readingBet(dir, fields) : null;
+
   const existing = readPredictions(dir);
 
   if (existing.exists && !existing.valid) {
@@ -381,6 +438,7 @@ function recordPrediction(dir, config, fields) {
     ...(by === "ia" ? { by } : {}),
     ...(type === "debug" && cause ? { cause } : {}),
     ...(type === "debug" && commit ? { commit } : {}),
+    ...(reading || {}),
     ...(type === "debug" && !cause && !commit ? { file: path.posix.normalize(String(fields.file).replace(/\\/g, "/")), line } : {}),
     prediction: fields.prediction,
     gaps: fields.gaps || null,
@@ -424,6 +482,30 @@ function revealPrediction(dir, config, id, fields) {
     fail(`Prediction ${id} is already revealed — a reveal is final.`);
   }
 
+  let found = null;
+
+  if (entry.type === "lecture") {
+    const root = resolveReadingRoot(entry.root, dir);
+
+    if (!root) {
+      fail(`La racine ${entry.root} est introuvable ici : retrouve la source avant de révéler.`);
+    }
+
+    if (!fields.found) {
+      fail("predict --reveal on a lecture prediction needs --found <fichier:ligne> (what you found under the root).");
+    }
+
+    const checked = checkFileLineUnderRoot(root, fields.found);
+
+    if (!checked.ok) {
+      fail(`--found refusé : ${checked.reason}`);
+    }
+
+    found = checked;
+  } else if (fields.found) {
+    fail("--found is only for a lecture prediction.");
+  }
+
   const missing = REVEAL_FIELDS.filter((key) => key !== "corrected" && !fields[key]);
 
   if (missing.length > 0) {
@@ -438,6 +520,11 @@ function revealPrediction(dir, config, id, fields) {
 
   if (fields.correctedBy) {
     entry.correctedBy = fields.correctedBy;
+  }
+
+  if (found) {
+    entry.found = `${found.file}:${found.line}`;
+    entry.result = scoreReading(entry, found);
   }
 
   entry.revealedAt = new Date().toISOString();
@@ -498,7 +585,7 @@ function predictionsReport({ dir, phase, predictions }) {
     };
   }
 
-  const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id && !isAiPrediction(entry));
+  const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id && !isAiPrediction(entry) && !(entry.type === "lecture" && !entry.revealedAt));
   const count = entries.length;
   const countByType = {};
 
@@ -562,6 +649,18 @@ function predictionsToReview(dir) {
     .map(({ entry }) => ({ phaseId: entry.phaseId, flash: entry.flash }));
 }
 
+// Story 12.01 — revealed reading bets: how many were exact. Null until one is.
+function readingSummary(dir) {
+  const read = readPredictions(dir);
+
+  if (!read.valid) {
+    return null;
+  }
+
+  const revealed = read.data.entries.filter((entry) => entry.type === "lecture" && entry.revealedAt);
+  return revealed.length > 0 ? { exact: revealed.filter((entry) => entry.result === "exact").length, total: revealed.length } : null;
+}
+
 // Shared by `verify` and `check` so a phase's missing-predictions warning
 // never reads different counts in two places (plan.md Decisions) — the one
 // divergence this story exists to close. A ventilated requirement names the
@@ -597,4 +696,5 @@ module.exports = {
   predictionsReport,
   formatPredictionsGap,
   predictionsToReview,
+  readingSummary,
 };
