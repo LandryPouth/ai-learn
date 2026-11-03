@@ -48,3 +48,8 @@ le garde-fou refuse à l'IA de le lancer (il le tape lui-même avec `! ai-learn 
 
 Bloqué ? `ai-learn break --giveup` restaure le code d'origine, sauvegarde la version
 de l'apprenant dans `.ai-learn/incident-giveup/` et révèle le site — sans palier.
+
+
+## Régression dans l'historique (`--bisect`)
+
+`ai-learn break --bisect [--commits N]` construit une branche jetable : l'apprenant tape lui-même `git bisect start/run/reset` (tu ne lances aucune commande git), prédit avec `ai-learn predict --type debug --commit <sha>`, répare sur la branche jetable, puis `ai-learn break --resolve` ou `--giveup`.

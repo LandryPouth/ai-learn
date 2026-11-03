@@ -28,6 +28,7 @@ const { readOrDefaultPlatformTracks } = require("./tracks/platform");
 const { latestEvidenceForPhase } = require("./progress");
 const { readTutorConfig, incidentChance, symptomSetting } = require("./tutor");
 const envFaults = require("./incidents/env");
+const bisectIncident = require("./incidents/bisect");
 
 const RESTORED_OUTCOMES = ["gone", "stopped", "restarted", "restored"];
 const MAX_ATTEMPTS = 20;
@@ -71,6 +72,10 @@ function incidentNotice(dir) {
 
   if (!incident.active) {
     return null;
+  }
+
+  if (incident.level === "bisect") {
+    return "⚠ Incident de régression actif : un commit de la branche jetable a cassé ton checkpoint — il passe avant la phase suivante.\n  Tape `git bisect start <mauvais> <bon>` puis `git bisect run <commande du checkpoint>`, prédis le commit (`ai-learn predict --type debug --commit <sha> …`), `git bisect reset`, répare, puis `ai-learn break --resolve` (ou `--giveup`).";
   }
 
   return (
@@ -269,6 +274,7 @@ function recoverFaultLock(dir, shell) {
 
 function recoverOrphans(dir, shell) {
   recoverOrphanLockAndLog(dir);
+  bisectIncident.recoverBuild(dir);
   recoverFaultLock(dir, shell);
 }
 
@@ -701,6 +707,11 @@ function assertRestored(outcome) {
 function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell }) {
   recoverOrphans(dir, shell);
   const state = requireActive(dir);
+
+  if (state.level === "bisect") {
+    return bisectIncident.resolveBisect({ dir, home, execute, state });
+  }
+
   const record = readRecord(dir, home);
   const { failing } = runCheckpoints(checkpointPhases(dir), dir, execute);
 
@@ -750,6 +761,11 @@ function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell 
 function giveupCommand({ dir, home = os.homedir(), shell }) {
   recoverOrphans(dir, shell);
   const state = requireActive(dir);
+
+  if (state.level === "bisect") {
+    return bisectIncident.giveupBisect({ dir, home, state });
+  }
+
   const record = readRecord(dir, home);
   const { learnerVerdict, aiVerdict } = compareBets(dir, record);
   const logBets = () => {
@@ -796,4 +812,4 @@ function giveupCommand({ dir, home = os.homedir(), shell }) {
   log(`Ta version du fichier est gardée dans ${normalizePortable(path.join(".ai-learn", "incident-giveup", record.file))}.`);
 }
 
-module.exports = { chooseLevel, incidentDue, incidentFact, incidentNotice, breakCommand, resolveCommand, giveupCommand, readIncident, incidentRecordPath, statePath };
+module.exports = { recoverOrphans, assertPreconditions, checkpointPhases, runCheckpoints, closeIncident, lastDebugPrediction, logSecondOpinion, chooseLevel, incidentDue, incidentFact, incidentNotice, breakCommand, resolveCommand, giveupCommand, readIncident, incidentRecordPath, statePath };

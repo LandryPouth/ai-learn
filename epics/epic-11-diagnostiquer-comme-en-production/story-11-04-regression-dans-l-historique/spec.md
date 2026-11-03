@@ -17,14 +17,14 @@
 
 ## Acceptance Criteria
 
-- [ ] Given un arbre sale, when `break --bisect`, then exit 1 et aucune branche n'est créée.
-- [ ] Given un projet de test, when `break --bisect --commits 8` (générateur fixé), then la branche jetable est extraite, porte 8 commits d'auteur `ai-learn`, les commits avant le fautif ont des checkpoints verts, ceux à partir du fautif ont un checkpoint rouge.
-- [ ] Given une transformation neutre qui casse un checkpoint, when la construction, then elle est écartée et n'apparaît dans aucun commit.
-- [ ] Given l'incident actif, when on lit `.ai-learn/incident.json`, then il ne contient ni sha ni fichier.
-- [ ] Given une prédiction `--commit` égale au commit fautif et la panne réparée, when `break --resolve`, then palier git 7 atteint et la branche d'origine est réextraite.
-- [ ] Given un `git.json` à 6 paliers, when `check`, then aucune erreur.
-- [ ] Given l'incident actif, when `break --giveup`, then la branche d'origine est réextraite, le sha révélé, aucun palier.
-- [ ] Given le projet a un hook `commit-msg` strict, when `break --bisect`, then la construction réussit sans modifier le hook.
+- [x] Given un arbre sale, when `break --bisect`, then exit 1 et aucune branche n'est créée.
+- [x] Given un projet de test, when `break --bisect --commits 8` (générateur fixé), then la branche jetable est extraite, porte 8 commits d'auteur `ai-learn`, les commits avant le fautif ont des checkpoints verts, ceux à partir du fautif ont un checkpoint rouge.
+- [x] Given une transformation neutre qui casse un checkpoint, when la construction, then elle est écartée et n'apparaît dans aucun commit.
+- [x] Given l'incident actif, when on lit `.ai-learn/incident.json`, then il ne contient ni sha ni fichier.
+- [x] Given une prédiction `--commit` égale au commit fautif et la panne réparée, when `break --resolve`, then palier git 7 atteint et la branche d'origine est réextraite.
+- [x] Given un `git.json` à 6 paliers, when `check`, then aucune erreur.
+- [x] Given l'incident actif, when `break --giveup`, then la branche d'origine est réextraite, le sha révélé, aucun palier.
+- [x] Given le projet a un hook `commit-msg` strict, when `break --bisect`, then la construction réussit sans modifier le hook.
 
 ## Edge Cases
 

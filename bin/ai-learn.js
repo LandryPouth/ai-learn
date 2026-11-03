@@ -184,6 +184,14 @@ function main() {
         resolveCommand({ dir });
       } else if (flags.has("--giveup")) {
         giveupCommand({ dir });
+      } else if (flags.has("--bisect")) {
+        const commits = Number.parseInt(getFlagValue("--commits", "12"), 10);
+
+        if (!Number.isInteger(commits)) {
+          fail("--commits doit être un entier entre 6 et 32.");
+        }
+
+        require("./lib/incidents/bisect").bisectCommand({ dir, commits });
       } else {
         const level = flags.has("--auto") ? "auto" : Number.parseInt(getFlagValue("--level", "1"), 10);
         breakCommand({ dir, level });
@@ -222,6 +230,7 @@ function main() {
         flash: getFlagValue("--flash", null),
         corrected: getFlagValue("--corrected", null),
         cause: getFlagValue("--cause", null),
+        commit: getFlagValue("--commit", null),
         by: getFlagValue("--by", null),
         correctedBy: getFlagValue("--corrected-by", revealId ? null : "apprenant"),
       };
@@ -389,8 +398,9 @@ Usage:
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
   ai-learn break [--level 1|2|3|4 | --auto] [--dir <dir>]
+  ai-learn break --bisect [--commits <6-32>] [--dir <dir>]
   ai-learn break --resolve | --giveup [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--file <f> --line <n> | --cause <text>] [--by <apprenant|ia>] [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--file <f> --line <n> | --cause <text> | --commit <sha>] [--by <apprenant|ia>] [--dir <dir>]
   ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]

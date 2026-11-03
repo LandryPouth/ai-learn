@@ -267,7 +267,7 @@ function syncJournalRender(dir, config, data) {
 // must be active, the learner must already have bet (so the AI cannot lead
 // them), and one AI bet per incident. The incident's level fixes the shape:
 // a site (`--file`/`--line`) up to level 2, a cause at level 3.
-function assertSecondOpinionAllowed(dir, entries, hasCause) {
+function assertSecondOpinionAllowed(dir, entries, hasCause, hasCommit = false) {
   const state = require("./incident").readIncident(dir);
 
   if (!state || !state.active) {
@@ -284,11 +284,19 @@ function assertSecondOpinionAllowed(dir, entries, hasCause) {
     fail("Le second avis de l'IA est déjà enregistré pour cet incident.");
   }
 
+  if (state.level === "bisect" && !hasCommit) {
+    fail("Incident de régression (bisect) : le second avis de l'IA porte --commit, pas --file ni --cause.");
+  }
+
+  if (state.level !== "bisect" && hasCommit) {
+    fail("Seul un incident de régression (bisect) accepte --commit.");
+  }
+
   if (state.level === 3 && !hasCause) {
     fail("Incident de niveau 3 (environnement) : le second avis de l'IA porte --cause, pas --file.");
   }
 
-  if (state.level !== 3 && hasCause) {
+  if (state.level !== 3 && state.level !== "bisect" && hasCause) {
     fail("Cet incident est dans le code : le second avis de l'IA porte --file et --line, pas --cause.");
   }
 }
@@ -337,8 +345,15 @@ function recordPrediction(dir, config, fields) {
   // Story 10.05 — an environment fault has no file: the learner names its cause.
   const cause = typeof fields.cause === "string" && fields.cause.trim() ? fields.cause.trim() : null;
 
-  if (type === "debug" && !cause && (!fields.file || !Number.isFinite(line) || line < 1)) {
-    fail("a debug prediction needs --file <path> and --line <n> (ex: --file src/a.js --line 12), or --cause <text> for an environment fault");
+  // Story 11.04 — a regression incident bets on a commit, short sha accepted.
+  const commit = typeof fields.commit === "string" && /^[0-9a-f]{4,40}$/i.test(fields.commit.trim()) ? fields.commit.trim().toLowerCase() : null;
+
+  if (fields.commit && !commit) {
+    fail("--commit must be a git sha (4 to 40 hexadecimal characters)");
+  }
+
+  if (type === "debug" && !cause && !commit && (!fields.file || !Number.isFinite(line) || line < 1)) {
+    fail("a debug prediction needs --file <path> and --line <n> (ex: --file src/a.js --line 12), --cause <text> for an environment fault, or --commit <sha> for a regression");
   }
 
   const existing = readPredictions(dir);
@@ -350,7 +365,7 @@ function recordPrediction(dir, config, fields) {
   const data = existing.data || { version: VERSION, entries: [] };
 
   if (by === "ia") {
-    assertSecondOpinionAllowed(dir, data.entries, Boolean(cause));
+    assertSecondOpinionAllowed(dir, data.entries, Boolean(cause), Boolean(commit));
   }
 
   const now = new Date().toISOString();
@@ -365,7 +380,8 @@ function recordPrediction(dir, config, fields) {
     type,
     ...(by === "ia" ? { by } : {}),
     ...(type === "debug" && cause ? { cause } : {}),
-    ...(type === "debug" && !cause ? { file: path.posix.normalize(String(fields.file).replace(/\\/g, "/")), line } : {}),
+    ...(type === "debug" && commit ? { commit } : {}),
+    ...(type === "debug" && !cause && !commit ? { file: path.posix.normalize(String(fields.file).replace(/\\/g, "/")), line } : {}),
     prediction: fields.prediction,
     gaps: fields.gaps || null,
     score: fields.score || null,

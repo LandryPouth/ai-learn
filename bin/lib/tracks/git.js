@@ -24,8 +24,11 @@ const { writeLedgerFile, withoutTimestamps, canonicalizeProjects } = require("./
 // docs/plans/git-gh-renforcement-domaine.md — Partie A): 1 vocabulaire+format
 // de commit, 2 diff/stash/restore, 3
 // branches+conflit réel, 4 amend/rebase -i/cherry-pick, 5 workflow PR via gh,
-// 6 lecture de diffs/commits d'autrui.
-const TIER_IDS = [1, 2, 3, 4, 5, 6];
+// 6 lecture de diffs/commits d'autrui, 7 régression localisée avec `git bisect`
+// (story 11.04, accordé par `break --bisect`, hors phase).
+const TIER_IDS = [1, 2, 3, 4, 5, 6, 7];
+// Ledgers written before story 11.04 carry tiers 1-6 only: still valid.
+const REQUIRED_TIER_IDS = [1, 2, 3, 4, 5, 6];
 
 function tracksHome({ home = os.homedir() } = {}) {
   return path.join(home, ".ai-learn", "tracks");
@@ -73,6 +76,10 @@ function validateGitTracks(config) {
 
   for (const tier of TIER_IDS) {
     const entry = config.tiers[String(tier)];
+
+    if (entry === undefined && !REQUIRED_TIER_IDS.includes(tier)) {
+      continue;
+    }
 
     if (!entry || typeof entry !== "object") {
       issues.push({ level: "error", message: `tier ${tier} entry missing or invalid` });
@@ -248,7 +255,32 @@ function syncGitTrack({ dir, phase, verifyEvidence, home } = {}) {
   return { touchedTiers };
 }
 
+// Story 11.04 — a tier proven by a tool-provoked incident, not by a phase. One
+// evidence entry per incident: a replay confirms instead of piling up.
+function recordIncidentTier({ home, dir, incidentId, tier, kind, detail } = {}) {
+  const config = readOrDefaultGitTracks({ home });
+  const before = readGitTracks({ home }).exists ? withoutTimestamps(config) : null;
+  canonicalizeProjects(config);
+  const now = new Date().toISOString();
+
+  config.tiers[String(tier)] = config.tiers[String(tier)] || { achieved: false, evidence: [] };
+  const entry = config.tiers[String(tier)];
+
+  if (!entry.evidence.some((e) => e.incidentId === incidentId)) {
+    entry.evidence.push({ at: now, project: dir, incidentId, kind, detail, source: "incident" });
+  }
+
+  entry.achieved = true;
+  config.updatedAt = now;
+  const previous = config.projects[dir] && Array.isArray(config.projects[dir].tiersTouched) ? config.projects[dir].tiersTouched : [];
+  config.projects[dir] = { lastSyncedAt: now, tiersTouched: [...new Set([...previous, tier])] };
+
+  writeGitTracks(config, { home, before });
+  return config;
+}
+
 module.exports = {
+  recordIncidentTier,
   TIER_IDS,
   tracksHome,
   tracksPath,

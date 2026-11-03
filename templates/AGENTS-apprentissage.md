@@ -114,6 +114,8 @@ Le tier « rouge d'abord » du ledger `~/.ai-learn/tracks/tests.json` n'est jama
 
 `ai-learn break` casse le code de l'apprenant à un endroit que seul l'outil connaît (le secret vit hors du projet, dans `~/.ai-learn/incidents/`, fermé à ta lecture par le garde-fou). C'est la compétence la moins délégable du métier : partir d'un symptôme pour trouver une cause. Niveau 1 : la sortie du test qui tombe est montrée. Niveau 2 : elle ne nomme pas le fichier fautif. Niveau 4 (symptôme de production) : l'apprenant ne voit que la sortie de `incidents.symptomCommand` (`.ai-learn/tutor.json`), jamais celle des checkpoints ni les phases qui tombent ; il cherche dans les logs, traces ou erreurs avant d'ouvrir un fichier. `--resolve` atteint le palier debug 5. Possible en `--auto` une fois le palier debug 2 atteint et la commande déclarée (pile ou face avec le niveau 3).
 
+`ai-learn break --bisect [--commits N]` construit une branche jetable `ai-learn/bisect-<id>` de N commits (6 à 32, 12 par défaut), tous neutres sauf un qui casse le checkpoint ; le sha fautif reste dans le secret. C'est l'apprenant qui tape `git bisect start <mauvais> <bon>`, `git bisect run <commande du checkpoint>`, `git bisect reset` : tu ne lances aucune commande git. Il prédit le commit avec `ai-learn predict --type debug --commit <sha>` (second avis de l'IA : même option, après lui), répare sur la branche jetable, puis `--resolve` (commit exact : palier git 7) ou `--giveup`. L'outil réextrait la branche d'origine ; la branche jetable reste, l'apprenant la supprime.
+
 Protocole, dans l'ordre :
 
 1. **Symptôme** — montre la sortie du checkpoint telle quelle.
@@ -197,7 +199,7 @@ l'apprenant n'a jamais à les taper ni à les connaître. `/learn` route seul ve
 |---|---|
 | `ai-learn status` | Où j'en suis : phases et leur état — affiche aussi le résumé git/gh cross-projet (`~/.ai-learn/tracks/git.json`) quand il existe et l'état de la norme clean-code, automatique, rien à taper en plus |
 | `ai-learn next` | La prochaine phase à faire (un incident de code actif passe avant) |
-| `ai-learn break [--level 1\|2]` | Incident de code : casse le code de l'apprenant sans dire où (§ 3sexies) ; `--resolve` prouve la réparation et révèle le site, `--giveup` restaure et révèle |
+| `ai-learn break [--level 1\|2\|4 \| --bisect]` | Incident de code : casse le code de l'apprenant sans dire où (§ 3sexies) ; `--resolve` prouve la réparation et révèle le site, `--giveup` restaure et révèle |
 | `ai-learn scan` | Analyse un projet existant, montre où tu en es, propose une suite d'approfondissement — jamais de reprise à zéro |
 | `ai-learn propose` | Propose des projets à construire quand tu ne sais pas quoi faire — tout est fait automatiquement, chaque étape sourcée |
 | `ai-learn docs list` | Sources de doc du projet (locales dans `docs/sources/`, ou URLs en mode online) |

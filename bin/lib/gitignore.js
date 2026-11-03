@@ -23,6 +23,7 @@ const LINES = [
   ".ai-learn/incident.json",
   ".ai-learn/incident-giveup/",
   ".ai-learn/mutate.lock.json",
+  ".ai-learn/bisect.lock.json",
   "__pycache__/",
   ".venv/",
   "target/",

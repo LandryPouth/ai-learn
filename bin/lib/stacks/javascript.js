@@ -154,4 +154,8 @@ const mutators = ["boolean-literal", "comparison-operator"];
 // `mutate`, so adding one cannot turn a proven phase red.
 const faults = ["await-removal", "throw-to-return", "release-removal", "logical-operator", "nullish-to-or"];
 
-module.exports = { concepts, directions, recipes, stresses, norm, mutators, faults };
+// Neutral rewrites for `break --bisect` (story 11.04): filler commits of the
+// throwaway history, each proven neutral by the checkpoints.
+const neutral = ["equality-operand-swap", "length-positive"];
+
+module.exports = { concepts, directions, recipes, stresses, norm, mutators, faults, neutral };

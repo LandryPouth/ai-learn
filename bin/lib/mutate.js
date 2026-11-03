@@ -27,7 +27,7 @@ const { walkSources, detectStack, detectTests, stackKey, loadStack, ALL_SOURCE_E
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
 const vm = require("vm");
 const { stripStringsAndComments } = require("./norm");
-const { resolveFaults } = require("./faults");
+const { resolveFaults, resolveNeutral } = require("./faults");
 const { runCommand } = require("./exec");
 
 const DEFAULT_MAX_MUTANTS_PER_RUN = 50;
@@ -217,7 +217,8 @@ function detectAllSites(clean, mutators) {
 function findAllSites(dir, { bank = "mutators" } = {}) {
   const walked = walkSources(dir);
   const stack = detectStack(dir, walked.files);
-  const mutators = bank === "faults" ? resolveFaults(loadStack(stackKey(stack.language)).faults) : resolveMutators(dir, stack.language);
+  const pack = loadStack(stackKey(stack.language));
+  const mutators = bank === "faults" ? resolveFaults(pack.faults) : bank === "neutral" ? resolveNeutral(pack.neutral) : resolveMutators(dir, stack.language);
   const { implementationFiles } = loadGuardConfig(dir);
   const testRels = new Set(detectTests(walked.files).files.map((f) => f.rel));
   const { ignore } = loadMutateConfig(dir);

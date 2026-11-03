@@ -76,8 +76,14 @@ function repairGit(config, gone) {
 
   for (const tierId of git.TIER_IDS) {
     const tier = config.tiers[String(tierId)];
+
+    if (!tier) {
+      continue;
+    }
+
     dropEvidence(tier, gone, removed);
-    settle(tier, tierId, tier.evidence.some((e) => e.kind === "phase-verified"), tiersReset);
+    // `bisect`: tier 7, proven by a tool-provoked incident rather than a phase (story 11.04).
+    settle(tier, tierId, tier.evidence.some((e) => e.kind === "phase-verified" || e.kind === "bisect"), tiersReset);
   }
 
   return { removed: [...removed], tiersReset };

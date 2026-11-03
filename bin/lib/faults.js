@@ -65,4 +65,37 @@ function resolveFaults(ids) {
   return (Array.isArray(ids) ? ids : []).map((id) => FAULT_OPERATORS[id]).filter(Boolean);
 }
 
-module.exports = { FAULT_OPERATORS, resolveFaults };
+// Story 11.04 — rewrites with no expected effect, the filler commits of a
+// `break --bisect` history. Operands are plain identifiers or numbers (strings
+// are whitened in the text the patterns run on). Neutrality is not assumed:
+// the caller proves each one by running the checkpoints after applying it.
+const OPERAND = String.raw`(?:[A-Za-z_$][\w$]*|\d+)`;
+// Not preceded by a prefix operator, a member access or a keyword that would
+// bind tighter than `===` (`!a === b` is not `!b === a`).
+const OPERAND_START = String.raw`(?<![\w$.!~+\-*/%<>&|^=]|\b(?:typeof|void|await|new|delete|in|instanceof)[ \t]+)`;
+
+const NEUTRAL_TRANSFORMS = {
+  "equality-operand-swap": {
+    id: "equality-operand-swap",
+    label: "opérandes d'égalité inversés",
+    mechanism: "`a === b` et `b === a` sont équivalents : un commit qui ne change rien.",
+    pattern: new RegExp(`${OPERAND_START}${OPERAND}[ \\t]*(?:===|!==)[ \\t]*${OPERAND}(?![\\w$.(\\[]|[ \\t]*(?:[-+*/%^&|<>]|\\b(?:in|instanceof)\\b))`),
+    mutate: (text) => {
+      const [, left, operator, right] = /^(\S+?)\s*(===|!==)\s*(\S+)$/.exec(text);
+      return `${right} ${operator} ${left}`;
+    },
+  },
+  "length-positive": {
+    id: "length-positive",
+    label: "test de longueur reformulé",
+    mechanism: "`x.length > 0` et `x.length !== 0` sont équivalents pour une longueur : un commit qui ne change rien.",
+    pattern: /(?<![\w$.!~+\-])[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.length[ \t]*>[ \t]*0(?![\w$.])/,
+    mutate: (text) => text.replace(/>\s*0$/, "!== 0"),
+  },
+};
+
+function resolveNeutral(ids) {
+  return (Array.isArray(ids) ? ids : []).map((id) => NEUTRAL_TRANSFORMS[id]).filter(Boolean);
+}
+
+module.exports = { FAULT_OPERATORS, NEUTRAL_TRANSFORMS, resolveFaults, resolveNeutral };
