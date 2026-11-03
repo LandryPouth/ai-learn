@@ -161,3 +161,13 @@ test("a citation escaping the declared root is refused", () => {
   assert.strictEqual(checkFileLineUnderRoot(root, "link.txt:1").ok, false);
   assert.strictEqual(checkFileLineUnderRoot(root, "lib/route.js").ok, false);
 });
+
+test("a root resolves from ~/ and from a project-relative node_modules path", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-home-"));
+  fs.mkdirSync(path.join(home, "src", "fastify"), { recursive: true });
+  const { base } = readingRoot();
+  fs.mkdirSync(path.join(base, "node_modules", "fastify"), { recursive: true });
+
+  assert.strictEqual(resolveReadingRoot("~/src/fastify", base, home), path.join(home, "src", "fastify"));
+  assert.strictEqual(resolveReadingRoot("node_modules/fastify", base), path.join(base, "node_modules", "fastify"));
+});

@@ -173,3 +173,15 @@ test("the bilan does not count the AI's second opinions as the learner's predict
 
   assert.match(fs.readFileSync(path.join(dir, "docs", "bilan.md"), "utf8"), /Prédictions[^\n]*\b1 \(/);
 });
+
+test("the bilan does not count an unrevealed reading prediction", () => {
+  const home = tmpHome();
+  const dir = finishedProject(["done", "pending"]);
+  const { recordPrediction } = require("../bin/lib/predictions");
+  recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "x" });
+  recordPrediction(dir, sampleProgress(), { phaseId: 0, type: "lecture", root: dir, file: "a.js", prediction: "ici" });
+
+  capture(() => verifyCommand({ dir, phaseId: 1, home }));
+
+  assert.match(fs.readFileSync(path.join(dir, "docs", "bilan.md"), "utf8"), /Prédictions[^\n]*\b1 \(/);
+});

@@ -53,6 +53,11 @@ function normalizePredictionsRequired(required) {
 // learner's; `ia` is the AI's second opinion on an active incident.
 const PREDICTION_AUTHORS = ["apprenant", "ia"];
 
+// Story 12.01 — an unrevealed `lecture` bet found nothing yet: it never counts.
+function isCountedPrediction(entry) {
+  return !isAiPrediction(entry) && !(entry.type === "lecture" && !entry.revealedAt);
+}
+
 function isAiPrediction(entry) {
   return Boolean(entry) && entry.by === "ia";
 }
@@ -585,7 +590,7 @@ function predictionsReport({ dir, phase, predictions }) {
     };
   }
 
-  const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id && !isAiPrediction(entry) && !(entry.type === "lecture" && !entry.revealedAt));
+  const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id && isCountedPrediction(entry));
   const count = entries.length;
   const countByType = {};
 
@@ -681,6 +686,7 @@ module.exports = {
   PREDICTION_TYPES,
   PREDICTION_AUTHORS,
   isAiPrediction,
+  isCountedPrediction,
   DEFAULT_PREDICTION_TYPE,
   normalizePredictionsRequired,
   predictionTypeOf,
