@@ -388,7 +388,7 @@ Usage:
   ai-learn revisit <phase-id> [--giveup] [--dir <dir>]
   ai-learn verify --stale [--dir <dir>]
   ai-learn mutate --phase <id> [--dir <dir>]
-  ai-learn break [--level 1|2|3 | --auto] [--dir <dir>]
+  ai-learn break [--level 1|2|3|4 | --auto] [--dir <dir>]
   ai-learn break --resolve | --giveup [--dir <dir>]
   ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--file <f> --line <n> | --cause <text>] [--by <apprenant|ia>] [--dir <dir>]
   ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]

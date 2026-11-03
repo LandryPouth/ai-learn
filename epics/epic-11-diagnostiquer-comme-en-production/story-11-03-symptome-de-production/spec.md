@@ -20,13 +20,13 @@ En production, personne ne voit un test rouge : on voit une ligne de log, une er
 
 ## Acceptance Criteria
 
-- [ ] Given aucun `symptomCommand`, when `break --level 4`, then exit 1, message nommant `incidents.symptomCommand`, aucun fichier modifié.
-- [ ] Given un `symptomCommand` qui imprime toujours la même chose, when `break --level 4`, then aucun site n'est gardé et le code est restauré octet par octet.
-- [ ] Given un `symptomCommand` dont la sortie change quand `src/a.js` casse, when `break --level 4`, then la sortie montrée est celle de `symptomCommand` et ne contient ni la sortie du checkpoint ni l'id de phase.
-- [ ] Given un incident de niveau 4 réparé, when `break --resolve`, then le palier debug 5 est atteint.
-- [ ] Given un `debug.json` à 4 paliers, when `check`, then aucune erreur.
-- [ ] Given `symptomCommand` qui dépasse `symptomTimeoutMs`, when `break --level 4`, then le processus est tué, le code restauré, exit 1 avec la raison.
-- [ ] Given palier debug 2 atteint, `symptomCommand` déclarée et générateur fixé, when `break --auto`, then le niveau choisi est 4.
+- [x] Given aucun `symptomCommand`, when `break --level 4`, then exit 1, message nommant `incidents.symptomCommand`, aucun fichier modifié.
+- [x] Given un `symptomCommand` qui imprime toujours la même chose, when `break --level 4`, then aucun site n'est gardé et le code est restauré octet par octet.
+- [x] Given un `symptomCommand` dont la sortie change quand `src/a.js` casse, when `break --level 4`, then la sortie montrée est celle de `symptomCommand` et ne contient ni la sortie du checkpoint ni l'id de phase.
+- [x] Given un incident de niveau 4 réparé, when `break --resolve`, then le palier debug 5 est atteint.
+- [x] Given un `debug.json` à 4 paliers, when `check`, then aucune erreur.
+- [x] Given `symptomCommand` qui dépasse `symptomTimeoutMs`, when `break --level 4`, then le processus est tué, le code restauré, exit 1 avec la raison.
+- [x] Given palier debug 2 atteint, `symptomCommand` déclarée et générateur fixé, when `break --auto`, then le niveau choisi est 4.
 
 ## Edge Cases
 

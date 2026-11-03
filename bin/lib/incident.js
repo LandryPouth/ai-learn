@@ -26,7 +26,7 @@ const { projectKey, assertWritable } = require("./tracks/store");
 const { recordDebugTiers, recordSecondOpinion, readOrDefaultDebugTracks } = require("./tracks/debug");
 const { readOrDefaultPlatformTracks } = require("./tracks/platform");
 const { latestEvidenceForPhase } = require("./progress");
-const { readTutorConfig, incidentChance } = require("./tutor");
+const { readTutorConfig, incidentChance, symptomSetting } = require("./tutor");
 const envFaults = require("./incidents/env");
 
 const RESTORED_OUTCOMES = ["gone", "stopped", "restarted", "restored"];
@@ -75,7 +75,9 @@ function incidentNotice(dir) {
 
   return (
     `⚠ Incident de code actif (niveau ${incident.level}) : une panne est cachée dans ton code — elle passe avant la phase suivante.\n` +
-    (incident.level === 3
+    (incident.level === 4
+      ? "  Tu ne vois que le symptôme de production : cherche dans les logs, traces ou erreurs avant d'ouvrir un fichier, prédis le site (`ai-learn predict --type debug --file … --line …`), répare, puis `ai-learn break --resolve` (ou `--giveup`)."
+      : incident.level === 3
       ? "  La panne est dans l'environnement : prédis sa cause (`ai-learn predict --type debug --cause \"variable | port | service\" --prediction …`), diagnostique, puis `ai-learn break --resolve` (ou `--giveup`)."
       : "  Prédis le site (`ai-learn predict --type debug --file … --line …`), répare, puis `ai-learn break --resolve` (ou `--giveup`).")
   );
@@ -84,12 +86,21 @@ function incidentNotice(dir) {
 // Story 10.05 — the level an automatic incident gets: 1 by default, 2 once the
 // learner has resolved a first one, 3 (environment) once they also showed
 // platform skills in containers (tier 4) or observability (tier 6).
-function chooseLevel({ home = os.homedir() } = {}) {
+// Story 11.03 — level 4 (symptom of production) needs debug 2 and a declared
+// `symptomCommand`; when level 3 is possible too, a coin flip picks one.
+function chooseLevel({ home = os.homedir(), dir = null, random = Math.random } = {}) {
   const debug = readOrDefaultDebugTracks({ home }).tiers;
   const platform = readOrDefaultPlatformTracks({ home }).tiers;
   const platformReady = Boolean((platform["4"] || {}).achieved || (platform["6"] || {}).achieved);
 
-  if ((debug["2"] || {}).achieved && platformReady) {
+  const symptomReady = Boolean(dir) && Boolean(symptomSetting(readTutorConfig(dir).config));
+  const debugReady = Boolean((debug["2"] || {}).achieved);
+
+  if (debugReady && symptomReady && (!platformReady || random() < 0.5)) {
+    return 4;
+  }
+
+  if (debugReady && platformReady) {
     return 3;
   }
 
@@ -315,9 +326,26 @@ function keepEnvFault({ dir, phases, random, execute, shell }) {
   return null;
 }
 
+// Story 11.03 — the symptom is compared after dropping what changes from one
+// run to the next: hexadecimal identifiers, then numbers (timestamps, ports,
+// request ids). A fault that only changes a number is therefore invisible.
+function normalizeSymptom(text) {
+  return text.replace(/\b[0-9a-f]{8,}\b/gi, "#").replace(/\d+/g, "#").trim();
+}
+
+function runSymptom(setting, dir, execute) {
+  const result = execute(setting.command, dir, { timeoutMs: setting.timeoutMs });
+
+  if (result.timedOut) {
+    return { result, error: `la commande de symptôme dépasse ${setting.timeoutMs} ms (incidents.symptomTimeoutMs de .ai-learn/tutor.json).` };
+  }
+
+  return { result, output: outputOf(result) };
+}
+
 // Draws up to MAX_ATTEMPTS sites from `candidates` and keeps the first whose
 // fault the checkpoints detect (at level 2+, without naming the faulty file).
-function keepDetectableSite(candidates, { level, phases, dir, random, execute }) {
+function keepDetectableSite(candidates, { level, phases, dir, random, execute, symptom = null }) {
   let attempts = 0;
 
   while (candidates.length > 0 && attempts < MAX_ATTEMPTS) {
@@ -332,7 +360,29 @@ function keepDetectableSite(candidates, { level, phases, dir, random, execute })
     const output = failing.map((r) => outputOf(r.result)).join("\n");
 
     if (failing.length > 0 && (level === 1 || !mentionsFile(output, site.file.rel))) {
-      return { site, lockPath, failing };
+      if (!symptom) {
+        return { site, lockPath, failing };
+      }
+
+      // Level 4: the fault must also show in what production shows.
+      let observed;
+
+      try {
+        observed = runSymptom(symptom.setting, dir, execute);
+      } catch (error) {
+        release(site, lockPath);
+        throw error;
+      }
+
+      if (observed.error) {
+        release(site, lockPath);
+        fail(`Niveau 4 : ${observed.error} Ton code est restauré.`);
+      }
+
+      // Same rule as level 2: a stack trace naming the file would hand over the site.
+      if (!mentionsFile(observed.output, site.file.rel) && normalizeSymptom(observed.output) !== symptom.reference) {
+        return { site, lockPath, failing, symptomOutput: observed.output };
+      }
     }
 
     release(site, lockPath);
@@ -341,11 +391,41 @@ function keepDetectableSite(candidates, { level, phases, dir, random, execute })
   return null;
 }
 
+// The symptom as the project shows it before any fault: refused when the
+// command is not declared, fails or hangs (the reference must be stable).
+function referenceSymptom(dir, execute) {
+  const setting = symptomSetting(readTutorConfig(dir).config);
+
+  if (!setting) {
+    fail("Le niveau 4 demande une commande de symptôme : déclare `incidents.symptomCommand` dans .ai-learn/tutor.json (un script du projet qui démarre l'app, envoie quelques requêtes et affiche ses logs).");
+  }
+
+  const runs = [runSymptom(setting, dir, execute)];
+
+  if (!runs[0].error && runs[0].result.ok) {
+    runs.push(runSymptom(setting, dir, execute));
+  }
+
+  const broken = runs.find((r) => r.error || !r.result.ok);
+
+  if (broken) {
+    return { error: broken.error || `la commande de symptôme échoue avant toute panne (code ${broken.result.exitCode}) : la référence doit être stable.\n${tail(broken.output)}` };
+  }
+
+  const [first, second] = runs.map((r) => normalizeSymptom(r.output));
+
+  if (first !== second) {
+    return { error: "la sortie de la commande de symptôme change d'une exécution à l'autre : la référence doit être stable (garde une sortie sans pid, chemin temporaire ni ordre aléatoire)." };
+  }
+
+  return { setting, reference: first };
+}
+
 function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.random, execute = runCommand, shell }) {
   const auto = level === "auto";
 
-  if (!auto && ![1, 2, 3].includes(level)) {
-    fail("--level doit valoir 1, 2 ou 3.");
+  if (!auto && ![1, 2, 3, 4].includes(level)) {
+    fail("--level doit valoir 1, 2, 3 ou 4.");
   }
 
   // Repair a previous interrupted run first: the tree must be judged after it.
@@ -364,7 +444,25 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
   let envFault = null;
 
   if (auto) {
-    level = chooseLevel({ home });
+    level = chooseLevel({ home, dir, random });
+  }
+
+  let symptom = null;
+
+  if (level === 4) {
+    const reference = referenceSymptom(dir, execute);
+
+    if (reference.error && !auto) {
+      fail(`Niveau 4 : ${reference.error}`);
+    }
+
+    if (reference.error) {
+      // A broken symptom script must not block every automatic incident.
+      log(`Niveau 4 écarté : ${reference.error.split("\n")[0]}`);
+      level = chooseLevel({ home, random });
+    } else {
+      symptom = reference;
+    }
   }
 
   if (level === 3) {
@@ -380,15 +478,15 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
 
   if (!kept) {
     // Semantic faults first (story 11.02), then the pack's mutators.
-    kept = keepDetectableSite(findAllSites(dir, { bank: "faults" }), { level, phases, dir, random, execute })
-      || keepDetectableSite(findAllSites(dir), { level, phases, dir, random, execute });
+    kept = keepDetectableSite(findAllSites(dir, { bank: "faults" }), { level, phases, dir, random, execute, symptom })
+      || keepDetectableSite(findAllSites(dir), { level, phases, dir, random, execute, symptom });
   }
 
   if (!kept) {
     fail("aucune panne détectable : tes tests ne couvrent pas assez le code pour qu'une panne y soit repérée. Renforce-les, puis relance.");
   }
 
-  const { site, lockPath, failing } = kept;
+  const { site, lockPath, failing, symptomOutput } = kept;
   const startedAt = new Date().toISOString();
   const id = crypto.randomUUID();
   const record = site
@@ -409,7 +507,7 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
     }
     throw error;
   }
-  writeJson(statePath(dir), { active: true, level, startedAt, failingPhases: failing.map((r) => r.phase.id) });
+  writeJson(statePath(dir), { active: true, level, startedAt, failingPhases: level === 4 ? [] : failing.map((r) => r.phase.id) });
   fs.rmSync(lockPath, { force: true });
   fs.rmSync(faultLockPath(dir), { force: true });
 
@@ -419,15 +517,20 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
       : `Incident de niveau ${level} : une panne est cachée dans ton code. Tu ne sais pas où — c'est le but.`,
   );
   log("");
-  log(`Symptôme (checkpoint de la phase ${failing[0].phase.id} — ${failing[0].phase.name}) :`);
-  log(tail(outputOf(failing[0].result)) || "(le checkpoint échoue sans afficher de sortie)");
+  if (level === 4) {
+    log("Symptôme de production (ce que l'observabilité de ton projet montre) :");
+    log(tail(symptomOutput) || "(la commande de symptôme n'affiche rien)");
+  } else {
+    log(`Symptôme (checkpoint de la phase ${failing[0].phase.id} — ${failing[0].phase.name}) :`);
+    log(tail(outputOf(failing[0].result)) || "(le checkpoint échoue sans afficher de sortie)");
+  }
   log("");
   if (envFault) {
     log("Avant de lancer une commande, écris quelle cause tu soupçonnes (variable d'environnement, port occupé ou service arrêté) :");
     log(`  ai-learn predict --phase ${failing[0].phase.id} --type debug --cause "<type de panne>" --prediction "<mécanisme>"`);
   } else {
     log("Avant d'ouvrir un fichier, écris où tu penses que se trouve la cause et pourquoi :");
-    log(`  ai-learn predict --phase ${failing[0].phase.id} --type debug --file <fichier> --line <n> --prediction "<mécanisme>"`);
+    log(`  ai-learn predict --phase ${level === 4 ? "<phase>" : failing[0].phase.id} --type debug --file <fichier> --line <n> --prediction "<mécanisme>"`);
   }
 
   log("Puis cherche, répare, et lance `ai-learn break --resolve`. Bloqué ? `ai-learn break --giveup`.");
@@ -602,6 +705,10 @@ function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell 
 
   if (verdict === "exact" && predictedBeforeRepair(prediction, record, dir)) {
     tiers.push(3);
+  }
+
+  if (record.level === 4) {
+    tiers.push(5);
   }
 
   if (environment) {

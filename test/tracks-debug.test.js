@@ -20,9 +20,9 @@ test("tracksPath is ~/.ai-learn/tracks/debug.json", () => {
   assert.strictEqual(tracksPath({ home }), path.join(home, ".ai-learn", "tracks", "debug.json"));
 });
 
-test("defaultDebugTracks has tiers 1-4, unachieved", () => {
+test("defaultDebugTracks has tiers 1-5, unachieved", () => {
   const config = defaultDebugTracks();
-  assert.deepStrictEqual(TIER_IDS, [1, 2, 3, 4]);
+  assert.deepStrictEqual(TIER_IDS, [1, 2, 3, 4, 5]);
   assert.deepStrictEqual(validateDebugTracks(config), []);
   assert.ok(TIER_IDS.every((tier) => config.tiers[String(tier)].achieved === false));
 });
@@ -68,4 +68,11 @@ test("second opinion is counted once per incident", () => {
 test("a ledger without secondOpinion stays valid", () => {
   assert.deepStrictEqual(validateDebugTracks(defaultDebugTracks()), []);
   assert.ok(validateDebugTracks({ ...defaultDebugTracks(), secondOpinion: { incidents: "x" } }).length > 0);
+});
+
+test("a ledger without tier 5 stays valid", () => {
+  const config = defaultDebugTracks();
+  delete config.tiers["5"];
+
+  assert.deepStrictEqual(validateDebugTracks(config), []);
 });

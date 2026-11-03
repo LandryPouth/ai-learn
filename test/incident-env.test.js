@@ -443,3 +443,17 @@ test("a crash after a port fault stops only the recorded listener", async () => 
 
   assert.ok(!isAlive(listener.pid));
 });
+
+test("auto picks level 4 once tier 2 is reached and a symptom is declared", () => {
+  const home = tmpHome();
+  const dir = project();
+  writeLedgers(home, { debug: [1, 2] });
+  assert.strictEqual(chooseLevel({ home, dir, random: () => 0 }), 2, "no symptom command declared");
+
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "indices", proof: "explication", incidents: { symptomCommand: "echo hi" } }));
+  assert.strictEqual(chooseLevel({ home, dir, random: () => 0 }), 4);
+
+  writeLedgers(home, { debug: [1, 2], platform: [4] });
+  assert.strictEqual(chooseLevel({ home, dir, random: () => 0 }), 4, "coin flip low");
+  assert.strictEqual(chooseLevel({ home, dir, random: () => 0.9 }), 3, "coin flip high");
+});

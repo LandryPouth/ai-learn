@@ -74,3 +74,11 @@ test("masteryLevel keeps tests and mastery distinct: transfert needs a real pred
   assert.strictEqual(masteryLevel("transfert", { checkpointOk: true, transfertCount: 1 }), "transfert");
   assert.strictEqual(masteryLevel("transfert", { checkpointOk: false, transfertCount: 1 }), null);
 });
+
+test("validateTutorConfig checks the symptom command and its timeout", () => {
+  const base = { version: 1, assistance: "indices", proof: "explication" };
+
+  assert.deepStrictEqual(validateTutorConfig({ ...base, incidents: { symptomCommand: "npm run symptom", symptomTimeoutMs: 5000 } }), []);
+  assert.ok(validateTutorConfig({ ...base, incidents: { symptomCommand: "  " } }).some((i) => /symptomCommand/.test(i)));
+  assert.ok(validateTutorConfig({ ...base, incidents: { symptomTimeoutMs: -1 } }).some((i) => /symptomTimeoutMs/.test(i)));
+});

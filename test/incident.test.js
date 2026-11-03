@@ -471,3 +471,132 @@ test("break falls back to mutators when every semantic site is rejected", () => 
   assert.match(fs.readFileSync(path.join(dir, "src/a.js"), "utf8"), /return false;/);
   assert.match(fs.readFileSync(path.join(dir, "src/a.js"), "utf8"), /c\.release\(\)/);
 });
+
+// ---- level 4: the symptom of production (story 11.03) ----------------------
+
+const CHECKPOINT_SECRET =
+  "node -e \"const { isReady } = require('./src/a.js'); if (isReady() !== true) { console.error('CHECKPOINT-SECRET'); process.exit(1) }\"";
+const SYMPTOM_SHOWING = "node -e \"console.log(require('fs').readFileSync('src/a.js', 'utf8').includes('return true') ? 'GET /ready 200' : 'GET /ready 500 degraded')\"";
+const SYMPTOM_STABLE = "node -e \"console.log('GET /ready 200')\"";
+
+function symptomProject(command, extra = {}) {
+  const dir = project({ checkpoint: CHECKPOINT_SECRET });
+  writeFile(dir, ".ai-learn/tutor.json", JSON.stringify({ version: 1, assistance: "indices", proof: "explication", incidents: { symptomCommand: command, ...extra } }));
+  git(dir, "add", "-A");
+  git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "tutor");
+  return dir;
+}
+
+function sourceOf(dir) {
+  return fs.readFileSync(path.join(dir, "src/a.js"), "utf8");
+}
+
+test("level 4 needs a declared symptom command", () => {
+  const dir = project();
+  const before = sourceOf(dir);
+
+  assert.throws(() => breakCommand({ dir, level: 4, home: tmpHome(), random: FIRST }), /incidents\.symptomCommand/);
+  assert.strictEqual(sourceOf(dir), before);
+});
+
+test("a fault the symptom does not show is not kept", () => {
+  const dir = symptomProject(SYMPTOM_STABLE);
+  const before = sourceOf(dir);
+
+  assert.throws(() => breakCommand({ dir, level: 4, home: tmpHome(), random: FIRST }), /aucune panne détectable/);
+  assert.strictEqual(sourceOf(dir), before);
+  assert.ok(!fs.existsSync(mutateLockPath(dir)));
+});
+
+test("level 4 shows the symptom output and hides checkpoint output", () => {
+  const dir = symptomProject(SYMPTOM_SHOWING);
+  const home = tmpHome();
+  const out = capture(() => breakCommand({ dir, level: 4, home, random: FIRST }));
+
+  assert.match(out, /GET \/ready 500 degraded/);
+  assert.ok(!out.includes("CHECKPOINT-SECRET"));
+  assert.ok(!/Phase zero/.test(out));
+  assert.deepStrictEqual(readIncident(dir).failingPhases, []);
+});
+
+test("resolving a level 4 incident reaches debug tier 5", () => {
+  const dir = symptomProject(SYMPTOM_SHOWING);
+  const home = tmpHome();
+  const original = sourceOf(dir);
+
+  capture(() => breakCommand({ dir, level: 4, home, random: FIRST }));
+  fs.writeFileSync(path.join(dir, "src/a.js"), original);
+  capture(() => resolveCommand({ dir, home }));
+
+  const tiers = JSON.parse(fs.readFileSync(tracksPath({ home }), "utf8")).tiers;
+  assert.strictEqual(tiers["5"].achieved, true);
+  assert.strictEqual(tiers["2"].achieved, true);
+});
+
+test("a symptom command over its timeout is killed and the code restored", () => {
+  const slowWhenBroken =
+    "node -e \"if (!require('fs').readFileSync('src/a.js', 'utf8').includes('return true')) setTimeout(() => {}, 30000); else console.log('ok')\"";
+  const dir = symptomProject(slowWhenBroken, { symptomTimeoutMs: 1500 });
+  const before = sourceOf(dir);
+
+  assert.throws(() => breakCommand({ dir, level: 4, home: tmpHome(), random: FIRST }), /symptomTimeoutMs/);
+  assert.strictEqual(sourceOf(dir), before);
+  assert.ok(!fs.existsSync(mutateLockPath(dir)));
+});
+
+test("a symptom command failing before any fault is refused", () => {
+  const dir = symptomProject("node -e \"process.exit(3)\"");
+
+  assert.throws(() => breakCommand({ dir, level: 4, home: tmpHome(), random: FIRST }), /référence doit être stable/);
+});
+
+test("symptom comparison ignores numbers and long hex ids", () => {
+  const noisy = "node -e \"console.log('req 0123456789abcdef took ' + Date.now() + ' ms')\"";
+  const dir = symptomProject(noisy);
+
+  assert.throws(() => breakCommand({ dir, level: 4, home: tmpHome(), random: FIRST }), /aucune panne détectable/);
+});
+
+test("an unstable symptom reference is refused", () => {
+  const dir = symptomProject("node -e \"console.log('run ' + Math.random().toString(36).slice(2, 7))\"");
+
+  assert.throws(() => breakCommand({ dir, level: 4, home: tmpHome(), random: FIRST }), /change d'une exécution à l'autre/);
+});
+
+test("a symptom naming the faulty file is not kept", () => {
+  const naming = "node -e \"console.log(require('fs').readFileSync('src/a.js', 'utf8').includes('return true') ? 'ok' : 'Error at src/a.js:2')\"";
+  const dir = symptomProject(naming);
+  const before = sourceOf(dir);
+
+  assert.throws(() => breakCommand({ dir, level: 4, home: tmpHome(), random: FIRST }), /aucune panne détectable/);
+  assert.strictEqual(sourceOf(dir), before);
+});
+
+test("auto falls back to a code incident when the symptom command is broken", () => {
+  const dir = symptomProject("node -e \"process.exit(3)\"");
+  const home = tmpHome();
+  fs.mkdirSync(path.dirname(tracksPath({ home })), { recursive: true });
+  const ledger = require("../bin/lib/tracks/debug").defaultDebugTracks();
+  ledger.tiers["1"].achieved = true;
+  ledger.tiers["2"].achieved = true;
+  fs.writeFileSync(tracksPath({ home }), JSON.stringify(ledger));
+
+  const out = capture(() => breakCommand({ dir, level: "auto", home, random: FIRST }));
+
+  assert.match(out, /Niveau 4 écarté/);
+  assert.strictEqual(readIncident(dir).active, true);
+  assert.strictEqual(readIncident(dir).level, 2);
+});
+
+test("recordDebugTiers adds tier 5 to a ledger written before it existed", () => {
+  const { defaultDebugTracks, recordDebugTiers } = require("../bin/lib/tracks/debug");
+  const home = tmpHome();
+  const ledger = defaultDebugTracks();
+  delete ledger.tiers["5"];
+  fs.mkdirSync(path.dirname(tracksPath({ home })), { recursive: true });
+  fs.writeFileSync(tracksPath({ home }), JSON.stringify(ledger));
+
+  recordDebugTiers({ home, dir: "/tmp/p", incidentId: "i1", tiers: [1, 2, 5], detail: "x" });
+
+  assert.strictEqual(JSON.parse(fs.readFileSync(tracksPath({ home }), "utf8")).tiers["5"].achieved, true);
+});

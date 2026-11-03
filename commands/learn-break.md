@@ -23,7 +23,7 @@ Si la commande refuse (arbre git non propre, aucune phase terminée, incident d�
 actif, mode dirigeant, aucune panne détectable), affiche la raison telle quelle et
 dis ce qu'elle demande — rien n'a été modifié.
 
-Sinon, montre le symptôme (la sortie du checkpoint) et suis le protocole
+Sinon, montre le symptôme (la sortie du checkpoint ; au niveau 4, seulement la sortie de `incidents.symptomCommand`, jamais celle des checkpoints) et suis le protocole
 `AGENTS.md` § « Incident de code » :
 
 1. **Prédire avant d'ouvrir un fichier** : l'apprenant écrit où il pense que se

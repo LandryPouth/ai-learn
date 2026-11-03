@@ -53,6 +53,18 @@ function validateTutorConfig(data) {
     if (chance !== undefined && !(typeof chance === "number" && chance >= 0 && chance <= 1)) {
       issues.push(`incidents.chance ${JSON.stringify(chance)} is out of range (expected a number between 0 and 1)`);
     }
+
+    // Story 11.03 — the level-4 symptom: a project script showing what its
+    // observability shows.
+    const incidents = data.incidents && typeof data.incidents === "object" ? data.incidents : {};
+
+    if (incidents.symptomCommand !== undefined && !(typeof incidents.symptomCommand === "string" && incidents.symptomCommand.trim() !== "")) {
+      issues.push(`incidents.symptomCommand ${JSON.stringify(incidents.symptomCommand)} must be a non-empty string`);
+    }
+
+    if (incidents.symptomTimeoutMs !== undefined && !(Number.isInteger(incidents.symptomTimeoutMs) && incidents.symptomTimeoutMs > 0)) {
+      issues.push(`incidents.symptomTimeoutMs ${JSON.stringify(incidents.symptomTimeoutMs)} must be a positive integer`);
+    }
   }
 
   return issues;
@@ -110,6 +122,22 @@ function incidentChance(config) {
   return typeof chance === "number" && chance >= 0 && chance <= 1 ? chance : DEFAULT_INCIDENT_CHANCE;
 }
 
+const DEFAULT_SYMPTOM_TIMEOUT_MS = 60000;
+
+// Story 11.03 — the declared symptom command, or null (absent or invalid: the
+// level 4 is then unavailable; `check` reports the invalid one).
+function symptomSetting(config) {
+  const incidents = config && config.incidents && typeof config.incidents === "object" ? config.incidents : {};
+  const command = typeof incidents.symptomCommand === "string" && incidents.symptomCommand.trim() !== "" ? incidents.symptomCommand : null;
+  const timeout = incidents.symptomTimeoutMs;
+
+  if (!command) {
+    return null;
+  }
+
+  return { command, timeoutMs: Number.isInteger(timeout) && timeout > 0 ? timeout : DEFAULT_SYMPTOM_TIMEOUT_MS };
+}
+
 // The proof ladder: `tests` is the mechanical checkpoint, `explication` is the
 // protocol promise, `transfert` additionally needs a real `transfert`
 // prediction for the phase. `mastery` is null when the configured level was
@@ -139,6 +167,7 @@ module.exports = {
   DEFAULT_PROOF,
   DEFAULT_INCIDENT_CHANCE,
   incidentChance,
+  symptomSetting,
   tutorConfigPath,
   defaultTutorConfig,
   validateTutorConfig,

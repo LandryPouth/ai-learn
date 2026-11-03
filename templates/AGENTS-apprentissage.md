@@ -112,7 +112,7 @@ Le tier « rouge d'abord » du ledger `~/.ai-learn/tracks/tests.json` n'est jama
 
 ### 3sexies. Incident de code — diagnostiquer une panne dont on ne connaît pas le site
 
-`ai-learn break` casse le code de l'apprenant à un endroit que seul l'outil connaît (le secret vit hors du projet, dans `~/.ai-learn/incidents/`, fermé à ta lecture par le garde-fou). C'est la compétence la moins délégable du métier : partir d'un symptôme pour trouver une cause. Niveau 1 : la sortie du test qui tombe est montrée. Niveau 2 : elle ne nomme pas le fichier fautif.
+`ai-learn break` casse le code de l'apprenant à un endroit que seul l'outil connaît (le secret vit hors du projet, dans `~/.ai-learn/incidents/`, fermé à ta lecture par le garde-fou). C'est la compétence la moins délégable du métier : partir d'un symptôme pour trouver une cause. Niveau 1 : la sortie du test qui tombe est montrée. Niveau 2 : elle ne nomme pas le fichier fautif. Niveau 4 (symptôme de production) : l'apprenant ne voit que la sortie de `incidents.symptomCommand` (`.ai-learn/tutor.json`), jamais celle des checkpoints ni les phases qui tombent ; il cherche dans les logs, traces ou erreurs avant d'ouvrir un fichier. `--resolve` atteint le palier debug 5. Possible en `--auto` une fois le palier debug 2 atteint et la commande déclarée (pile ou face avec le niveau 3).
 
 Protocole, dans l'ordre :
 

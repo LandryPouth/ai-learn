@@ -4,15 +4,16 @@
 // home-scoped, versioned, structurally validated shape as `tracks/git.js`: it
 // follows the learner across projects. Tiers (story 10.04): 1 incident résolu,
 // 2 incident de niveau 2 résolu, 3 site prédit « exact » avant la réparation.
-// 4 panne d'environnement résolue (story 10.05).
+// 4 panne d'environnement résolue (story 10.05), 5 panne trouvée depuis un
+// symptôme de production (story 11.03).
 
 const os = require("os");
 const path = require("path");
 const { readJson } = require("../util");
 const { writeLedgerFile, withoutTimestamps, canonicalizeProjects } = require("./store");
 
-const TIER_IDS = [1, 2, 3, 4];
-// Ledgers written before story 10.05 carry tiers 1-3 only: still valid.
+const TIER_IDS = [1, 2, 3, 4, 5];
+// Ledgers written before story 10.05 carry tiers 1-3 only (11.03 adds 5): still valid.
 const REQUIRED_TIER_IDS = [1, 2, 3];
 
 function tracksPath({ home = os.homedir() } = {}) {
