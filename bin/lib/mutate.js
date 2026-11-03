@@ -53,6 +53,9 @@ const PARSEABLE_EXTS = new Set([".js", ".cjs", ".mjs"]);
 // see modules: `throw-to-return` is simply not drawn there.
 const ESM_UNSAFE_FAULTS = new Set(["throw-to-return"]);
 const ESM_EXTS = new Set([".mjs", ".mts"]);
+// A bare `return;` in a typed function is a type error, not a swallowed error,
+// and the parse gate cannot see TypeScript: `throw-to-return` is not drawn there.
+const TYPED_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]);
 const ESM_SYNTAX = /^\s*(?:import|export)\b/m;
 // Beyond this size the parse gate is skipped (it parses the whole file).
 const MAX_PARSE_GATE_BYTES = 100 * 1024;
@@ -242,7 +245,7 @@ function findAllSites(dir, { bank = "mutators" } = {}) {
       : mutators;
 
     for (const site of detectAllSites(clean, fileMutators)) {
-      if (bank === "faults" && ESM_UNSAFE_FAULTS.has(site.operator) && (ESM_EXTS.has(file.ext) || ESM_SYNTAX.test(clean))) continue;
+      if (bank === "faults" && ESM_UNSAFE_FAULTS.has(site.operator) && (ESM_EXTS.has(file.ext) || TYPED_EXTS.has(file.ext) || ESM_SYNTAX.test(clean))) continue;
 
       sites.push({
         file,

@@ -21,6 +21,7 @@
 - `incident.js` : `keepDetectableSite` essaie les pannes sémantiques puis les mutants ; `logMechanism` au `--resolve` et `--giveup`.
 - README, AGENTS §3sexies.
 - Revue STRICT indépendante (sous-agent, 3 tours) : tour 1 fail (3 P1 : `throw`/`release` cassant la syntaxe, aucune barrière de parsing), tour 2 fail (P1 perf quadratique, ESM, flux de contrôle sous en-tête, ASI), tour 3 pass ; P2 restant (`.mjs`) corrigé. Résiduel documenté : guillemet dans un littéral regex, `*.release()` hors pool nommé « connexion », fichiers `.ts`/> 100 Ko sans barrière de parsing.
+- Revue finale (self, pass, 3 P3) : `throw-to-return` n'est plus tiré en `.ts`/`.tsx`/`.cts` (retour typé), test de repli quand tous les sites sémantiques sont rejetés. Budget d'essais non partagé entre banques : conforme au spec.
 - Validation : `ai-flow verify` vert (`npm test`, 1060 tests). Coverage: evidence.
 
 ### Rollback Notes

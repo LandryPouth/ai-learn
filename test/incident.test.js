@@ -453,3 +453,21 @@ test("throw-to-return is never drawn in an .mjs file, even without import/export
 
   assert.deepStrictEqual(findAllSites(dir, { bank: "faults" }).filter((site) => site.operator === "throw-to-return"), []);
 });
+
+test("throw-to-return is not drawn in TypeScript files", () => {
+  const dir = project({ files: { "src/a.ts": "export function f(x: number): number {\n  if (!x) {\n    throw new Error('no');\n  }\n  return x;\n}\n" } });
+
+  assert.deepStrictEqual(findAllSites(dir, { bank: "faults" }).filter((s) => s.operator === "throw-to-return"), []);
+});
+
+test("break falls back to mutators when every semantic site is rejected", () => {
+  const dir = project({
+    files: { "src/a.js": "function isReady(c, err) {\n  if (err)\n    c.release();\n  return true;\n}\n\nmodule.exports = { isReady };\n" },
+  });
+  const home = tmpHome();
+
+  capture(() => breakCommand({ dir, level: 1, home, random: FIRST }));
+
+  assert.match(fs.readFileSync(path.join(dir, "src/a.js"), "utf8"), /return false;/);
+  assert.match(fs.readFileSync(path.join(dir, "src/a.js"), "utf8"), /c\.release\(\)/);
+});
