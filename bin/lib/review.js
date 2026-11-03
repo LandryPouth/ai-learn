@@ -15,7 +15,7 @@ const path = require("path");
 const { log, fail, readJson, writeJson, normalizePortable } = require("./util");
 const { readProgress, missingProgressMessage, latestEvidenceForPhase } = require("./progress");
 const { findAllSites, findSitesInFiles } = require("./mutate");
-const { resolveSource, selectFiles, isLearnerCode } = require("./review-source");
+const { resolveSource, selectFiles, isLearnerCode, sourceLabel } = require("./review-source");
 const { allFileLines } = require("./citation");
 const { loadGuardConfig, MODE_DIRIGEANT } = require("./guard");
 const { projectId, readIncident } = require("./incident");
@@ -101,6 +101,7 @@ function kataOffer(dir, { home = os.homedir() } = {}) {
   return { from };
 }
 
+// Boolean view of `kataOffer`, kept for callers that ignore the path.
 function kataDue(dir, options) {
   return kataOffer(dir, options) !== null;
 }
@@ -289,8 +290,8 @@ function reviewCommand({ dir, defects, decoys, from, home = os.homedir(), random
   writeJson(target, secret);
   fs.chmodSync(target, 0o600);
   fs.mkdirSync(kataDir(dir, id), { recursive: true });
-  fs.writeFileSync(path.join(kataDir(dir, id), "kata.diff"), `${foreign ? `Source : ${String(from).trim()}\n` : ""}${buildDiff([...chosenDefects, ...chosenDecoys])}\n`);
-  fs.writeFileSync(path.join(kataDir(dir, id), "revue.md"), foreign ? TEMPLATE.replace("\n\n", `\n\nSource : ${String(from).trim()}\n\n`) : TEMPLATE);
+  fs.writeFileSync(path.join(kataDir(dir, id), "kata.diff"), `${foreign ? `Source : ${sourceLabel(from)}\n` : ""}${buildDiff([...chosenDefects, ...chosenDecoys])}\n`);
+  fs.writeFileSync(path.join(kataDir(dir, id), "revue.md"), foreign ? TEMPLATE.replace("\n\n", `\n\nSource : ${sourceLabel(from)}\n\n`) : TEMPLATE);
   writeJson(statePath(dir), { active: true, id, startedAt });
 
   log("Kata de revue prêt. Ce diff vient d'une IA : certaines lignes cachent des défauts, d'autres sont inoffensives.");

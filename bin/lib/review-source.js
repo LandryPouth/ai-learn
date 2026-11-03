@@ -71,7 +71,7 @@ function selectFiles({ abs, isDir }) {
 function isLearnerCode(dir, abs) {
   const rel = normalizePortable(path.relative(dir, abs));
 
-  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+  if (rel === "" || rel.split("/")[0] === ".." || path.isAbsolute(rel)) {
     return false;
   }
 
@@ -80,4 +80,10 @@ function isLearnerCode(dir, abs) {
   return matchesLearnerPath(rel, learnerFiles) || matchesLearnerPath(`${rel}/x`, learnerFiles);
 }
 
-module.exports = { resolveSource, selectFiles, isLearnerCode, MAX_FILES, MAX_LINES };
+// The path as shown in `kata.diff` and `revue.md`: a `:<digits>` in it must not
+// read as a `file:line` citation of the review.
+function sourceLabel(raw) {
+  return String(raw).trim().replace(/:(?=\d)/g, " :");
+}
+
+module.exports = { resolveSource, selectFiles, isLearnerCode, sourceLabel, MAX_FILES, MAX_LINES };

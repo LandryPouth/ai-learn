@@ -42,3 +42,11 @@ Dossiers temporaires hors projet : génération et intégrité de la source, exc
 ```
 npm test
 ```
+
+## Result
+
+- `review --from <chemin>` (`bin/lib/review-source.js`, `review.js`, `mutate.js#findSitesInFiles`) : source lue seule, jusqu'à 20 fichiers JS/TS de 2 000 lignes, hors tests, minifiés et `node_modules`. L'en-tête « Source : » est neutralisé contre une fausse citation `fichier:ligne`.
+- Palier 3 au ledger `tracks/review.json` (optionnel sur disque, comblé à la lecture) ; `next` porte `kata.from` pour une phase taguée `"kata": "<chemin>"`.
+- Revue : `isLearnerCode` compare désormais le premier segment à `..` ; tests ajoutés pour `~/`, le plafond de 20 fichiers et un chemin contenant `:ligne`.
+- Validation : `npm test` (vert), `ai-flow verify`.
+- Risque restant : seuil de la moitié des défauts à recalibrer à l'usage ; mélange JS/TS décidé à la majorité des fichiers.

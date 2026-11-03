@@ -433,3 +433,32 @@ test("a kata tag with a path makes a foreign kata due", () => {
   assert.deepStrictEqual([first.due, first.from], [true, "node_modules/x/lib"]);
   assert.strictEqual(buildNextReport(dir, { home }).kata.due, false);
 });
+
+test("--from expands ~/ and caps the kata at 20 files", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-home-"));
+  const files = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`lib/f${String(i).padStart(2, "0")}.js`, CODE]));
+  const root = path.join(home, "pkg");
+
+  for (const [rel, text] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  }
+
+  const dir = project();
+  const state = start(dir, home, { from: "~/pkg/lib", defects: 2, decoys: 2 });
+  const diff = fs.readFileSync(path.join(dir, "katas", state.id, "kata.diff"), "utf8");
+
+  assert.ok(new Set([...diff.matchAll(/^--- a\/(.+)$/gm)].map((m) => m[1])).size <= 20);
+});
+
+test("a source path holding :digits is not read as a citation", () => {
+  const dir = project();
+  const root = foreignDir();
+  const named = path.join(path.dirname(root), `${path.basename(root)}:12`);
+
+  fs.renameSync(root, named);
+  const state = start(dir, tmpHome(), { from: named, defects: 2, decoys: 2 });
+  const revue = fs.readFileSync(path.join(dir, "katas", state.id, "revue.md"), "utf8");
+
+  assert.doesNotMatch(revue, /[^\s]:12\b/);
+});
