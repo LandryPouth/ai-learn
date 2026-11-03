@@ -22,6 +22,7 @@ const {
   formatMutationGap,
   emptyMutationReport,
   loadMutateConfig,
+  MUTATION_OPERATORS,
 } = require("../bin/lib/mutate");
 const { capture, sampleProgress, tmpProject, writeFile } = require("./helpers");
 
@@ -760,4 +761,18 @@ test("emptyMutationReport returns the stable not-computed shape for both require
 test("formatMutationGap summarizes the kill count", () => {
   const report = { killed: 2, mutants: 3, survived: [{ file: "src/index.js", line: 2, operator: "boolean-literal" }] };
   assert.strictEqual(formatMutationGap({ id: 0 }, report), "phase 0: 2/3 mutants tués, 1 survécu(s)");
+});
+
+test("mutate never draws from the fault bank", () => {
+  const dir = projectWithBooleanLiteral(WEAK_CHECKPOINT);
+  writeFile(dir, "src/extra.js", "async function g(a, b) {\n  const r = await a ?? (a && b);\n  return r;\n}\n");
+  const { FAULT_OPERATORS } = require("../bin/lib/faults");
+  const operators = new Set(findAllSites(dir).map((s) => s.operator));
+
+  assert.ok(operators.has("boolean-literal"));
+  assert.ok([...operators].every((id) => id in MUTATION_OPERATORS), "mutate only draws from its own bank");
+
+  for (const id of Object.keys(FAULT_OPERATORS)) {
+    assert.ok(!operators.has(id), id);
+  }
 });

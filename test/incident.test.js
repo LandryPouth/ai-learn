@@ -11,7 +11,7 @@ const os = require("os");
 const path = require("path");
 
 const { breakCommand, resolveCommand, giveupCommand, readIncident, incidentRecordPath } = require("../bin/lib/incident");
-const { mutateLockPath } = require("../bin/lib/mutate");
+const { mutateLockPath, findAllSites } = require("../bin/lib/mutate");
 const { readGitTracks } = require("../bin/lib/tracks/git");
 const { tracksPath } = require("../bin/lib/tracks/debug");
 const { buildNextReport } = require("../bin/lib/next");
@@ -351,4 +351,105 @@ test("giveup never overwrites an earlier backup", () => {
   capture(() => giveupCommand({ dir, home }));
   const saved = path.join(dir, ".ai-learn", "incident-giveup", "src", "a.js");
   assert.strictEqual(fs.readFileSync(saved, "utf8"), "// v1\n");
+});
+
+const AWAIT_SOURCES = {
+  "src/a.js":
+    "async function f() {\n  return true;\n}\n\nasync function isReady() {\n  const r = await f();\n  return r === true;\n}\n\nmodule.exports = { isReady };\n",
+};
+const CHECKPOINT_AWAIT = "node -e \"require('./src/a.js').isReady().then((v) => { if (v !== true) process.exit(1) })\"";
+
+test("break injects a semantic fault and keeps the site secret", () => {
+  const dir = project({ checkpoint: CHECKPOINT_AWAIT, files: AWAIT_SOURCES });
+  const out = capture(() => breakCommand({ dir, level: 1, home: tmpHome(), random: FIRST }));
+
+  assert.match(fs.readFileSync(path.join(dir, "src/a.js"), "utf8"), /const r = f\(\);/);
+  assert.ok(!out.includes("await"), "the output must not reveal the fault");
+  assert.ok(!out.includes("a.js:"), "the output must not reveal the site");
+});
+
+test("break falls back to mutators when no semantic site is detectable", () => {
+  const dir = project();
+  const home = tmpHome();
+
+  capture(() => breakCommand({ dir, level: 1, home, random: FIRST }));
+
+  assert.strictEqual(readIncident(dir, { home }).active, true);
+  assert.match(fs.readFileSync(path.join(dir, "src/a.js"), "utf8"), /return false;/);
+});
+
+test("resolve names the fault mechanism", () => {
+  const dir = project({ checkpoint: CHECKPOINT_AWAIT, files: AWAIT_SOURCES });
+  const home = tmpHome();
+
+  capture(() => breakCommand({ dir, level: 1, home, random: FIRST }));
+  fs.writeFileSync(path.join(dir, "src/a.js"), AWAIT_SOURCES["src/a.js"]);
+  const out = capture(() => resolveCommand({ dir, home }));
+
+  assert.match(out, /await oublié/);
+  assert.match(out, /promesse au lieu de sa valeur/);
+});
+
+test("giveup names the fault mechanism too", () => {
+  const dir = project({ checkpoint: CHECKPOINT_AWAIT, files: AWAIT_SOURCES });
+  const home = tmpHome();
+
+  capture(() => breakCommand({ dir, level: 1, home, random: FIRST }));
+
+  assert.match(capture(() => giveupCommand({ dir, home })), /await oublié/);
+});
+
+test("a pack without faults behaves as before", () => {
+  const dir = project();
+
+  assert.deepStrictEqual(findAllSites(dir, { bank: "faults" }), []);
+});
+
+test("a fault whose rewrite would not parse is rejected when drawn", () => {
+  const { breaksSyntax } = require("../bin/lib/mutate");
+  const original = "function f() {\n  foo();\n}\n";
+  const site = { index: 15, length: 3, matchedText: "foo", mutate: () => "(" };
+
+  assert.strictEqual(breaksSyntax(".js", original, site), true);
+  assert.strictEqual(breaksSyntax(".js", original, { ...site, mutate: () => "bar" }), false);
+  assert.strictEqual(breaksSyntax(".ts", original, site), false, "TypeScript is not parse-gated");
+});
+
+test("a release under a control header is rejected, one after a statement is not", () => {
+  const dir = project({
+    files: {
+      "src/a.js": "function f(c, err) {\n  if (err)\n    c.release();\n  return 1;\n}\nfunction g(c) {\n  work();\n  c.release();\n}\n",
+    },
+  });
+  const sites = findAllSites(dir, { bank: "faults" }).filter((s) => s.operator === "release-removal");
+
+  assert.deepStrictEqual(sites.map((s) => s.rejects()), [true, false]);
+});
+
+test("throw-to-return is not drawn in ES modules", () => {
+  const dir = project({ files: { "src/a.js": "import x from 'y';\nif (!x) {\n  throw new Error('no');\n}\n" } });
+
+  assert.deepStrictEqual(findAllSites(dir, { bank: "faults" }), []);
+});
+
+test("gating a large file with many sites stays fast", () => {
+  const body = Array.from({ length: 3000 }, (_, i) => `  const v${i} = a && b;`).join("\n");
+  const dir = project({ files: { "src/a.js": `function f(a, b) {\n${body}\n}\n` } });
+  const started = Date.now();
+  const sites = findAllSites(dir, { bank: "faults" });
+
+  assert.ok(sites.length >= 3000);
+  assert.ok(Date.now() - started < 2000, "listing sites must not parse the file per site");
+});
+
+test("prose-prone faults are not drawn from JSX files", () => {
+  const dir = project({ files: { "src/a.jsx": "export const A = () => <p>Please await   confirmation</p>;\n" } });
+
+  assert.deepStrictEqual(findAllSites(dir, { bank: "faults" }), []);
+});
+
+test("throw-to-return is never drawn in an .mjs file, even without import/export", () => {
+  const dir = project({ files: { "src/a.mjs": "if (!x) {\n  throw new Error('no');\n}\nawait go();\n" } });
+
+  assert.deepStrictEqual(findAllSites(dir, { bank: "faults" }).filter((site) => site.operator === "throw-to-return"), []);
 });

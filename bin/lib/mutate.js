@@ -25,7 +25,9 @@ const { log, fail, readJson, writeJson } = require("./util");
 const { readProgress, missingProgressMessage, findPhase } = require("./progress");
 const { walkSources, detectStack, detectTests, stackKey, loadStack, ALL_SOURCE_EXTS } = require("./scan");
 const { loadGuardConfig, matchesLearnerPath } = require("./guard");
+const vm = require("vm");
 const { stripStringsAndComments } = require("./norm");
+const { resolveFaults } = require("./faults");
 const { runCommand } = require("./exec");
 
 const DEFAULT_MAX_MUTANTS_PER_RUN = 50;
@@ -44,6 +46,16 @@ const FALLBACK_MUTATORS = ["boolean-literal"];
 // module header). Plain `.ts`/`.js` generics (`Array<string>`) are a
 // narrower, accepted residual risk — see plan.md Decisions.
 const JSX_EXTS = new Set([".jsx", ".tsx"]);
+// Fault operators that read JSX text (prose) as code — dropped for those files.
+const JSX_UNSAFE_FAULTS = new Set(["await-removal", "throw-to-return"]);
+const PARSEABLE_EXTS = new Set([".js", ".cjs", ".mjs"]);
+// A top-level `return;` is illegal in an ES module, and the parse gate cannot
+// see modules: `throw-to-return` is simply not drawn there.
+const ESM_UNSAFE_FAULTS = new Set(["throw-to-return"]);
+const ESM_EXTS = new Set([".mjs", ".mts"]);
+const ESM_SYNTAX = /^\s*(?:import|export)\b/m;
+// Beyond this size the parse gate is skipped (it parses the whole file).
+const MAX_PARSE_GATE_BYTES = 100 * 1024;
 
 // Word-bounded so `truely`/`falsey` never match — same discipline as
 // `norm.js`'s brace strategy: under-detect rather than guess.
@@ -196,10 +208,13 @@ function detectAllSites(clean, mutators) {
 // `implementationFiles` (not `learnerFiles`): in `dirigeant` the latter is the
 // learner's specification, and mutating tests would measure nothing.
 // `.ai-learn/mutate.json#ignore` follows the same glob as `norm.json#ignore`.
-function findAllSites(dir) {
+//
+// `bank: "faults"` (story 11.02, `break` only) draws from the pack's semantic
+// faults instead; `mutate` never passes it.
+function findAllSites(dir, { bank = "mutators" } = {}) {
   const walked = walkSources(dir);
   const stack = detectStack(dir, walked.files);
-  const mutators = resolveMutators(dir, stack.language);
+  const mutators = bank === "faults" ? resolveFaults(loadStack(stackKey(stack.language)).faults) : resolveMutators(dir, stack.language);
   const { implementationFiles } = loadGuardConfig(dir);
   const testRels = new Set(detectTests(walked.files).files.map((f) => f.rel));
   const { ignore } = loadMutateConfig(dir);
@@ -222,9 +237,13 @@ function findAllSites(dir) {
     }
 
     const clean = stripStringsAndComments(original);
-    const fileMutators = JSX_EXTS.has(file.ext) ? mutators.filter((op) => op.id !== "comparison-operator") : mutators;
+    const fileMutators = JSX_EXTS.has(file.ext)
+      ? mutators.filter((op) => op.id !== "comparison-operator" && !(bank === "faults" && JSX_UNSAFE_FAULTS.has(op.id)))
+      : mutators;
 
     for (const site of detectAllSites(clean, fileMutators)) {
+      if (bank === "faults" && ESM_UNSAFE_FAULTS.has(site.operator) && (ESM_EXTS.has(file.ext) || ESM_SYNTAX.test(clean))) continue;
+
       sites.push({
         file,
         original,
@@ -234,11 +253,46 @@ function findAllSites(dir) {
         mutate: site.mutate,
         operator: site.operator,
         line: clean.slice(0, site.index).split("\n").length,
+        ...(bank === "faults" ? { rejects: () => faultRejected(file.ext, original, clean, site) } : {}),
       });
     }
   }
 
   return sites;
+}
+
+// A semantic fault must read like a real bug, not a typo. Checked lazily, only
+// on the site `break` actually draws (parsing the whole file per site is
+// quadratic). Wrapped in a function so a `return` is legal; a file that does
+// not parse that way to begin with (ES module, TypeScript) is not checked —
+// the checkpoint is its only gate.
+function parses(text) {
+  try {
+    new vm.Script(`(async function () {\n${text.replace(/^#!.*/, "//")}\n})`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function breaksSyntax(ext, original, site) {
+  if (!PARSEABLE_EXTS.has(ext) || original.length > MAX_PARSE_GATE_BYTES || !parses(original)) return false;
+
+  return !parses(original.slice(0, site.index) + site.mutate(site.matchedText) + original.slice(site.index + site.length));
+}
+
+// Removing a statement that is the body of a control header (`if (x)` / `else`
+// on the previous line) would make the *next* statement its body.
+function followsControlHeader(clean, index) {
+  const previous = clean.slice(0, index).split("\n").slice(0, -1).reverse().find((line) => line.trim() !== "");
+
+  return previous !== undefined && /(?:\)|\belse|=>|,)\s*$/.test(previous);
+}
+
+function faultRejected(ext, original, clean, site) {
+  if (site.operator === "release-removal" && followsControlHeader(clean, site.index)) return true;
+
+  return breaksSyntax(ext, original, site);
 }
 
 function applyMutant(site) {
@@ -507,6 +561,7 @@ module.exports = {
   detectAllSites,
   applyMutant,
   restoreOriginal,
+  breaksSyntax,
   testMutant,
   formatSiteResult,
   formatScore,

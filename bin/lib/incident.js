@@ -16,6 +16,7 @@ const os = require("os");
 const path = require("path");
 const { log, fail, readJson, writeJson, normalizePortable } = require("./util");
 const { readProgress, missingProgressMessage } = require("./progress");
+const { FAULT_OPERATORS } = require("./faults");
 const { findAllSites, applyMutant, restoreOriginal, mutateLockPath, recoverOrphanLockAndLog } = require("./mutate");
 const { loadGuardConfig, MODE_DIRIGEANT } = require("./guard");
 const { gitState } = require("./scan");
@@ -314,6 +315,32 @@ function keepEnvFault({ dir, phases, random, execute, shell }) {
   return null;
 }
 
+// Draws up to MAX_ATTEMPTS sites from `candidates` and keeps the first whose
+// fault the checkpoints detect (at level 2+, without naming the faulty file).
+function keepDetectableSite(candidates, { level, phases, dir, random, execute }) {
+  let attempts = 0;
+
+  while (candidates.length > 0 && attempts < MAX_ATTEMPTS) {
+    const site = pickSite(candidates, random);
+
+    // A semantic fault whose rewrite would not parse (or would move the next
+    // statement under a control header) is no bug a learner could meet.
+    if (site.rejects && site.rejects()) continue;
+
+    attempts += 1;
+    const { lockPath, failing } = trial(site, phases, dir, execute);
+    const output = failing.map((r) => outputOf(r.result)).join("\n");
+
+    if (failing.length > 0 && (level === 1 || !mentionsFile(output, site.file.rel))) {
+      return { site, lockPath, failing };
+    }
+
+    release(site, lockPath);
+  }
+
+  return null;
+}
+
 function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.random, execute = runCommand, shell }) {
   const auto = level === "auto";
 
@@ -351,22 +378,10 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
     }
   }
 
-  const candidates = envFault ? [] : findAllSites(dir);
-  let attempts = 0;
-
-  while (candidates.length > 0 && attempts < MAX_ATTEMPTS && !kept) {
-    attempts += 1;
-    const site = pickSite(candidates, random);
-    const { lockPath, failing } = trial(site, phases, dir, execute);
-    const output = failing.map((r) => outputOf(r.result)).join("\n");
-    const detectable = failing.length > 0 && (level === 1 || !mentionsFile(output, site.file.rel));
-
-    if (!detectable) {
-      release(site, lockPath);
-      continue;
-    }
-
-    kept = { site, lockPath, failing };
+  if (!kept) {
+    // Semantic faults first (story 11.02), then the pack's mutators.
+    kept = keepDetectableSite(findAllSites(dir, { bank: "faults" }), { level, phases, dir, random, execute })
+      || keepDetectableSite(findAllSites(dir), { level, phases, dir, random, execute });
   }
 
   if (!kept) {
@@ -496,6 +511,15 @@ function isEnvironmentFault(record) {
   return record.kind === "env" || record.kind === "port" || record.kind === "service";
 }
 
+// The named mechanism of a semantic fault, shown at the reveal.
+function logMechanism(record) {
+  const fault = FAULT_OPERATORS[record.operator];
+
+  if (fault) {
+    log(`Mécanisme : ${fault.label}. ${fault.mechanism}`);
+  }
+}
+
 function describeFault(record) {
   if (record.kind === "port") {
     return `le port ${record.port} tenu par un processus parasite (pid ${record.pid})`;
@@ -594,6 +618,7 @@ function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell 
 
   log("Incident résolu : tous les checkpoints repassent au vert.");
   log(`${environment ? "La panne était" : "Le site était"} ${describeFault(record)}.`);
+  logMechanism(record);
   log(`Ta prédiction : ${verdict}.`);
   logSecondOpinion(aiVerdict);
   log(`Paliers atteints : ${tiers.join(", ")} (~/.ai-learn/tracks/debug.json).`);
@@ -643,6 +668,7 @@ function giveupCommand({ dir, home = os.homedir(), shell }) {
 
   log("Incident abandonné : ton code est revenu à son état d'avant la panne.");
   log(`${record.kind === "env" ? "La panne était" : "Le site était"} ${describeFault(record)}.`);
+  logMechanism(record);
   logBets();
   log(`Ta version du fichier est gardée dans ${normalizePortable(path.join(".ai-learn", "incident-giveup", record.file))}.`);
 }

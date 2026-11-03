@@ -150,4 +150,8 @@ const norm = { maxFileLines: 400, maxFunctionLines: 50, maxNestingDepth: 4, maxP
 // real bug in JS/TS code.
 const mutators = ["boolean-literal", "comparison-operator"];
 
-module.exports = { concepts, directions, recipes, stresses, norm, mutators };
+// Semantic faults for `ai-learn break` only (bin/lib/faults.js) — never drawn by
+// `mutate`, so adding one cannot turn a proven phase red.
+const faults = ["await-removal", "throw-to-return", "release-removal", "logical-operator", "nullish-to-or"];
+
+module.exports = { concepts, directions, recipes, stresses, norm, mutators, faults };

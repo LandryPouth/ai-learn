@@ -14,7 +14,7 @@ réalité par un scanner.
 Thèse : *« l'agent a dit que la phase était faite » ne vaut rien.* Seul le CLI peut
 dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
-- Paquet : `@landry_pouth/ai-learn` v0.6.5, `bin: ai-learn`
+- Paquet : `@landry_pouth/ai-learn` v0.6.6, `bin: ai-learn`
 - Node >= 18, CI GitHub Actions sur Node 18/20/22, Linux + macOS + Windows
 - Licence MIT · dépôt `LandryPouth/ai-learn`
 

@@ -20,12 +20,12 @@ L'incident ressemble à un vrai bug : un `await` oublié, une erreur avalée, un
 
 ## Acceptance Criteria
 
-- [ ] Given un fichier `src/a.js` contenant `const r = await f();` couvert par un checkpoint, when `break --level 1` (générateur fixé sur ce site), then la ligne devient `const r = f();` et l'incident est actif.
-- [ ] Given chacun des cinq opérateurs et une ligne d'exemple, when on applique `mutate` de l'opérateur, then le texte produit est celui attendu (table de cas, y compris un cas qui ne doit pas matcher par opérateur, par exemple `await` dans une chaîne).
-- [ ] Given un projet sans site sémantique détectable mais avec un site `comparison-operator` détectable, when `break`, then l'incident porte sur le site `comparison-operator`.
-- [ ] Given un incident `await-removal` réparé, when `break --resolve`, then la sortie contient « await oublié » et la phrase de mécanisme.
-- [ ] Given un projet de test dont `mutate` donne N mutants avant la story, when `mutate` après la story, then il donne les mêmes N mutants, mêmes ids d'opérateurs.
-- [ ] Given un pack sans champ `faults`, when `break`, then le comportement est celui de 10.04 (aucune erreur).
+- [x] Given un fichier `src/a.js` contenant `const r = await f();` couvert par un checkpoint, when `break --level 1` (générateur fixé sur ce site), then la ligne devient `const r = f();` et l'incident est actif.
+- [x] Given chacun des cinq opérateurs et une ligne d'exemple, when on applique `mutate` de l'opérateur, then le texte produit est celui attendu (table de cas, y compris un cas qui ne doit pas matcher par opérateur, par exemple `await` dans une chaîne).
+- [x] Given un projet sans site sémantique détectable mais avec un site `comparison-operator` détectable, when `break`, then l'incident porte sur le site `comparison-operator`.
+- [x] Given un incident `await-removal` réparé, when `break --resolve`, then la sortie contient « await oublié » et la phrase de mécanisme.
+- [x] Given un projet de test dont `mutate` donne N mutants avant la story, when `mutate` après la story, then il donne les mêmes N mutants, mêmes ids d'opérateurs.
+- [x] Given un pack sans champ `faults`, when `break`, then le comportement est celui de 10.04 (aucune erreur).
 
 ## Edge Cases
 
