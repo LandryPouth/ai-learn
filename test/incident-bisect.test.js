@@ -415,3 +415,20 @@ test("a crash right after the branch is created is undone at the next run", () =
   assert.strictEqual(git(dir, "branch", "--show-current"), origin);
   assert.strictEqual(git(dir, "branch", "--list", "ai-learn/*"), "");
 });
+
+test("a refused return to the original branch keeps the incident active and says so", () => {
+  const dir = project({ journalTracked: true });
+  const home = tmpHome();
+  const record = build(dir, home);
+  const { config } = readProgress(dir);
+
+  recordPrediction(dir, config, { phaseId: 0, type: "debug", commit: record.sha.slice(0, 8), prediction: "ce commit" });
+  git(dir, "revert", "--no-edit", "-n", "--", record.sha);
+  git(dir, "add", "-A");
+  git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--no-verify", "-m", "revert");
+  recordPrediction(dir, config, { phaseId: 0, type: "debug", commit: record.sha.slice(0, 8), prediction: "encore" });
+
+  assert.throws(() => resolveCommand({ dir, home }), /Impossible de revenir sur/);
+  assert.strictEqual(git(dir, "branch", "--show-current"), record.branch);
+  assert.strictEqual(readIncident(dir).active, true);
+});

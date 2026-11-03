@@ -139,14 +139,12 @@ function pickFrom(list, random) {
 
 // The neutral rewrite for this step, proven neutral by the checkpoints; an
 // unproven one is undone and dropped.
-function keepNeutral(dir, { phases, used, avoid, random, execute, lock }) {
+function keepNeutral(dir, { phases, used, avoid, random, execute }) {
   const { runCheckpoints } = incident();
   const candidates = findAllSites(dir, { bank: "neutral" }).filter((s) => !used.has(`${s.file.rel}:${s.line}`) && !(avoid && avoid === `${s.file.rel}:${s.line}`) && s.mutate(s.matchedText) !== s.matchedText);
 
   while (candidates.length > 0) {
     const site = pickFrom(candidates, random);
-    lock.pending = [site.file.rel];
-    writeJson(lockPath(dir), lock);
     applyMutant(site);
 
     if (runCheckpoints(phases, dir, execute).failing.length === 0) {
@@ -259,7 +257,6 @@ function buildHistory({ dir, home, phases, origin, branch, id, requested, random
   }
 
   log(`Construction d'un historique de ${total} commits (au moins ${total + 1} exécutions de tes checkpoints, patiente)…`);
-  const lock = { origin, branch, pending: [] };
   mustGit(dir, ["checkout", "-q", "-b", branch], "Impossible de créer la branche jetable.");
 
   const used = new Set();
@@ -270,8 +267,8 @@ function buildHistory({ dir, home, phases, origin, branch, id, requested, random
   let built = 0;
 
   for (let i = 0; i < total; i += 1) {
-    // Before the rewrite touches a file, the lock names it: a crash is undone by the tracked-tree checkout.
-    const neutral = keepNeutral(dir, { phases, used, avoid: faultLine, random, execute, lock });
+    // A crash mid-rewrite is undone by the lock: recovery restores the whole tracked tree.
+    const neutral = keepNeutral(dir, { phases, used, avoid: faultLine, random, execute });
 
     if (!neutral) {
       break;
@@ -292,8 +289,6 @@ function buildHistory({ dir, home, phases, origin, branch, id, requested, random
       if (!files.includes(fault.rel)) files.push(fault.rel);
     }
 
-    lock.pending = files;
-    writeJson(lockPath(dir), lock);
     const sha = commitStep(dir, files, MESSAGES[i % MESSAGES.length]);
     built += 1;
 
