@@ -175,7 +175,7 @@ function allFileLines(content) {
   let match = re.exec(content);
 
   while (match) {
-    seen.add(`${match[1].replace(/\\/g, "/")}:${Number(match[2])}`);
+    seen.add(`${path.posix.normalize(match[1].replace(/\\/g, "/"))}:${Number(match[2])}`);
     match = re.exec(content);
   }
 

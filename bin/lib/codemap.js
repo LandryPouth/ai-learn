@@ -12,6 +12,31 @@ const { allFileLines, resolveReadingRoot, checkFileLineUnderRoot } = require("./
 const CODEMAP_RE = /^docs\/carte-du-code[^/]*\.md$/;
 const ROOT_LINE_RE = /^[ \t]*Racine[ \t]*:[ \t]*(.+?)[ \t]*$/gimu;
 const MIN_CITATIONS = 3;
+// `registry.npmjs.org:443` looks like `file:line` but is a host and a port.
+const HOST_SUFFIX_RE = /\.(?:com|org|net|io|dev|local|localhost|internal|app|test)$/i;
+
+function isHostPort(citation) {
+  const file = citation.slice(0, citation.lastIndexOf(":"));
+  return !file.includes("/") && HOST_SUFFIX_RE.test(file);
+}
+
+// A citation resolves against the first root that holds the file; a map that
+// cites itself proves nothing was read.
+function resolves(roots, citation, selfPath) {
+  for (const root of roots) {
+    const result = checkFileLineUnderRoot(root, citation);
+
+    if (result.ok) {
+      return path.resolve(root, result.file) !== selfPath;
+    }
+
+    if (!/introuvable/.test(result.reason)) {
+      return false;
+    }
+  }
+
+  return false;
+}
 
 function isCodeMap(artifact) {
   return CODEMAP_RE.test(normalizePortable(String(artifact)));
@@ -46,9 +71,10 @@ function codeMapState(dir, artifact, home) {
     return { ...state, reason: "root-absent" };
   }
 
-  for (const citation of allFileLines(content)) {
-    const ok = present.some((root) => checkFileLineUnderRoot(root, citation).ok);
-    (ok ? state.valid : state.invalid).push(citation);
+  const selfPath = path.resolve(dir, artifact);
+
+  for (const citation of allFileLines(content).filter((candidate) => !isHostPort(candidate))) {
+    (resolves(present, citation, selfPath) ? state.valid : state.invalid).push(citation);
   }
 
   if (state.invalid.length > 0) {

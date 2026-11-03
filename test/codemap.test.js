@@ -96,3 +96,41 @@ test("check --json carries the detail per code map", () => {
 
   assert.deepStrictEqual([map.file, map.valid.length, map.invalid], [MAP, 2, ["lib/route.js:99999"]]);
 });
+
+test("a host:port in the prose is not a citation", () => {
+  const { errors, codeMaps } = mapIssues(fixture({ body: "via registry.npmjs.org:443\nlib/route.js:12\nlib/reply.js:40\nlib/hooks.js:3\n" }).dir);
+
+  assert.deepStrictEqual(errors, []);
+  assert.deepStrictEqual(codeMaps[0].invalid, []);
+});
+
+test("./x and x are the same citation for the minimum", () => {
+  const { errors } = mapIssues(fixture({ body: "lib/route.js:12\n./lib/route.js:12\nlib/reply.js:40\n" }).dir);
+
+  assert.match(errors[0].message, /au moins 3 citations/);
+});
+
+test("a map citing itself is invalid", () => {
+  const { errors } = mapIssues(fixture({ root: ".", body: "docs/carte-du-code.md:1\nlib/route.js:12\nlib/reply.js:40\n" }).dir);
+
+  assert.match(errors[0].message, /carte-du-code\.md:1/);
+});
+
+test("a citation escaping through a symlink is invalid", () => {
+  const fx = fixture();
+  fs.symlinkSync(path.join(path.dirname(fx.source), `${path.basename(fx.source)}-secret.js`), path.join(fx.source, "lib/link.js"));
+  const { errors } = mapIssues(fixture({ root: fx.source, body: "lib/link.js:1\nlib/route.js:12\nlib/reply.js:40\nlib/hooks.js:3\n" }).dir);
+
+  assert.match(errors[0].message, /lib\/link\.js:1/);
+});
+
+test("several maps in a phase are checked separately", () => {
+  const fx = fixture();
+  const progress = sampleProgress({ phases: [{ id: 0, name: "P", status: "done", checkpoint: "true", artifacts: [MAP, "docs/carte-du-code-b.md"], predictionsRequired: 0 }] });
+  const dir = tmpProject(progress);
+  writeFile(dir, MAP, `Racine : ${fx.source}\nlib/route.js:12\nlib/reply.js:40\nlib/hooks.js:3\n`);
+  writeFile(dir, "docs/carte-du-code-b.md", "pas de racine\n");
+  const { issues } = checkProject(dir, { home: fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-h-")) });
+
+  assert.deepStrictEqual(issues.errors.filter((i) => /carte-du-code/.test(i.file)).map((i) => i.file), ["docs/carte-du-code-b.md"]);
+});

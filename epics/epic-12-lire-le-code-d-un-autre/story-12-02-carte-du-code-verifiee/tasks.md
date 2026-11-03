@@ -15,3 +15,7 @@
 - `citation.js` : `allFileLines`. `codemap.js` (nouveau) : `codeMapState`, `checkCodeMaps` ; `check.js` l'appelle par phase et expose `codeMaps` dans `--json`. Erreur seulement pour une phase `done` dont la racine est joignable ; racine absente ou citation non résolue avec une autre racine absente → avertissement (`unverified`). README, AGENTS, version 0.6.10 (scaffold : AGENTS).
 
 ### Rollback Notes
+
+### Review fixes (0.6.11)
+
+- host:port ignorés comme citations ; `./x` et `x` dédupliqués ; résolution contre la première racine où le fichier existe ; une carte qui se cite elle-même est invalide. Tests : symlink, plusieurs cartes. Evidence : `.coding-flow/runs/*-review.json`.
