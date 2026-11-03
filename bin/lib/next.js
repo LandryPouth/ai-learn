@@ -13,7 +13,7 @@ const { normalizePredictionsRequired } = require("./predictions");
 const { normProject, formatViolation } = require("./norm");
 const { revisitStatus, revisitNotice } = require("./revisit");
 const { incidentFact, incidentNotice, incidentDue } = require("./incident");
-const { kataFact, kataNotice, kataDue } = require("./review");
+const { kataFact, kataNotice, kataOffer: nextKataOffer } = require("./review");
 
 // The done phases, split into the two ways one stops being actionable proof:
 // `broken` (never proven, or stale) and `revisits` (proven, but old enough to
@@ -81,7 +81,9 @@ function incidentOffer(dir, { random, home } = {}) {
 // An incident due the same moment wins: the second launch would be refused.
 function kataOffer(dir, { home, incidentDue: incidentIsDue = false } = {}) {
   const fact = kataFact(dir);
-  return { ...fact, due: !fact.active && !incidentIsDue && kataDue(dir, { home }) };
+  const offer = !fact.active && !incidentIsDue ? nextKataOffer(dir, { home }) : null;
+
+  return { ...fact, due: offer !== null, ...(offer && offer.from ? { from: offer.from } : {}) };
 }
 
 function buildNextReport(dir, { now = new Date(), random, home } = {}) {

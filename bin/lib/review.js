@@ -14,7 +14,8 @@ const os = require("os");
 const path = require("path");
 const { log, fail, readJson, writeJson, normalizePortable } = require("./util");
 const { readProgress, missingProgressMessage, latestEvidenceForPhase } = require("./progress");
-const { findAllSites } = require("./mutate");
+const { findAllSites, findSitesInFiles } = require("./mutate");
+const { resolveSource, selectFiles, isLearnerCode } = require("./review-source");
 const { allFileLines } = require("./citation");
 const { loadGuardConfig, MODE_DIRIGEANT } = require("./guard");
 const { projectId, readIncident } = require("./incident");
@@ -65,37 +66,43 @@ function kataNotice(dir) {
     : null;
 }
 
+// A phase tagged `kata: true` offers a kata on the learner's code, `kata:
+// "<path>"` one on that path (story 12.04).
 function doneProofs(dir, phases) {
   return phases
-    .filter((phase) => phase && phase.status === "done" && phase.kata === true)
-    .map((phase) => latestEvidenceForPhase(dir, phase.id))
-    .filter((evidence) => evidence && typeof evidence.generatedAt === "string")
-    .map((evidence) => evidence.generatedAt)
-    .sort();
+    .filter((phase) => phase && phase.status === "done" && (phase.kata === true || (typeof phase.kata === "string" && phase.kata.trim() !== "")))
+    .map((phase) => ({ evidence: latestEvidenceForPhase(dir, phase.id), from: typeof phase.kata === "string" ? phase.kata.trim() : null }))
+    .filter(({ evidence }) => evidence && typeof evidence.generatedAt === "string")
+    .map(({ evidence, from }) => ({ at: evidence.generatedAt, from }))
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }
 
 // Whether `next` should hand the learner a kata now: a phase tagged `kata` was
 // just proven. Once per proof — the marker lives outside the project, so
 // asking again never offers a second kata for the same proof.
-function kataDue(dir, { home = os.homedir() } = {}) {
+function kataOffer(dir, { home = os.homedir() } = {}) {
   const { config } = readProgress(dir);
   const phases = config && Array.isArray(config.phases) ? config.phases : [];
   const proofs = doneProofs(dir, phases);
   const incident = readIncident(dir);
 
   if (proofs.length === 0 || kataFact(dir).active || (incident && incident.active) || loadGuardConfig(dir).mode === MODE_DIRIGEANT) {
-    return false;
+    return null;
   }
 
-  const proofAt = proofs[proofs.length - 1];
+  const { at: proofAt, from } = proofs[proofs.length - 1];
   const marker = readJson(offerPath(dir, { home }), null);
 
   if (marker && marker.proofAt === proofAt) {
-    return false;
+    return null;
   }
 
   writeJson(offerPath(dir, { home }), { proofAt, offeredAt: new Date().toISOString() });
-  return true;
+  return { from };
+}
+
+function kataDue(dir, options) {
+  return kataOffer(dir, options) !== null;
 }
 
 function boundedInt(value, name, min, max) {
@@ -158,11 +165,12 @@ function draw(candidates, count, taken, random) {
   return drawn;
 }
 
-function drawDefects(dir, count, taken, random) {
-  const faults = draw(findAllSites(dir, { bank: "faults" }), count, taken, random);
+// `sitesOf(bank)` is the learner's code, or the foreign files of `--from`.
+function drawDefects(sitesOf, count, taken, random) {
+  const faults = draw(sitesOf("faults"), count, taken, random);
   const rest = count - faults.length;
 
-  return rest > 0 ? [...faults, ...draw(findAllSites(dir), rest, taken, random)] : faults;
+  return rest > 0 ? [...faults, ...draw(sitesOf("mutators"), rest, taken, random)] : faults;
 }
 
 function describe(operator, kind) {
@@ -243,37 +251,46 @@ const TEMPLATE = [
   "",
 ].join("\n");
 
+// The foreign files of `--from`, `foreign: false` when the path is the learner's own code.
+function sourceOf(dir, from, home) {
+  const source = resolveSource(from, dir, home);
+
+  return { ...selectFiles(source), foreign: !isLearnerCode(dir, source.abs) };
+}
+
 function siteRecord({ site, after }, kind) {
   return { file: site.file.rel, line: site.line, operator: site.operator, matched: site.matchedText, after, ...describe(site.operator, kind) };
 }
 
 // Unless asked, K and M are drawn in a range so the number of changed lines
 // never gives the number of defects away.
-function reviewCommand({ dir, defects, decoys, home = os.homedir(), random = Math.random }) {
+function reviewCommand({ dir, defects, decoys, from, home = os.homedir(), random = Math.random }) {
   const wanted = boundedInt(defects === undefined ? DEFECTS_RANGE[0] + Math.floor(random() * (DEFECTS_RANGE[1] - DEFECTS_RANGE[0] + 1)) : defects, "--defects", 1, MAX_DEFECTS);
   const wantedDecoys = boundedInt(decoys === undefined ? DECOYS_RANGE[0] + Math.floor(random() * (DECOYS_RANGE[1] - DECOYS_RANGE[0] + 1)) : decoys, "--decoys", 0, MAX_DECOYS);
 
   assertPreconditions(dir);
 
+  const foreign = from === undefined ? null : sourceOf(dir, from, home);
+  const sitesOf = foreign ? (bank) => findSitesInFiles(dir, foreign.files, foreign.language, { bank }) : (bank) => findAllSites(dir, { bank: bank === "mutators" ? undefined : bank });
   const taken = new Set();
-  const chosenDefects = drawDefects(dir, wanted, taken, random);
+  const chosenDefects = drawDefects(sitesOf, wanted, taken, random);
 
   if (chosenDefects.length < wanted) {
     fail(`Seulement ${chosenDefects.length} défaut(s) possible(s) dans ton code, ${wanted} demandé(s) : écris plus de code ou baisse --defects.`);
   }
 
-  const chosenDecoys = draw(findAllSites(dir, { bank: "neutral" }), wantedDecoys, taken, random);
+  const chosenDecoys = draw(sitesOf("neutral"), wantedDecoys, taken, random);
   const id = crypto.randomUUID().slice(0, 8);
   const startedAt = new Date().toISOString();
-  const secret = { id, dir: projectKey(dir), startedAt, defects: chosenDefects.map((c) => siteRecord(c, "defect")), decoys: chosenDecoys.map((c) => siteRecord(c, "decoy")) };
+  const secret = { id, dir: projectKey(dir), startedAt, ...(foreign ? { from: String(from).trim(), foreign: foreign.foreign } : {}), defects: chosenDefects.map((c) => siteRecord(c, "defect")), decoys: chosenDecoys.map((c) => siteRecord(c, "decoy")) };
   const target = secretPath(dir, id, { home });
 
   assertWritable(target);
   writeJson(target, secret);
   fs.chmodSync(target, 0o600);
   fs.mkdirSync(kataDir(dir, id), { recursive: true });
-  fs.writeFileSync(path.join(kataDir(dir, id), "kata.diff"), `${buildDiff([...chosenDefects, ...chosenDecoys])}\n`);
-  fs.writeFileSync(path.join(kataDir(dir, id), "revue.md"), TEMPLATE);
+  fs.writeFileSync(path.join(kataDir(dir, id), "kata.diff"), `${foreign ? `Source : ${String(from).trim()}\n` : ""}${buildDiff([...chosenDefects, ...chosenDecoys])}\n`);
+  fs.writeFileSync(path.join(kataDir(dir, id), "revue.md"), foreign ? TEMPLATE.replace("\n\n", `\n\nSource : ${String(from).trim()}\n\n`) : TEMPLATE);
   writeJson(statePath(dir), { active: true, id, startedAt });
 
   log("Kata de revue prêt. Ce diff vient d'une IA : certaines lignes cachent des défauts, d'autres sont inoffensives.");
@@ -396,6 +413,7 @@ function revealCommand({ dir, home = os.homedir() }) {
   const total = secret.defects.length;
   const garnished = secret.decoys.length >= MIN_DECOYS_FOR_TIER_2;
   const perfect = missed.length === 0 && falsePositives.length <= 1 && garnished;
+  const tier3 = secret.foreign === true && found.length >= Math.ceil(total / 2) && falsePositives.length <= 1;
   const lines = [`Défauts trouvés : ${found.length}/${total}`];
 
   if (missed.length > 0) {
@@ -410,11 +428,15 @@ function revealCommand({ dir, home = os.homedir() }) {
     }
   }
 
+  if (tier3) {
+    lines.push("", "Palier 3 atteint : au moins la moitié des défauts trouvés sur du code d'autrui, au plus un faux positif.");
+  }
+
   lines.push("", perfect ? "Palier 2 atteint : tous les défauts, au plus un faux positif." : garnished ? "Palier 1 atteint : un kata révélé avec une revue." : "Palier 1 seulement : trop peu de changements inoffensifs pour un faux positif (palier 2 : au moins 2).");
 
   // Ledger first, then close, then print: an unreadable ledger is refused with
   // the kata still active and the answers still hidden.
-  recordReviewKata({ home, dir: projectKey(dir), kataId: state.id, found: found.length, total, falsePositives: falsePositives.length, tiers: perfect ? [1, 2] : [1] });
+  recordReviewKata({ home, dir: projectKey(dir), kataId: state.id, found: found.length, total, falsePositives: falsePositives.length, tiers: [1, ...(perfect ? [2] : []), ...(tier3 ? [3] : [])] });
   closeKata(dir, home, state, "revealed", { found: found.length, total, falsePositives: falsePositives.length });
   writeCorrige(dir, state.id, [...lines, "", "Changements inoffensifs :", ...secret.decoys.map((decoy) => `  ${decoy.file}:${decoy.line} — ${decoy.label}`)]);
   lines.forEach((line) => log(line));
@@ -440,4 +462,4 @@ function giveupCommand({ dir, home = os.homedir() }) {
   log("\nKata abandonné : ni score ni palier.");
 }
 
-module.exports = { reviewCommand, revealCommand, giveupCommand, kataFact, kataNotice, kataDue, readKata, statePath };
+module.exports = { reviewCommand, revealCommand, giveupCommand, kataFact, kataNotice, kataDue, kataOffer, readKata, statePath };

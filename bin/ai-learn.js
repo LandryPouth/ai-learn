@@ -189,6 +189,7 @@ function main() {
           dir,
           defects: getFlagValue("--defects") === null ? undefined : Number.parseInt(getFlagValue("--defects"), 10),
           decoys: getFlagValue("--decoys") === null ? undefined : Number.parseInt(getFlagValue("--decoys"), 10),
+          from: getFlagValue("--from") === null ? undefined : getFlagValue("--from"),
         });
       }
 
@@ -420,7 +421,7 @@ Usage:
   ai-learn break [--level 1|2|3|4 | --auto] [--dir <dir>]
   ai-learn break --bisect [--commits <6-32>] [--dir <dir>]
   ai-learn break --resolve | --giveup [--dir <dir>]
-  ai-learn review [--defects <1-6>] [--decoys <0-10>] | --reveal | --giveup [--dir <dir>]
+  ai-learn review [--defects <1-6>] [--decoys <0-10>] [--from <chemin>] | --reveal | --giveup [--dir <dir>]
   ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug|lecture>] [--file <f> --line <n> | --cause <text> | --commit <sha> | --root <source> --file <f> [--line <n>]] [--by <apprenant|ia>] [--dir <dir>]
   ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>] [--found <fichier:ligne>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]

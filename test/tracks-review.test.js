@@ -41,3 +41,16 @@ test("an unreadable review ledger is never overwritten", () => {
   assert.throws(() => recordReviewKata({ home, dir: "/p", kataId: "k", found: 1, total: 1, falsePositives: 0, tiers: [1] }));
   assert.strictEqual(fs.readFileSync(tracksPath({ home }), "utf8"), "nope");
 });
+
+test("a ledger written before tier 3 stays valid and gains the tier", () => {
+  const home = tmpHome();
+  const old = defaultReviewTracks();
+  delete old.tiers["3"];
+  fs.mkdirSync(path.dirname(tracksPath({ home })), { recursive: true });
+  fs.writeFileSync(tracksPath({ home }), JSON.stringify(old));
+
+  assert.deepStrictEqual(validateReviewTracks(old), []);
+  const config = recordReviewKata({ home, dir: "/p", kataId: "k9", found: 2, total: 3, falsePositives: 0, tiers: [1, 3] });
+
+  assert.strictEqual(config.tiers["3"].achieved, true);
+});

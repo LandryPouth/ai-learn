@@ -222,16 +222,30 @@ function findAllSites(dir, { bank = "mutators" } = {}) {
   const { implementationFiles } = loadGuardConfig(dir);
   const testRels = new Set(detectTests(walked.files).files.map((f) => f.rel));
   const { ignore } = loadMutateConfig(dir);
+  const accept = (file) =>
+    !file.binary &&
+    ALL_SOURCE_EXTS.has(file.ext) &&
+    !testRels.has(file.rel) &&
+    matchesLearnerPath(file.rel, implementationFiles) &&
+    !(ignore.length > 0 && matchesLearnerPath(file.rel, ignore));
 
+  return collectSites(walked.files.filter(accept), mutators, bank);
+}
+
+// Story 12.04 — sites in files the learner did not write (`review --from`),
+// already selected by the caller. `language` picks the pack's banks; no
+// `implementationFiles` scope, no project `mutate.json`.
+function findSitesInFiles(dir, files, language, { bank = "faults" } = {}) {
+  const pack = loadStack(stackKey(language));
+  const mutators = bank === "faults" ? resolveFaults(pack.faults) : bank === "neutral" ? resolveNeutral(pack.neutral) : resolveMutators(dir, language);
+
+  return collectSites(files, mutators, bank);
+}
+
+function collectSites(files, mutators, bank) {
   const sites = [];
 
-  for (const file of walked.files) {
-    if (file.binary) continue;
-    if (!ALL_SOURCE_EXTS.has(file.ext)) continue;
-    if (testRels.has(file.rel)) continue;
-    if (!matchesLearnerPath(file.rel, implementationFiles)) continue;
-    if (ignore.length > 0 && matchesLearnerPath(file.rel, ignore)) continue;
-
+  for (const file of files) {
     let original;
 
     try {
@@ -562,6 +576,7 @@ function mutateCommand({ dir, phaseId }) {
 module.exports = {
   mutateCommand,
   findAllSites,
+  findSitesInFiles,
   detectAllSites,
   applyMutant,
   restoreOriginal,

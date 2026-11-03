@@ -16,11 +16,11 @@ Relire son propre code piégé est plus facile : on se souvient de ce qu'on a é
 
 ## Acceptance Criteria
 
-- [ ] Given un dossier extérieur au projet avec deux fichiers JS, when `review --from <dossier>` (générateur fixé), then `kata.diff` porte des chemins relatifs au dossier, et les fichiers du dossier sont identiques octet par octet.
-- [ ] Given un dossier contenant un fichier minifié et un `node_modules` imbriqué, when `review --from`, then aucun site n'est tiré dans ces fichiers.
-- [ ] Given un chemin inexistant, when `review --from /nope`, then exit 1 et rien n'est créé.
-- [ ] Given un kata sur code d'autrui, 3 défauts, une revue en trouvant 2 sans faux positif, when `review --reveal`, then palier 3 atteint.
-- [ ] Given une phase taguée `"kata": "node_modules/x/lib"` venant d'être prouvée, when `next --json`, then `kata.due` vaut `true` avec ce chemin.
+- [x] Given un dossier extérieur au projet avec deux fichiers JS, when `review --from <dossier>` (générateur fixé), then `kata.diff` porte des chemins relatifs au dossier, et les fichiers du dossier sont identiques octet par octet.
+- [x] Given un dossier contenant un fichier minifié et un `node_modules` imbriqué, when `review --from`, then aucun site n'est tiré dans ces fichiers.
+- [x] Given un chemin inexistant, when `review --from /nope`, then exit 1 et rien n'est créé.
+- [x] Given un kata sur code d'autrui, 3 défauts, une revue en trouvant 2 sans faux positif, when `review --reveal`, then palier 3 atteint.
+- [x] Given une phase taguée `"kata": "node_modules/x/lib"` venant d'être prouvée, when `next --json`, then `kata.due` vaut `true` avec ce chemin.
 
 ## Edge Cases
 

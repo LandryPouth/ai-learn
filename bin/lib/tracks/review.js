@@ -3,7 +3,8 @@
 // The global review-kata ledger — `~/.ai-learn/tracks/review.json` (story
 // 12.03). Same home-scoped, versioned, structurally validated shape as
 // `tracks/debug.js`. Tiers: 1 first kata revealed with a review, 2 every
-// defect found with at most one false positive. `katas` keeps one line per
+// defect found with at most one false positive, 3 half the defects of a
+// kata on someone else's code (story 12.04). `katas` keeps one line per
 // revealed kata (idempotent per id) for the `status` summary.
 
 const os = require("os");
@@ -11,7 +12,9 @@ const path = require("path");
 const { readJson } = require("../util");
 const { writeLedgerFile, withoutTimestamps, canonicalizeProjects } = require("./store");
 
-const TIER_IDS = [1, 2];
+// Tier 3 (story 12.04) is optional on disk: ledgers written before it stay valid.
+const TIER_IDS = [1, 2, 3];
+const REQUIRED_TIERS = [1, 2];
 
 function tracksPath({ home = os.homedir() } = {}) {
   return path.join(home, ".ai-learn", "tracks", "review.json");
@@ -46,6 +49,10 @@ function validateReviewTracks(config) {
   for (const tier of TIER_IDS) {
     const entry = config.tiers[String(tier)];
 
+    if (entry === undefined && !REQUIRED_TIERS.includes(tier)) {
+      continue;
+    }
+
     if (!entry || typeof entry !== "object" || typeof entry.achieved !== "boolean" || !Array.isArray(entry.evidence)) {
       issues.push({ level: "error", message: `tier ${tier} must carry a boolean achieved and an evidence array` });
     }
@@ -60,7 +67,15 @@ function validateReviewTracks(config) {
 
 function readOrDefaultReviewTracks({ home = os.homedir() } = {}) {
   const config = readJson(tracksPath({ home }), null);
-  return config && validateReviewTracks(config).length === 0 ? config : defaultReviewTracks();
+  return config && validateReviewTracks(config).length === 0 ? withAllTiers(config) : defaultReviewTracks();
+}
+
+function withAllTiers(config) {
+  for (const tier of TIER_IDS) {
+    config.tiers[String(tier)] = config.tiers[String(tier)] || { achieved: false, evidence: [] };
+  }
+
+  return config;
 }
 
 // Records one revealed kata. An unreadable ledger on disk is refused by

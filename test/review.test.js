@@ -326,3 +326,110 @@ test("review handles CRLF files: four changed lines, src untouched", () => {
   assert.deepStrictEqual(fs.readFileSync(path.join(dir, "src/load.js")), before);
   assert.strictEqual(diff.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++")).length, 4);
 });
+
+// Story 12.04 — le kata sur du code d'autrui.
+function foreignDir(files = { "a.js": CODE, "b.js": CODE }) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-foreign-"));
+
+  for (const [rel, text] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  }
+
+  return root;
+}
+
+function snapshot(root) {
+  return Object.fromEntries(fs.readdirSync(root, { recursive: true }).filter((rel) => fs.statSync(path.join(root, rel)).isFile()).map((rel) => [rel, fs.readFileSync(path.join(root, rel), "utf8")]));
+}
+
+test("review from a foreign folder leaves it untouched", () => {
+  const dir = project();
+  const root = foreignDir();
+  const before = snapshot(root);
+  const state = start(dir, tmpHome(), { from: root, defects: 2, decoys: 2 });
+  const diff = fs.readFileSync(path.join(dir, "katas", state.id, "kata.diff"), "utf8");
+
+  assert.deepStrictEqual(snapshot(root), before);
+  assert.match(diff, /^Source : /);
+  assert.ok(/^--- a\/[ab]\.js$/m.test(diff), "chemins relatifs à --from");
+  assert.ok(!diff.split("\n").slice(1).join("\n").includes(root), "seule la ligne Source cite le chemin");
+  assert.match(fs.readFileSync(path.join(dir, "katas", state.id, "revue.md"), "utf8"), /Source : /);
+});
+
+test("minified files and nested node_modules are skipped", () => {
+  const dir = project();
+  const minified = `${CODE}var x = ${"a + b;".repeat(120)}\n`;
+  const root = foreignDir({ "a.js": CODE, "min.js": minified, "node_modules/x/index.js": CODE, "a.test.js": CODE });
+  const state = start(dir, tmpHome(), { from: root, defects: 2, decoys: 2 });
+  const diff = fs.readFileSync(path.join(dir, "katas", state.id, "kata.diff"), "utf8");
+  const files = [...diff.matchAll(/^--- a\/(.+)$/gm)].map((match) => match[1]);
+
+  assert.deepStrictEqual([...new Set(files)], ["a.js"]);
+});
+
+test("review from a missing path is refused and creates nothing", () => {
+  const dir = project();
+
+  assert.throws(() => reviewCommand({ dir, home: tmpHome(), from: "/nope/absent", random: FIRST }), /n'existe pas/);
+  assert.strictEqual(fs.existsSync(path.join(dir, "katas")), false);
+  assert.strictEqual(fs.existsSync(path.join(dir, ".ai-learn", "kata.json")), false);
+});
+
+test("a source without any supported file is refused with the extensions", () => {
+  const root = foreignDir({ "main.go": "package main\n" });
+
+  assert.throws(() => reviewCommand({ dir: project(), home: tmpHome(), from: root, random: FIRST }), /extensions prises en charge \.js/);
+});
+
+test("half the defects on foreign code reaches tier 3", () => {
+  const dir = project();
+  const home = tmpHome();
+  const { id } = start(dir, home, { from: foreignDir(), defects: 3, decoys: 1 });
+  const secret = secretOf(dir, home);
+
+  assert.strictEqual(secret.foreign, true);
+  writeReview(dir, id, secret.defects.slice(0, 2).map((d) => `- ${d.file}:${d.line} — défaut`).join("\n"));
+  const out = capture(() => revealCommand({ dir, home }));
+  const ledger = readOrDefaultReviewTracks({ home });
+
+  assert.match(out, /trouvés : 2\/3/);
+  assert.match(out, /Palier 3/);
+  assert.deepStrictEqual([1, 2, 3].map((tier) => ledger.tiers[String(tier)].achieved), [true, false, true]);
+});
+
+test("under half the defects on foreign code misses tier 3", () => {
+  const dir = project();
+  const home = tmpHome();
+  const { id } = start(dir, home, { from: foreignDir(), defects: 3, decoys: 1 });
+  writeReview(dir, id, `- ${secretOf(dir, home).defects[0].file}:1 — rien ici`);
+
+  capture(() => revealCommand({ dir, home }));
+
+  assert.strictEqual(readOrDefaultReviewTracks({ home }).tiers["3"].achieved, false);
+});
+
+test("review from the learner's own code earns no tier 3", () => {
+  const dir = project();
+  const home = tmpHome();
+  const { id } = start(dir, home, { from: "src" });
+  const secret = secretOf(dir, home);
+
+  assert.strictEqual(secret.foreign, false);
+  writeReview(dir, id, secret.defects.map((d) => `- ${d.file}:${d.line}`).join("\n"));
+  capture(() => revealCommand({ dir, home }));
+
+  assert.strictEqual(readOrDefaultReviewTracks({ home }).tiers["3"].achieved, false);
+});
+
+test("a kata tag with a path makes a foreign kata due", () => {
+  const dir = project({ phaseExtra: { kata: "node_modules/x/lib" } });
+  const at = "2026-11-03T10:00:00.000Z";
+  writeFile(dir, `.ai-learn/runs/${at.replace(/[:.]/g, "-")}-phase-0-verify.json`, JSON.stringify({ phaseId: 0, ok: true, generatedAt: at }));
+  const home = tmpHome();
+
+  const first = buildNextReport(dir, { home }).kata;
+
+  assert.deepStrictEqual([first.due, first.from], [true, "node_modules/x/lib"]);
+  assert.strictEqual(buildNextReport(dir, { home }).kata.due, false);
+});

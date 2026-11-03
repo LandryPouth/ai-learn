@@ -225,8 +225,8 @@ function validateProgress(config) {
 
     // Optional: a proven phase tagged `kata` makes `next` offer a review kata
     // (story 12.03). A non-boolean would silently disable it.
-    if (phase.kata !== undefined && phase.kata !== null && typeof phase.kata !== "boolean") {
-      issues.push({ level: "warning", message: `phase ${phase.id} has a non-boolean kata flag` });
+    if (phase.kata !== undefined && phase.kata !== null && typeof phase.kata !== "boolean" && !(typeof phase.kata === "string" && phase.kata.trim() !== "")) {
+      issues.push({ level: "warning", message: `phase ${phase.id} has a kata tag that is neither a boolean nor a path` });
     }
 
     // Optional: the "casse réelle" checkpoint (see bin/lib/stacks/*.js's
