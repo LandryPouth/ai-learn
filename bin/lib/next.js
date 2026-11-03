@@ -13,6 +13,7 @@ const { normalizePredictionsRequired } = require("./predictions");
 const { normProject, formatViolation } = require("./norm");
 const { revisitStatus, revisitNotice } = require("./revisit");
 const { incidentFact, incidentNotice, incidentDue } = require("./incident");
+const { kataFact, kataNotice, kataDue } = require("./review");
 
 // The done phases, split into the two ways one stops being actionable proof:
 // `broken` (never proven, or stale) and `revisits` (proven, but old enough to
@@ -75,6 +76,14 @@ function incidentOffer(dir, { random, home } = {}) {
   return { ...fact, due: !fact.active && incidentDue(dir, { random, home }) };
 }
 
+// Story 12.03 — like the incident draw, the kata offer is recorded outside the
+// project so each proof offers one kata at most.
+// An incident due the same moment wins: the second launch would be refused.
+function kataOffer(dir, { home, incidentDue: incidentIsDue = false } = {}) {
+  const fact = kataFact(dir);
+  return { ...fact, due: !fact.active && !incidentIsDue && kataDue(dir, { home }) };
+}
+
 function buildNextReport(dir, { now = new Date(), random, home } = {}) {
   const { config, exists } = readProgress(dir);
 
@@ -88,6 +97,7 @@ function buildNextReport(dir, { now = new Date(), random, home } = {}) {
   }
 
   const phases = Array.isArray(config.phases) ? config.phases : [];
+  const incident = incidentOffer(dir, { random, home });
   const { broken: brokenDone, revisits } = analyzeDonePhases(dir, phases, now);
   const pending = revisitStatus(dir);
   const revisitPending = pending.state === "none" ? null : { state: pending.state, phaseId: pending.lock ? pending.lock.phaseId : null };
@@ -110,7 +120,8 @@ function buildNextReport(dir, { now = new Date(), random, home } = {}) {
       done: true,
       phasesTotal: phases.length,
       revisitPending,
-      incident: incidentOffer(dir, { random, home }),
+      incident,
+      kata: kataOffer(dir, { home, incidentDue: incident.due }),
       broken,
       stale,
       revisit,
@@ -127,7 +138,8 @@ function buildNextReport(dir, { now = new Date(), random, home } = {}) {
     outdated: scaffoldState(config).outdated,
     done: false,
     revisitPending,
-    incident: incidentOffer(dir, { random, home }),
+    incident,
+    kata: kataOffer(dir, { home, incidentDue: incident.due }),
     broken,
     stale,
     revisit,
@@ -200,6 +212,12 @@ function nextCommand({ dir, json, now = new Date(), random, home }) {
 
   if (incident) {
     log(`${incident}\n`);
+  }
+
+  const kata = kataNotice(dir);
+
+  if (kata) {
+    log(`${kata}\n`);
   }
 
   const scaffold = scaffoldState(config);

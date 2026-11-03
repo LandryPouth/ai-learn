@@ -192,6 +192,10 @@ function assertPreconditions(dir, phases) {
     fail("Un incident actif est déjà en cours : répare-le (`ai-learn break --resolve`) ou abandonne-le (`ai-learn break --giveup`).");
   }
 
+  if (readJson(path.join(dir, ".ai-learn", "kata.json"), {}).active) {
+    fail("Un kata de revue est actif : termine-le (`ai-learn review --reveal`) ou abandonne-le (`ai-learn review --giveup`).");
+  }
+
   if (phases.length === 0) {
     fail("Aucune phase terminée avec checkpoint : termine et prouve au moins une phase avant de provoquer un incident.");
   }
@@ -812,4 +816,4 @@ function giveupCommand({ dir, home = os.homedir(), shell }) {
   log(`Ta version du fichier est gardée dans ${normalizePortable(path.join(".ai-learn", "incident-giveup", record.file))}.`);
 }
 
-module.exports = { recoverOrphans, assertPreconditions, checkpointPhases, runCheckpoints, closeIncident, lastDebugPrediction, logSecondOpinion, chooseLevel, incidentDue, incidentFact, incidentNotice, breakCommand, resolveCommand, giveupCommand, readIncident, incidentRecordPath, statePath };
+module.exports = { projectId, recoverOrphans, assertPreconditions, checkpointPhases, runCheckpoints, closeIncident, lastDebugPrediction, logSecondOpinion, chooseLevel, incidentDue, incidentFact, incidentNotice, breakCommand, resolveCommand, giveupCommand, readIncident, incidentRecordPath, statePath };

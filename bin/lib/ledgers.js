@@ -23,6 +23,7 @@ const git = require("./tracks/git");
 const tests = require("./tracks/tests");
 const platform = require("./tracks/platform");
 const domain = require("./tracks/domain");
+const review = require("./tracks/review");
 const { assertWritable, writeLedgerFile, withoutTimestamps, projectKey, canonicalizeProjects } = require("./tracks/store");
 
 // --- repair ------------------------------------------------------------------
@@ -146,11 +147,29 @@ function repairDomain(config, gone) {
   return { removed: [...removed], tiersReset };
 }
 
+// review: tiers rest on their own evidence; a kata line of a vanished project
+// goes with it.
+function repairReview(config, gone) {
+  const removed = new Set(dropProjects(config, gone));
+  const tiersReset = [];
+
+  config.katas = config.katas.filter((kata) => !vanished(kata && kata.project, gone));
+
+  for (const tierId of review.TIER_IDS) {
+    const tier = config.tiers[String(tierId)];
+    dropEvidence(tier, gone, removed);
+    settle(tier, tierId, tier.evidence.length > 0, tiersReset);
+  }
+
+  return { removed: [...removed], tiersReset };
+}
+
 function ledgerFiles(home) {
   const files = [
     { name: "tracks/git.json", file: git.tracksPath({ home }), validate: git.validateGitTracks, repair: repairGit },
     { name: "tracks/tests.json", file: tests.tracksPath({ home }), validate: tests.validateTestsTracks, repair: repairTests },
     { name: "tracks/platform.json", file: platform.tracksPath({ home }), validate: platform.validatePlatformTracks, repair: repairPlatform },
+    { name: "tracks/review.json", file: review.tracksPath({ home }), validate: review.validateReviewTracks, repair: repairReview },
   ];
   const domainsDir = domain.domainsHome({ home });
 

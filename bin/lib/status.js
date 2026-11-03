@@ -20,6 +20,8 @@ const { checkpointFilePath, computeSourceHash } = require("./source-hash");
 const { printCommitReminder, uncommittedCount } = require("./commit-reminder");
 const { revisitStatus, revisitNotice } = require("./revisit");
 const { incidentFact, incidentNotice } = require("./incident");
+const { kataFact, kataNotice } = require("./review");
+const { reviewSummary } = require("./tracks/review");
 const { predictionsToReview, readingSummary } = require("./predictions");
 
 // The mark and, where useful, the French label shown next to a phase —
@@ -207,6 +209,15 @@ function printSecondOpinionSummary({ home } = {}) {
   log(`\nsecond avis : toi ${opinion.learner.exact}/${opinion.incidents} exacts · IA ${opinion.ai.exact}/${opinion.incidents}`);
 }
 
+// Story 12.03 — "revue" line, silent until a kata was revealed.
+function printReviewKataSummary({ home } = {}) {
+  const summary = reviewSummary({ home });
+
+  if (summary) {
+    log(`\nrevue : ${summary.katas} kata(s), ${Math.round(summary.rate * 100)} % des défauts trouvés en moyenne`);
+  }
+}
+
 // Story 12.01 — "lecture" line, silent until a reading bet was revealed.
 function printReadingSummary({ dir }) {
   const reading = readingSummary(dir);
@@ -380,6 +391,7 @@ function buildStatusReport(dir) {
     bilan: bilanFact(dir, config),
     revisitPending: pendingRevisit(dir),
     incident: incidentFact(dir),
+    kata: kataFact(dir),
     uncommitted: uncommittedCount(dir),
     progressIssues: validateProgress(config).map((issue) => issue.message),
   };
@@ -408,6 +420,12 @@ function statusCommand({ dir, home, json }) {
     log(`${incident}\n`);
   }
 
+  const kata = kataNotice(dir);
+
+  if (kata) {
+    log(`${kata}\n`);
+  }
+
   const notice = revisitNotice(dir);
 
   if (notice) {
@@ -432,6 +450,7 @@ function statusCommand({ dir, home, json }) {
 
   printGitTracksSummary({ home });
   printPlatformSummary({ home });
+  printReviewKataSummary({ home });
   printSecondOpinionSummary({ home });
   printReadingSummary({ dir });
   printDomainSummary({ dir, home });

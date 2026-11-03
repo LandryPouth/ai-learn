@@ -22,6 +22,8 @@ const LINES = [
   ".ai-learn/revisit.lock.json",
   ".ai-learn/incident.json",
   ".ai-learn/incident-giveup/",
+  ".ai-learn/kata.json",
+  "katas/",
   ".ai-learn/mutate.lock.json",
   ".ai-learn/bisect.lock.json",
   "__pycache__/",

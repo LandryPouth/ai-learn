@@ -50,6 +50,8 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 | Ledger de tests cross-projet | `~/.ai-learn/tracks/tests.json` | 6 tiers observés depuis les évidences `verify` |
 | Mode dirigeant mérité | `ai-learn mode` + `ai-learn check` | tiers 1-3 requis, ledger illisible = refus, écart signalé en erreur |
 | Incident de code | `ai-learn break` (`--resolve`, `--giveup`) → secret `~/.ai-learn/incidents/`, état `.ai-learn/incident.json` | moteur de `mutate` inversé ; secret fermé à `Read`/`Grep`/`Glob` (mur sous Claude Code, haie ailleurs) |
+| Kata de revue | `ai-learn review` (`--reveal`, `--giveup`) → `katas/<id>/`, secret `~/.ai-learn/katas/`, état `.ai-learn/kata.json` | copie du code de l'apprenant, défauts de `faults` + leurres de `NEUTRAL_TRANSFORMS` ; fermé à l'IA tant qu'actif |
+| Ledger de revue cross-projet | `~/.ai-learn/tracks/review.json` | 2 tiers : premier kata révélé, kata parfait (≤ 1 faux positif) |
 | Ledger de débogage cross-projet | `~/.ai-learn/tracks/debug.json` | 3 tiers : incident résolu, niveau 2, site prédit exact |
 | Ledger de domaine cross-projet | `~/.ai-learn/domains/<stack>.json` | couverture de concepts |
 | Ledgers propres | `ai-learn ledgers --repair [--dry-run]` / `--sync` (machinerie, `update` synchronise) | écriture unique `tracks/store.js` ; refus du home réel sous `node --test` ; échec de synchro averti par `verify`, projet absent averti par `check` |

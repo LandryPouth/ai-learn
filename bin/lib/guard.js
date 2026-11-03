@@ -125,6 +125,9 @@ const PROTECTED_FILES = [
   // The public half of a code incident (story 10.04): flipping `active` would
   // end it without a repair.
   ".ai-learn/incident.json",
+  // The public half of a review kata (story 12.03): the read wall stands only
+  // while it says `active`.
+  ".ai-learn/kata.json",
   // The settings that set how strict the checks are (story 09.03): proof
   // required, norm thresholds, mutation scope, prediction journal. The AI has no
   // legitimate reason to write them; the learner edits them, and the AI records
@@ -142,7 +145,9 @@ const PROTECTED_FILES = [
 // next session just as surely as rewriting the generated plugin.
 // `.ai-learn/revisit` holds a revisit's backup (story 09.06): writing it would
 // forge the removal `verify --revisit` requires, or alter what `--giveup` restores.
-const PROTECTED_DIRS = [".ai-learn/runs", ".ai-learn/revisit", ".opencode/plugins", ".opencode/plugin"];
+// `katas` (story 12.03) holds the review kata the learner reads and answers:
+// the AI writes neither the diff nor the review.
+const PROTECTED_DIRS = [".ai-learn/runs", ".ai-learn/revisit", ".opencode/plugins", ".opencode/plugin", "katas"];
 const DENIAL_LOG_MAX_BYTES = 256 * 1024;
 
 // Commands that merely wrap another command — unwrapped so `sudo git log` or
@@ -1165,11 +1170,64 @@ function readTargets(toolInput) {
 }
 
 function readsIncidentStore(root, toolInput) {
-  if (!incidentStoreHasRecords()) {
+  return incidentStoreHasRecords() && readsStore(root, toolInput, path.join(os.homedir(), ".ai-learn", "incidents"));
+}
+
+// Story 12.03 — an active review kata is closed to the AI: its diff and
+// review (`katas/<id>/`) and its secret (`~/.ai-learn/katas/`). The wall only
+// stands while the project's `.ai-learn/kata.json` says active, so the kata is
+// readable once revealed. Limit: a project-wide Grep still reaches the diff.
+function activeKataId(root) {
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(root, ".ai-learn", "kata.json"), "utf8"));
+    return state && state.active && /^[\w-]+$/.test(String(state.id)) ? state.id : null;
+  } catch {
+    return null;
+  }
+}
+
+function kataStores(root) {
+  const id = activeKataId(root);
+  // The project root is an ancestor of `katas/` too: it stays readable.
+  return id ? [{ dir: path.join(root, "katas"), ancestors: false }, { dir: path.join(os.homedir(), ".ai-learn", "katas"), ancestors: true }] : [];
+}
+
+// A Grep with no path (or the root itself) walks `katas/` too, and `glob`
+// can name it: both are refused while a kata is active.
+function readsKata(root, toolInput, toolName) {
+  if (kataStores(root).length === 0) {
     return false;
   }
 
-  const store = normalizePortable(path.join(os.homedir(), ".ai-learn", "incidents"));
+  if (typeof toolInput.glob === "string" && /katas/i.test(toolInput.glob)) {
+    return true;
+  }
+
+  if (toolName === "Grep") {
+    const target = typeof toolInput.path === "string" && toolInput.path ? expandHome(toolInput.path) : root;
+    const abs = path.isAbsolute(target) ? path.normalize(target) : path.resolve(root, target);
+
+    if (abs === path.resolve(root)) {
+      return true;
+    }
+  }
+
+  return kataStores(root).some((store) => readsStore(root, toolInput, store.dir, { ancestors: store.ancestors }));
+}
+
+function kataReason() {
+  return (
+    "ce chemin appartient au kata de revue actif (katas/<id>/ ou ~/.ai-learn/katas/) ; un Grep sur toute la racine l'atteint aussi, cible un sous-dossier (src/) : trouver les défauts du diff est ce que l'apprenant s'entraîne à faire. " +
+    "N'ouvre pas le diff et ne commente pas ses lignes avant `ai-learn review --reveal`."
+  );
+}
+
+function revealsKata(command) {
+  return splitSegments(command).some((segment) => /\bai-learn(?:\.js)?\b/.test(segment) && /\breview\b/.test(segment) && /--(?:reveal|giveup)\b/.test(segment));
+}
+
+function readsStore(root, toolInput, storeDir, { ancestors = true } = {}) {
+  const store = normalizePortable(storeDir);
   const realStore = resolveRealPath(store);
 
   return readTargets(toolInput).some((target) => {
@@ -1179,7 +1237,7 @@ function readsIncidentStore(root, toolInput) {
     const stores = [store, realStore && normalizePortable(realStore)].filter(Boolean);
 
     // Inside the store, or an ancestor of it (`~/.ai-learn`, `~`, `/`).
-    return [abs, real && normalizePortable(real)].filter(Boolean).some((candidate) => stores.some((dir) => matchesDir(candidate, dir) || matchesDir(dir, candidate)));
+    return [abs, real && normalizePortable(real)].filter(Boolean).some((candidate) => stores.some((dir) => matchesDir(candidate, dir) || (ancestors && matchesDir(dir, candidate))));
   });
 }
 
@@ -1203,6 +1261,10 @@ function homeStateReason(target, viaShell) {
 }
 
 function protectedPathReason(rel, viaShell) {
+  if (rel === "katas" || rel.startsWith("katas/")) {
+    return `${viaShell ? "cette commande écrit dans " : ""}${rel} appartient au kata de revue : ` +
+      "l'IA n'écrit ni le diff ni la revue, c'est l'apprenant qui relit et répond.";
+  }
   if (rel === ".ai-learn/predictions.json") {
     return `${viaShell ? "cette commande écrit dans " : ""}${rel} est le journal des prédictions : ` +
       "l'IA ne l'écrit pas à la main. Voie légitime : `ai-learn predict` (puis `predict --reveal`).";
@@ -1268,6 +1330,19 @@ function decide(hook, root) {
       return { decision: "deny", command, reason: incidentStoreReason() };
     }
 
+    if (kataStores(root).length > 0 && (/\bkatas\b/i.test(command) || /\.ai-learn[\\/]+kat/i.test(command) || /lib[\\/]review/i.test(command))) {
+      return { decision: "deny", command, reason: kataReason() };
+    }
+
+    if (revealsKata(command)) {
+      return {
+        decision: "deny",
+        command,
+        reason:
+          "`ai-learn review --reveal` et `--giveup` révèlent les défauts et closent le kata : c'est l'apprenant qui les lance (`! ai-learn review --reveal`), pas l'IA.",
+      };
+    }
+
     if (revealsIncident(command)) {
       return {
         decision: "deny",
@@ -1302,8 +1377,12 @@ function decide(hook, root) {
   }
 
   if (READ_TOOLS.has(toolName)) {
-    return readsIncidentStore(root, toolInput)
-      ? { decision: "deny", reason: incidentStoreReason(), path: null }
+    if (readsIncidentStore(root, toolInput)) {
+      return { decision: "deny", reason: incidentStoreReason(), path: null };
+    }
+
+    return readsKata(root, toolInput, toolName)
+      ? { decision: "deny", reason: kataReason(), path: null }
       : { decision: "allow", reason: `tool ${toolName} reads nothing protected` };
   }
 

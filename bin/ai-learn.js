@@ -59,7 +59,7 @@ function main() {
 
   // Commands that act on one project find it from any subfolder; an explicit
   // --dir (or init/update, which choose their own target) is taken as given.
-  const FROM_SUBDIR = ["status", "next", "verify", "predict", "break", "norm", "mutate", "traps", "docs"];
+  const FROM_SUBDIR = ["status", "next", "verify", "predict", "break", "review", "norm", "mutate", "traps", "docs"];
   const explicitDir = getFlagValue("--dir");
   const dir =
     !explicitDir && FROM_SUBDIR.includes(command)
@@ -174,6 +174,24 @@ function main() {
       }
 
       mutateCommand({ dir, phaseId });
+      break;
+    }
+
+    case "review": {
+      const review = require("./lib/review");
+
+      if (flags.has("--reveal")) {
+        review.revealCommand({ dir });
+      } else if (flags.has("--giveup")) {
+        review.giveupCommand({ dir });
+      } else {
+        review.reviewCommand({
+          dir,
+          defects: getFlagValue("--defects") === null ? undefined : Number.parseInt(getFlagValue("--defects"), 10),
+          decoys: getFlagValue("--decoys") === null ? undefined : Number.parseInt(getFlagValue("--decoys"), 10),
+        });
+      }
+
       break;
     }
 
@@ -402,6 +420,7 @@ Usage:
   ai-learn break [--level 1|2|3|4 | --auto] [--dir <dir>]
   ai-learn break --bisect [--commits <6-32>] [--dir <dir>]
   ai-learn break --resolve | --giveup [--dir <dir>]
+  ai-learn review [--defects <1-6>] [--decoys <0-10>] | --reveal | --giveup [--dir <dir>]
   ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug|lecture>] [--file <f> --line <n> | --cause <text> | --commit <sha> | --root <source> --file <f> [--line <n>]] [--by <apprenant|ia>] [--dir <dir>]
   ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>] [--found <fichier:ligne>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]

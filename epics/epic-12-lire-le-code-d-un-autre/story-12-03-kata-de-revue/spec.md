@@ -22,14 +22,14 @@ L'apprenant relit un diff plausible, comme celui qu'une IA lui proposerait, et d
 
 ## Acceptance Criteria
 
-- [ ] Given un projet avec une phase `done`, when `review --defects 2 --decoys 2` (générateur fixé), then `katas/<id>/kata.diff` montre exactement 4 lignes modifiées, `src/**` est identique octet par octet, et `.ai-learn/kata.json` ne contient aucun site.
-- [ ] Given un kata actif, when l'IA tente `Read` sur `katas/<id>/kata.diff` sous Claude Code, then le guard refuse ; when elle tente `Write` sur `katas/<id>/revue.md`, then le guard refuse.
-- [ ] Given une `revue.md` vide, when `review --reveal`, then exit 1 et le kata reste actif.
-- [ ] Given une revue qui cite les 2 défauts et un leurre, when `review --reveal`, then score 2/2, 1 faux positif marqué « leurre signalé », palier 2 atteint.
-- [ ] Given une revue qui cite 1 défaut sur 2, when `review --reveal`, then le défaut manqué est affiché avec son mécanisme, palier 1 atteint, pas le palier 2.
-- [ ] Given une phase taguée `kata` venant d'être prouvée, when `next --json`, then `kata.due` vaut `true`, puis `false` au second appel pour la même preuve.
-- [ ] Given un kata actif, when `review` à nouveau, then exit 1.
-- [ ] Given un `review.json` illisible, when `review --reveal`, then il n'est jamais écrasé (refus de `writeLedgerFile`).
+- [x] Given un projet avec une phase `done`, when `review --defects 2 --decoys 2` (générateur fixé), then `katas/<id>/kata.diff` montre exactement 4 lignes modifiées, `src/**` est identique octet par octet, et `.ai-learn/kata.json` ne contient aucun site.
+- [x] Given un kata actif, when l'IA tente `Read` sur `katas/<id>/kata.diff` sous Claude Code, then le guard refuse ; when elle tente `Write` sur `katas/<id>/revue.md`, then le guard refuse.
+- [x] Given une `revue.md` vide, when `review --reveal`, then exit 1 et le kata reste actif.
+- [x] Given une revue qui cite les 2 défauts et un leurre, when `review --reveal`, then score 2/2, 1 faux positif marqué « leurre signalé », palier 2 atteint.
+- [x] Given une revue qui cite 1 défaut sur 2, when `review --reveal`, then le défaut manqué est affiché avec son mécanisme, palier 1 atteint, pas le palier 2.
+- [x] Given une phase taguée `kata` venant d'être prouvée, when `next --json`, then `kata.due` vaut `true`, puis `false` au second appel pour la même preuve.
+- [x] Given un kata actif, when `review` à nouveau, then exit 1.
+- [x] Given un `review.json` illisible, when `review --reveal`, then il n'est jamais écrasé (refus de `writeLedgerFile`).
 
 ## Edge Cases
 

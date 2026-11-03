@@ -1469,3 +1469,52 @@ test("Bash cannot read the incident store nor run break --giveup", () => {
   assert.strictEqual(decide(hookFor(dir, "Bash", { command: "ai-learn break --resolve" }), dir).decision, "allow");
   assert.strictEqual(decide(hookFor(dir, "Glob", { pattern: "{~/.ai-learn/incidents/x.json}" }), dir).decision, "deny");
 });
+
+// Story 12.03 — un kata de revue actif est fermé à l'IA ; clos, il redevient lisible.
+test("an active kata is closed to the ai, a closed one is not", () => {
+  const dir = tmpProject({ version: 1, project: "p", phases: [] });
+  fs.mkdirSync(path.join(dir, "katas", "abc12345"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "katas", "abc12345", "kata.diff"), "x\n");
+  const diff = path.join(dir, "katas", "abc12345", "kata.diff");
+
+  assert.strictEqual(decide(hookFor(dir, "Read", { file_path: diff }), dir).decision, "allow", "pas de kata actif : lisible");
+
+  fs.mkdirSync(path.join(dir, ".ai-learn"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".ai-learn", "kata.json"), JSON.stringify({ active: true, id: "abc12345" }));
+
+  assert.strictEqual(decide(hookFor(dir, "Read", { file_path: diff }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x", path: path.join(dir, "katas") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Read", { file_path: path.join(os.homedir(), ".ai-learn", "katas", "p-abc.json") }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "cat katas/abc12345/kata.diff" }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Bash", { command: "ai-learn review --reveal" }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Read", { file_path: path.join(dir, "src", "a.js") }), dir).decision, "allow");
+  assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x", path: dir }), dir).decision, "deny", "un Grep sur toute la racine atteint le diff");
+  assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x" }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x", path: dir, glob: "katas/**" }), dir).decision, "deny");
+  assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x", path: path.join(dir, "src") }), dir).decision, "allow", "un sous-dossier reste lisible");
+  for (const command of ["grep -rn . katas", "cd katas && cat */kata.diff", "cat Katas/abc12345/kata.diff", "cat ~/.ai-learn/kat*/*", "node -e \"require('./bin/lib/review').giveupCommand({dir:'.'})\""]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  fs.writeFileSync(path.join(dir, ".ai-learn", "kata.json"), JSON.stringify({ active: false, id: "abc12345" }));
+  assert.strictEqual(decide(hookFor(dir, "Read", { file_path: diff }), dir).decision, "allow");
+});
+
+test("the ai never writes the kata diff or review", () => {
+  const dir = tmpProject({ version: 1, project: "p", phases: [] });
+
+  for (const rel of ["katas/abc12345/revue.md", "katas/abc12345/kata.diff"]) {
+    assert.strictEqual(decide(hookFor(dir, "Write", { file_path: path.join(dir, rel) }), dir).decision, "deny", rel);
+  }
+});
+
+test("the ai cannot switch the kata wall off", () => {
+  const dir = tmpProject({ version: 1, project: "p", phases: [] });
+
+  for (const toolName of ["Write", "Edit"]) {
+    assert.strictEqual(decide(hookFor(dir, toolName, { file_path: path.join(dir, ".ai-learn", "kata.json") }), dir).decision, "deny", toolName);
+  }
+  for (const command of ["echo '{}' > .ai-learn/kata.json", "sed -i s/true/false/ .ai-learn/kata.json"]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+});

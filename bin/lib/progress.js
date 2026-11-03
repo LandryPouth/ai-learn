@@ -223,6 +223,12 @@ function validateProgress(config) {
       }
     }
 
+    // Optional: a proven phase tagged `kata` makes `next` offer a review kata
+    // (story 12.03). A non-boolean would silently disable it.
+    if (phase.kata !== undefined && phase.kata !== null && typeof phase.kata !== "boolean") {
+      issues.push({ level: "warning", message: `phase ${phase.id} has a non-boolean kata flag` });
+    }
+
     // Optional: the "casse réelle" checkpoint (see bin/lib/stacks/*.js's
     // `stresses` bank) — `ai-learn verify` requires both this and the base
     // `checkpoint` to pass before marking the phase done.
