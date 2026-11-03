@@ -48,6 +48,14 @@ function normalizePredictionsRequired(required) {
   return { total: 0, byType: null };
 }
 
+// Story 11.01 — `by` tells who made the prediction. Entries without it are the
+// learner's; `ia` is the AI's second opinion on an active incident.
+const PREDICTION_AUTHORS = ["apprenant", "ia"];
+
+function isAiPrediction(entry) {
+  return Boolean(entry) && entry.by === "ia";
+}
+
 function predictionTypeOf(entry) {
   return entry && PREDICTION_TYPES.includes(entry.type) ? entry.type : DEFAULT_PREDICTION_TYPE;
 }
@@ -104,6 +112,10 @@ function validatePredictionsData(data) {
       issues.push(`entries[${index}] is missing an "at" timestamp`);
     }
 
+    if (entry.by !== undefined && !PREDICTION_AUTHORS.includes(entry.by)) {
+      issues.push(`entries[${index}] has unknown by ${JSON.stringify(entry.by)} (expected one of ${PREDICTION_AUTHORS.join(", ")})`);
+    }
+
     if (entry.type !== undefined && !PREDICTION_TYPES.includes(entry.type)) {
       issues.push(`entries[${index}] has unknown type ${JSON.stringify(entry.type)} (expected one of ${PREDICTION_TYPES.join(", ")})`);
     }
@@ -150,7 +162,7 @@ function ensurePredictionsFile(dir) {
 function countByPhase(entries) {
   const counts = {};
 
-  for (const entry of entries) {
+  for (const entry of entries.filter((candidate) => !isAiPrediction(candidate))) {
     counts[entry.phaseId] = (counts[entry.phaseId] || 0) + 1;
   }
 
@@ -184,6 +196,16 @@ function phaseRequiredTotal(config, phaseId) {
   return normalizePredictionsRequired(phase.predictionsRequired).total || null;
 }
 
+// The AI's second opinion is shown apart: it is not one of the learner's
+// numbered predictions and carries no feedback.
+function renderAiBlock(entry) {
+  return [
+    `### Phase ${entry.phaseId} — second avis (IA)`,
+    "- Type : debug (IA)",
+    `- Prédiction : ${escapeField(entry.prediction)}`,
+  ].join("\n");
+}
+
 // Renders the full file: the template's own header (title, Format, Règles —
 // unchanged, still the documentation a human reads) followed by the recorded
 // entries, chronological, in the exact per-entry format that header
@@ -194,6 +216,10 @@ function renderJournal(dir, config, data) {
   const seenPerPhase = {};
 
   const blocks = entries.map((entry) => {
+    if (isAiPrediction(entry)) {
+      return renderAiBlock(entry);
+    }
+
     seenPerPhase[entry.phaseId] = (seenPerPhase[entry.phaseId] || 0) + 1;
     const total = phaseRequiredTotal(config, entry.phaseId) || seenPerPhase[entry.phaseId];
 
@@ -237,6 +263,36 @@ function syncJournalRender(dir, config, data) {
   return { action: existing === null ? "created" : "refreshed" };
 }
 
+// Story 11.01 — the AI's hypothesis is only a *second* opinion: an incident
+// must be active, the learner must already have bet (so the AI cannot lead
+// them), and one AI bet per incident. The incident's level fixes the shape:
+// a site (`--file`/`--line`) up to level 2, a cause at level 3.
+function assertSecondOpinionAllowed(dir, entries, hasCause) {
+  const state = require("./incident").readIncident(dir);
+
+  if (!state || !state.active) {
+    fail("Pas de second avis sans incident actif : lance d'abord `ai-learn break`.");
+  }
+
+  const debugEntries = entries.filter((entry) => entry.type === "debug" && entry.at >= state.startedAt);
+
+  if (!debugEntries.some((entry) => !isAiPrediction(entry))) {
+    fail("L'hypothèse de l'apprenant d'abord : le second avis de l'IA vient après sa prédiction.");
+  }
+
+  if (debugEntries.some(isAiPrediction)) {
+    fail("Le second avis de l'IA est déjà enregistré pour cet incident.");
+  }
+
+  if (state.level === 3 && !hasCause) {
+    fail("Incident de niveau 3 (environnement) : le second avis de l'IA porte --cause, pas --file.");
+  }
+
+  if (state.level !== 3 && hasCause) {
+    fail("Cet incident est dans le code : le second avis de l'IA porte --file et --line, pas --cause.");
+  }
+}
+
 const REVEAL_FIELDS = ["gaps", "score", "strengths", "weaknesses", "flash", "corrected"];
 const VALID_CORRECTED_BY = ["apprenant", "IA"];
 
@@ -264,6 +320,16 @@ function recordPrediction(dir, config, fields) {
     fail(`--type must be one of ${PREDICTION_TYPES.join(", ")}, got: ${type}`);
   }
 
+  const by = fields.by || "apprenant";
+
+  if (!PREDICTION_AUTHORS.includes(by)) {
+    fail(`--by must be one of ${PREDICTION_AUTHORS.join(", ")}, got: ${by}`);
+  }
+
+  if (by === "ia" && type !== "debug") {
+    fail("--by ia is only for --type debug (second avis sur un incident actif).");
+  }
+
   // Story 10.04 — a `debug` prediction names the site it bets on, so `break
   // --resolve` can compare it with the real one.
   const line = /^\d+$/.test(String(fields.line).trim()) ? Number.parseInt(fields.line, 10) : NaN;
@@ -282,6 +348,11 @@ function recordPrediction(dir, config, fields) {
   }
 
   const data = existing.data || { version: VERSION, entries: [] };
+
+  if (by === "ia") {
+    assertSecondOpinionAllowed(dir, data.entries, Boolean(cause));
+  }
+
   const now = new Date().toISOString();
   // Two steps (story 09.03): a bare prediction is stored unrevealed, so its
   // `at` provably precedes the reveal. Any feedback field makes it the legacy
@@ -292,6 +363,7 @@ function recordPrediction(dir, config, fields) {
     phaseId: fields.phaseId,
     at: now,
     type,
+    ...(by === "ia" ? { by } : {}),
     ...(type === "debug" && cause ? { cause } : {}),
     ...(type === "debug" && !cause ? { file: path.posix.normalize(String(fields.file).replace(/\\/g, "/")), line } : {}),
     prediction: fields.prediction,
@@ -410,7 +482,7 @@ function predictionsReport({ dir, phase, predictions }) {
     };
   }
 
-  const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id);
+  const entries = resolved.data.entries.filter((entry) => entry.phaseId === phase.id && !isAiPrediction(entry));
   const count = entries.length;
   const countByType = {};
 
@@ -492,6 +564,8 @@ module.exports = {
   VERSION,
   GENERATED_MARKER,
   PREDICTION_TYPES,
+  PREDICTION_AUTHORS,
+  isAiPrediction,
   DEFAULT_PREDICTION_TYPE,
   normalizePredictionsRequired,
   predictionTypeOf,

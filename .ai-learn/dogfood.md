@@ -50,6 +50,58 @@ manqué, pas juste dire « ça n'a pas marché ».
 
 <!-- Nouvelle entrée en haut, sous cette ligne. -->
 
+### medium — `break` ne casse qu'avec des mutants syntaxiques, jamais comme une vraie panne
+- Statut : planifié le 2026-11-03 (stories 11.02 et 11.03), pas encore implémenté
+- Projet : tech-experiments (fil diagnostic, ajouté le 2026-11-03)
+- Plateforme : claude-code (gap côté outil, indépendant de la plateforme)
+- Surface : commande (`ai-learn break`) / packs `bin/lib/stacks/*.js`
+- Attendu vs réel : un incident devrait ressembler à une panne de production. Réel : le pack `javascript.js` n'a que deux opérateurs (`boolean-literal`, `comparison-operator`), appliqués à du code que l'apprenant vient de taper ; le symptôme est toujours la sortie d'un checkpoint (niveaux 1-2) ou une panne d'environnement (niveau 3).
+- Problème : on n'entraîne ni les pannes sémantiques (`await` oublié, `catch` qui avale l'erreur, client de pool jamais rendu, retry sans backoff, borne de pagination décalée, clé de cache incomplète, fuseau horaire), ni la lecture d'un symptôme de production (extrait de log, événement façon Sentry, alerte, p95 qui monte).
+- Proposition : une banque de pannes sémantiques par pack (gabarits AST ou recherche/remplacement ciblé, même secret hors projet que les mutants) + un niveau où le symptôme est un artefact de prod généré (log JSON, pile, alerte) au lieu de la sortie du test. Premier consommateur : `prodready-api` phase 13 (aujourd'hui simulé par un script d'incident fourni au projet).
+- Workaround : les plans de `prodready-api` (13) et `tradelog` (9) font poser ces pannes par un script de support, dont l'IA connaît la réponse : moins étanche que `break`.
+- Version de l'outil : 0.6.4
+
+### medium — Aucun entraînement à relire du code produit par l'IA
+- Statut : planifié le 2026-11-03 (stories 12.03 et 12.04), pas encore implémenté
+- Projet : tech-experiments (fil diagnostic, 2026-11-03)
+- Plateforme : claude-code
+- Surface : commande (proposition : `ai-learn review`)
+- Attendu vs réel : la compétence n°1 avec l'IA est de relire un diff plausible et d'y trouver ce qui est faux. Réel : seul le mode `dirigeant` fait juger du code IA (revue sourcée `docs/reviews/`), et il est verrouillé derrière les tiers tests 1-3 ; rien ne mesure ce que la revue a **manqué**.
+- Proposition : `ai-learn review` — l'IA écrit hors de `src/**` (ex. `katas/<nom>/`) une modification plausible contenant N défauts (sécurité, concurrence, gestion d'erreur, cas limite) ; la liste des défauts part dans `~/.ai-learn/` comme le secret de `break`, fermée à l'IA tutrice ; l'apprenant enregistre sa revue (`fichier:ligne` + raison) avant révélation ; score = défauts trouvés / N, faux positifs comptés ; nouveau ledger ou tiers dans `tracks/debug.json`.
+- Difficulté : l'IA qui écrit le kata connaît les défauts. Il faut une génération par un agent séparé (ou une banque de katas versionnée dans l'outil) pour que l'IA tutrice ne fuite pas la réponse.
+- Workaround : aucun.
+- Version de l'outil : 0.6.4
+
+### low — `git bisect` absent des paliers git
+- Statut : planifié le 2026-11-03 (story 11.04), pas encore implémenté
+- Projet : tech-experiments (fil diagnostic, 2026-11-03)
+- Plateforme : claude-code
+- Surface : ledger `tracks/git.json` / `break`
+- Attendu vs réel : retrouver le commit qui a introduit une régression (`git bisect run` avec le checkpoint comme juge) est un geste de diagnostic courant. Aucun palier ne l'exige, et l'IA ne peut pas préparer l'historique piégé (guard git dans le projet).
+- Proposition : un incident « régression dans l'historique » : l'outil crée lui-même, sur une branche jetable, N commits dont un introduit la panne (secret hors projet) ; palier git 7 atteint quand `bisect` désigne le bon commit. Premier consommateur : `prodready-api` (plan, section Fil diagnostic).
+- Workaround : noté « en attente » dans le plan de `prodready-api`.
+- Version de l'outil : 0.6.4
+
+### low — Le protocole « second avis IA » vit dans les plans, pas dans le modèle d'AGENTS.md
+- Statut : planifié le 2026-11-03 (story 11.01), pas encore implémenté
+- Projet : tech-experiments (fil diagnostic, 2026-11-03)
+- Plateforme : toutes
+- Surface : template `AGENTS.md` (§3sexies) / `ai-learn update`
+- Attendu vs réel : pour un diagnostic, l'apprenant pose son hypothèse, puis l'IA reçoit les mêmes preuves seulement, puis on compare (dont « cause plausible mais fausse donnée par l'IA »). Réel : écrit dans le README racine de tech-experiments et dans chaque plan, car un `AGENTS.md` généré est écrasé par `ai-learn update --root`.
+- Proposition : l'ajouter à §3sexies du template (étape 5 après `--resolve`), et un champ dans `predict --reveal` pour tracer le verdict de l'IA (juste / plausible mais faux / à côté), agrégé dans `tracks/debug.json`.
+- Workaround : protocole recopié dans les plans (section « Fil diagnostic ») et dans `fastify-traducteur-api` phase 9.
+- Version de l'outil : 0.6.4
+
+### low — Pas de type de prédiction ni de palier pour la lecture de code d'un autre
+- Statut : planifié le 2026-11-03 (stories 12.01 et 12.02), pas encore implémenté
+- Projet : tech-experiments (fil diagnostic, 2026-11-03)
+- Plateforme : toutes
+- Surface : `predict --type` / ledgers
+- Attendu vs réel : les plans exigent maintenant des « cartes du code » (Node, Fastify, Nest, `pg-boss`, Prometheus) : prédire où vit un mécanisme dans une base inconnue, puis le trouver. Seul l'artefact est vérifié (présence du fichier).
+- Proposition : `predict --type lecture --file <chemin> --line <n>` comparé à l'emplacement réel (même tolérance que `break`), et `check` qui vérifie que chaque `fichier:ligne` cité dans `docs/carte-du-code*.md` existe dans la source déclarée.
+- Workaround : artefacts `docs/carte-du-code*.md` exigés par `progress.json` (wire-ts 5, framework-ts 9, prodready-api 14, telemetry-go 4).
+- Version de l'outil : 0.6.4
+
 ### high — Un refus du guard rend toutes les preuves stale
 - Projet : **coding-flow** (détecté depuis le guard d'`ai-learn`)
 - Plateforme : opencode

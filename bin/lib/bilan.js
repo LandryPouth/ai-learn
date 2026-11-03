@@ -10,7 +10,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { latestEvidenceForPhase } = require("./progress");
-const { readPredictions, DEFAULT_PREDICTION_TYPE } = require("./predictions");
+const { readPredictions, isAiPrediction, DEFAULT_PREDICTION_TYPE } = require("./predictions");
 const { readJson } = require("./util");
 const { projectKey } = require("./tracks/store");
 
@@ -62,7 +62,7 @@ function phaseLines(dir, config) {
 
 function predictionLines(dir) {
   const read = readPredictions(dir);
-  const entries = read.valid ? read.data.entries : [];
+  const entries = read.valid ? read.data.entries.filter((entry) => !isAiPrediction(entry)) : [];
 
   if (entries.length === 0) {
     return [line("Prédictions", NONE)];

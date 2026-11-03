@@ -585,3 +585,16 @@ test("status lists flash notes of low-scored predictions", () => {
   assert.match(capture(() => statusCommand({ dir })), /À revoir :\n  Phase 0 — flash-six\n  Phase 0 — flash-quatre/);
   assert.doesNotMatch(capture(() => statusCommand({ dir })), /flash-neuf/);
 });
+
+test("status shows the second opinion line", () => {
+  const { recordSecondOpinion } = require("../bin/lib/tracks/debug");
+  const { printSecondOpinionSummary } = require("../bin/lib/status");
+  const home = tmpHome();
+
+  assert.strictEqual(capture(() => printSecondOpinionSummary({ home })), "");
+
+  recordSecondOpinion({ home, incidentId: "i1", learner: "exact", ai: "manqué" });
+  recordSecondOpinion({ home, incidentId: "i2", learner: "fichier", ai: "exact" });
+
+  assert.match(capture(() => printSecondOpinionSummary({ home })), /second avis : toi 1\/2 exacts · IA 1\/2/);
+});

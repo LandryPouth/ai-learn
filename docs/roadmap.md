@@ -1,6 +1,8 @@
 # Roadmap — ai-learn
 
-> **État au 2026-10-31 : les epics 01 à 10 sont livrés.** Le reste de ce fichier est l'historique des décisions ; il n'y a pas d'epic planifié.
+> **État au 2026-11-03 : les epics 01 à 10 sont livrés ; les epics 11 et 12 sont planifiés** (`epics/epic-11-diagnostiquer-comme-en-production/`, `epics/epic-12-lire-le-code-d-un-autre/`), à partir du fil diagnostic du parcours tech-experiments. Le reste de ce fichier est l'historique des décisions.
+>
+> Ordre recommandé, calé sur le moment où le parcours en a besoin : 11.01 (second avis IA, dès `fastify-traducteur-api` phase 9) → 12.01 → 12.02 (cartes du code, `wire-ts` phase 5) → 11.02 → 11.03 (`prodready-api` phase 13) → 11.04 → 12.03 → 12.04.
 
 > Trois epics, dans cet ordre. Seul l'epic 01 est détaillé en stories
 > (`epics/epic-01-verdict-fiable/`) : les epics 02 et 03 reposent sur des

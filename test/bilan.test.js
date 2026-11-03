@@ -158,3 +158,18 @@ test("update prepares the bilan of a track finished before it existed", () => {
 
   assert.ok(fs.existsSync(path.join(dir, "docs", "bilan.md")));
 });
+
+test("the bilan does not count the AI's second opinions as the learner's predictions", () => {
+  const home = tmpHome();
+  const dir = finishedProject(["done", "pending"]);
+  const { recordPrediction } = require("../bin/lib/predictions");
+  recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "x" });
+  const file = path.join(dir, ".ai-learn", "predictions.json");
+  const data = JSON.parse(fs.readFileSync(file, "utf8"));
+  data.entries.push({ ...data.entries[0], id: "p-ia", type: "debug", by: "ia", file: "src/a.js", line: 1 });
+  fs.writeFileSync(file, JSON.stringify(data));
+
+  capture(() => verifyCommand({ dir, phaseId: 1, home }));
+
+  assert.match(fs.readFileSync(path.join(dir, "docs", "bilan.md"), "utf8"), /Prédictions[^\n]*\b1 \(/);
+});

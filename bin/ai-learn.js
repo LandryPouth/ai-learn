@@ -222,6 +222,7 @@ function main() {
         flash: getFlagValue("--flash", null),
         corrected: getFlagValue("--corrected", null),
         cause: getFlagValue("--cause", null),
+        by: getFlagValue("--by", null),
         correctedBy: getFlagValue("--corrected-by", revealId ? null : "apprenant"),
       };
       const { entry, render } = revealId ? revealPrediction(dir, config, revealId, fields) : recordPrediction(dir, config, fields);
@@ -389,7 +390,7 @@ Usage:
   ai-learn mutate --phase <id> [--dir <dir>]
   ai-learn break [--level 1|2|3 | --auto] [--dir <dir>]
   ai-learn break --resolve | --giveup [--dir <dir>]
-  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--file <f> --line <n> | --cause <text>] [--dir <dir>]
+  ai-learn predict --phase <id> --prediction <text> [--type <code|casse|reality|transfert|debug>] [--file <f> --line <n> | --cause <text>] [--by <apprenant|ia>] [--dir <dir>]
   ai-learn predict --reveal <id> --score <n/10> --gaps <t> --strengths <t> --weaknesses <t> --flash <t> [--corrected <t>]
              [--corrected-by <apprenant|IA>] [--dir <dir>]
   ai-learn check [--root <dir>] [--json]

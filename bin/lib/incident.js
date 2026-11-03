@@ -20,9 +20,9 @@ const { findAllSites, applyMutant, restoreOriginal, mutateLockPath, recoverOrpha
 const { loadGuardConfig, MODE_DIRIGEANT } = require("./guard");
 const { gitState } = require("./scan");
 const { runCommand } = require("./exec");
-const { readPredictions } = require("./predictions");
+const { readPredictions, isAiPrediction } = require("./predictions");
 const { projectKey, assertWritable } = require("./tracks/store");
-const { recordDebugTiers, readOrDefaultDebugTracks } = require("./tracks/debug");
+const { recordDebugTiers, recordSecondOpinion, readOrDefaultDebugTracks } = require("./tracks/debug");
 const { readOrDefaultPlatformTracks } = require("./tracks/platform");
 const { latestEvidenceForPhase } = require("./progress");
 const { readTutorConfig, incidentChance } = require("./tutor");
@@ -451,11 +451,12 @@ function closeIncident(dir, home, state, outcome, extra = {}) {
   fs.rmSync(incidentRecordPath(dir, { home }), { force: true });
 }
 
-// The learner's last `debug` prediction made during this incident.
-function lastDebugPrediction(dir, startedAt, field = "file") {
+// The last `debug` prediction made during this incident by the learner, or by
+// the AI (story 11.01) — the AI's is never taken for the learner's.
+function lastDebugPrediction(dir, startedAt, field = "file", { ai = false } = {}) {
   const { data } = readPredictions(dir);
   const entries = data && Array.isArray(data.entries) ? data.entries : [];
-  const mine = entries.filter((e) => e.type === "debug" && typeof e[field] === "string" && e.at >= startedAt);
+  const mine = entries.filter((e) => e.type === "debug" && typeof e[field] === "string" && e.at >= startedAt && isAiPrediction(e) === ai);
   return mine.length > 0 ? mine[mine.length - 1] : null;
 }
 
@@ -474,6 +475,21 @@ function compareCause(prediction, record) {
 
   const named = Object.keys(CAUSE_WORDS).filter((type) => CAUSE_WORDS[type].test(prediction.cause));
   return named.length === 1 && named[0] === record.kind ? "exact" : "manqué";
+}
+
+// Both bets against the same site, through the same comparison.
+function compareBets(dir, record) {
+  const environment = isEnvironmentFault(record);
+  const field = environment ? "cause" : "file";
+  const verdictOf = (prediction) => (environment ? compareCause(prediction, record) : comparePrediction(prediction, record));
+  const learner = lastDebugPrediction(dir, record.startedAt, field);
+  const ai = lastDebugPrediction(dir, record.startedAt, field, { ai: true });
+
+  return { learner, ai, learnerVerdict: verdictOf(learner), aiVerdict: verdictOf(ai) };
+}
+
+function logSecondOpinion(aiVerdict) {
+  log(aiVerdict === "aucune" ? "Second avis de l'IA : pas de second avis." : `Second avis de l'IA : ${aiVerdict}.`);
 }
 
 function isEnvironmentFault(record) {
@@ -553,8 +569,7 @@ function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell 
   }
 
   const environment = isEnvironmentFault(record);
-  const prediction = lastDebugPrediction(dir, record.startedAt, environment ? "cause" : "file");
-  const verdict = environment ? compareCause(prediction, record) : comparePrediction(prediction, record);
+  const { learner: prediction, learnerVerdict: verdict, aiVerdict } = compareBets(dir, record);
   const tiers = [1];
 
   if (record.level >= 2) {
@@ -571,11 +586,16 @@ function resolveCommand({ dir, home = os.homedir(), execute = runCommand, shell 
   }
 
   recordDebugTiers({ home, dir: projectKey(dir), incidentId: record.id, tiers, detail: describeFault(record) });
+  if (aiVerdict !== "aucune") {
+    recordSecondOpinion({ home, incidentId: record.id, learner: verdict, ai: aiVerdict });
+  }
+
   closeIncident(dir, home, state, "resolu", { prediction: verdict });
 
   log("Incident résolu : tous les checkpoints repassent au vert.");
   log(`${environment ? "La panne était" : "Le site était"} ${describeFault(record)}.`);
   log(`Ta prédiction : ${verdict}.`);
+  logSecondOpinion(aiVerdict);
   log(`Paliers atteints : ${tiers.join(", ")} (~/.ai-learn/tracks/debug.json).`);
 }
 
@@ -583,12 +603,18 @@ function giveupCommand({ dir, home = os.homedir(), shell }) {
   recoverOrphans(dir, shell);
   const state = requireActive(dir);
   const record = readRecord(dir, home);
+  const { learnerVerdict, aiVerdict } = compareBets(dir, record);
+  const logBets = () => {
+    log(`Ta prédiction : ${learnerVerdict}.`);
+    logSecondOpinion(aiVerdict);
+  };
 
   if (record.kind === "port" || record.kind === "service") {
     assertRestored(envFaults.restoreFault(record, dir, { shell }));
     closeIncident(dir, home, state, "abandon");
     log("Incident abandonné : l'environnement est revenu à son état d'avant la panne.");
     log(`La panne était ${describeFault(record)}.`);
+    logBets();
     return;
   }
 
@@ -617,6 +643,7 @@ function giveupCommand({ dir, home = os.homedir(), shell }) {
 
   log("Incident abandonné : ton code est revenu à son état d'avant la panne.");
   log(`${record.kind === "env" ? "La panne était" : "Le site était"} ${describeFault(record)}.`);
+  logBets();
   log(`Ta version du fichier est gardée dans ${normalizePortable(path.join(".ai-learn", "incident-giveup", record.file))}.`);
 }
 

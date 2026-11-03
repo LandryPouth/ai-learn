@@ -97,6 +97,8 @@ que `mutate` — il suppose une faute qui ne lève pas d'exception.
 
 ### Condition de promotion
 
+> 2026-11-03 : le tier 6 (« observable uniquement par les logs ») et la bisection sont planifiés dans l'epic 11 (stories 11.03 et 11.04), par décision de l'utilisateur. Les tiers 4 et 5 restent ici.
+
 **Au moins trois entrées du journal de friction, ou trois `Zones de faiblesse` du
 journal de prédictions, où le temps a été perdu à localiser une cause et non à
 comprendre un concept.** Aujourd'hui : zéro. Les six tiers ci-dessus sont une liste
@@ -132,6 +134,8 @@ valeur — juger du code qu'on n'a pas écrit — contre un arbitre qui n'est ni
 l'apprenant ni l'IA.
 
 ### Condition de promotion
+
+> 2026-11-03 : l'epic 12 (stories 12.03 et 12.04) planifie un kata de revue généré par l'outil, contre une vérité qu'il est seul à connaître. Ce n'est pas cette partie : ici l'arbitre est un relecteur humain d'une PR publique. Elle reste en attente.
 
 **Le mode dirigeant (epic 03) livré, et son tier « revue » (`docs/reviews/<brique>.md`)
 utilisé au moins une fois en conditions réelles.** Cette partie n'est qu'un

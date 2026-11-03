@@ -59,7 +59,17 @@ function validateDebugTracks(config) {
     }
   }
 
+  if (config.secondOpinion !== undefined && !validSecondOpinion(config.secondOpinion)) {
+    issues.push({ level: "error", message: "tracks/debug.json.secondOpinion is malformed" });
+  }
+
   return issues;
+}
+
+function validSecondOpinion(value) {
+  const counts = (v) => v && typeof v === "object" && ["exact", "fichier", "manque", "aucune"].every((k) => Number.isInteger(v[k]) && v[k] >= 0);
+
+  return Boolean(value) && Number.isInteger(value.incidents) && value.incidents >= 0 && counts(value.learner) && counts(value.ai) && Number.isInteger(value.learnerExactAiMissed) && Array.isArray(value.incidentIds);
 }
 
 function readOrDefaultDebugTracks({ home = os.homedir() } = {}) {
@@ -95,4 +105,37 @@ function recordDebugTiers({ home, dir, incidentId, tiers, detail }) {
   return config;
 }
 
-module.exports = { TIER_IDS, tracksPath, defaultDebugTracks, readOrDefaultDebugTracks, validateDebugTracks, recordDebugTiers };
+// Story 11.01 — the AI's second opinion, measured against the real site. A
+// statistic, not a tier: it carries no "achieved". Idempotent per incident.
+const VERDICT_KEYS = { exact: "exact", fichier: "fichier", "manqué": "manque", aucune: "aucune" };
+
+function emptyVerdicts() {
+  return { exact: 0, fichier: 0, manque: 0, aucune: 0 };
+}
+
+function recordSecondOpinion({ home, incidentId, learner, ai }) {
+  const config = readOrDefaultDebugTracks({ home });
+  const existing = readJson(tracksPath({ home }), null);
+  const before = existing && validateDebugTracks(existing).length === 0 ? withoutTimestamps(config) : null;
+  const opinion = config.secondOpinion || { incidents: 0, learner: emptyVerdicts(), ai: emptyVerdicts(), learnerExactAiMissed: 0, incidentIds: [] };
+
+  if (opinion.incidentIds.includes(incidentId)) {
+    return config;
+  }
+
+  const learnerKey = VERDICT_KEYS[learner] || "aucune";
+  const aiKey = VERDICT_KEYS[ai] || "aucune";
+  opinion.incidents += 1;
+  opinion.learner[learnerKey] += 1;
+  opinion.ai[aiKey] += 1;
+  opinion.learnerExactAiMissed += learnerKey === "exact" && aiKey === "manque" ? 1 : 0;
+  opinion.incidentIds.push(incidentId);
+  config.secondOpinion = opinion;
+  config.updatedAt = new Date().toISOString();
+  canonicalizeProjects(config);
+
+  writeLedgerFile(tracksPath({ home }), config, { before, validate: validateDebugTracks });
+  return config;
+}
+
+module.exports = { recordSecondOpinion, TIER_IDS, tracksPath, defaultDebugTracks, readOrDefaultDebugTracks, validateDebugTracks, recordDebugTiers };

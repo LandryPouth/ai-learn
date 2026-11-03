@@ -373,3 +373,84 @@ test("a debug prediction stores its file and line; both are required", () => {
   assert.strictEqual(entry.line, 12);
   assert.throws(() => record(dir, config, { phaseId: 0, type: "debug", prediction: "ailleurs" }), /--file/);
 });
+
+// Story 11.01 — second avis IA (`by: "ia"`) on an active incident.
+function withIncident(level = 1) {
+  const dir = tmpProject(sampleProgress());
+  writeFile(dir, ".ai-learn/incident.json", JSON.stringify({ active: true, level, startedAt: "2000-01-01T00:00:00.000Z" }));
+  return dir;
+}
+
+const AI_FIELDS = { phaseId: 0, type: "debug", by: "ia", prediction: "plutôt ici", file: "src/b.js", line: "4" };
+const LEARNER_FIELDS = { phaseId: 0, type: "debug", prediction: "ici", file: "src/a.js", line: "12" };
+
+test("an ai debug prediction needs an active incident", () => {
+  const dir = tmpProject(sampleProgress());
+
+  assert.throws(() => recordPrediction(dir, sampleProgress(), AI_FIELDS), /incident actif/);
+  assert.ok(!fs.existsSync(predictionsPath(dir)));
+});
+
+test("the learner predicts before the ai", () => {
+  const dir = withIncident();
+
+  assert.throws(() => recordPrediction(dir, sampleProgress(), AI_FIELDS), /apprenant d'abord/);
+  assert.ok(!fs.existsSync(predictionsPath(dir)));
+});
+
+test("a second ai prediction for the same incident is refused", () => {
+  const dir = withIncident();
+  const config = sampleProgress();
+  recordPrediction(dir, config, LEARNER_FIELDS);
+  const { entry } = recordPrediction(dir, config, AI_FIELDS);
+
+  assert.strictEqual(entry.by, "ia");
+  assert.throws(() => recordPrediction(dir, config, AI_FIELDS), /déjà enregistré/);
+  assert.strictEqual(readPredictions(dir).data.entries.length, 2);
+});
+
+test("an ai prediction follows the incident level: file below 3, cause at 3", () => {
+  const config = sampleProgress();
+  const code = withIncident(1);
+  recordPrediction(code, config, LEARNER_FIELDS);
+  assert.throws(() => recordPrediction(code, config, { ...AI_FIELDS, file: undefined, line: undefined, cause: "port" }), /--file/);
+
+  const env = withIncident(3);
+  recordPrediction(env, config, { phaseId: 0, type: "debug", prediction: "x", cause: "port" });
+  assert.throws(() => recordPrediction(env, config, AI_FIELDS), /--cause/);
+});
+
+test("--by ia is refused for a non-debug type", () => {
+  const dir = withIncident();
+
+  assert.throws(() => recordPrediction(dir, sampleProgress(), { phaseId: 0, type: "code", by: "ia", prediction: "x" }), /only for --type debug/);
+});
+
+test("ai predictions never satisfy predictionsRequired", () => {
+  const dir = withIncident();
+  const config = sampleProgress();
+  recordPrediction(dir, config, LEARNER_FIELDS);
+  recordPrediction(dir, config, AI_FIELDS);
+  fs.rmSync(`${dir}/.ai-learn/incident.json`);
+  const data = readPredictions(dir).data;
+  data.entries.shift();
+  fs.writeFileSync(predictionsPath(dir), JSON.stringify(data));
+
+  const report = predictionsReport({ dir, phase: { id: 0, predictionsRequired: { debug: 1 } } });
+
+  assert.strictEqual(report.count, 0);
+  assert.strictEqual(report.missing, 1);
+  assert.deepStrictEqual(countByPhase(data.entries), {});
+});
+
+test("the rendered journal marks the ai entry", () => {
+  const dir = withIncident();
+  const config = sampleProgress();
+  recordPrediction(dir, config, LEARNER_FIELDS);
+  recordPrediction(dir, config, AI_FIELDS);
+
+  const md = fs.readFileSync(journalPath(dir), "utf8");
+
+  assert.match(md, /second avis \(IA\)/);
+  assert.match(md, /Type : debug \(IA\)/);
+});

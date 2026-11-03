@@ -45,3 +45,27 @@ test("validateDebugTracks reports a malformed ledger", () => {
   assert.ok(validateDebugTracks({ version: 1, tiers: { 1: {} } }).length > 0);
   assert.ok(validateDebugTracks(null).length > 0);
 });
+
+// Story 11.01 — secondOpinion statistic.
+const { recordSecondOpinion } = require("../bin/lib/tracks/debug");
+
+test("second opinion is counted once per incident", () => {
+  const home = tmpHome();
+  const args = { home, incidentId: "i1", learner: "exact", ai: "manqué" };
+
+  recordSecondOpinion(args);
+  recordSecondOpinion(args);
+  recordSecondOpinion({ home, incidentId: "i2", learner: "fichier", ai: "exact" });
+
+  const { secondOpinion } = readOrDefaultDebugTracks({ home });
+  assert.strictEqual(secondOpinion.incidents, 2);
+  assert.strictEqual(secondOpinion.learner.exact, 1);
+  assert.strictEqual(secondOpinion.ai.manque, 1);
+  assert.strictEqual(secondOpinion.learnerExactAiMissed, 1);
+  assert.deepStrictEqual(validateDebugTracks(secondOpinion ? readOrDefaultDebugTracks({ home }) : {}), []);
+});
+
+test("a ledger without secondOpinion stays valid", () => {
+  assert.deepStrictEqual(validateDebugTracks(defaultDebugTracks()), []);
+  assert.ok(validateDebugTracks({ ...defaultDebugTracks(), secondOpinion: { incidents: "x" } }).length > 0);
+});

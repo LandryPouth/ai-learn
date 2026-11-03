@@ -91,5 +91,6 @@ Ce qui reste ouvert, honnêtement :
 - la cognition reste non prouvée (voir plus haut), et le garde-fou Gemini /
   Antigravity reste consultatif.
 
-Prochaine étape : aucune story planifiée. Un nouvel epic part de
-`docs/DOGFOODING.md` (frictions observées) ou d'un parcours réel de l'apprenant.
+Prochaine étape (2026-11-03) : epics 11 (diagnostiquer comme en production) et
+12 (lire le code d'un autre) planifiés, aucune story commencée. Ordre recommandé
+dans `docs/roadmap.md`.

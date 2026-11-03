@@ -200,6 +200,54 @@ test("a prediction in the right file but far away is only 'fichier'", () => {
   assert.strictEqual(ledger.tiers["3"].achieved, false);
 });
 
+test("resolve compares learner and ai predictions to the real site", () => {
+  const dir = project({ files: twoFiles() });
+  const home = tmpHome();
+  capture(() => breakCommand({ dir, home, random: FIRST }));
+  const { config } = readProgress(dir);
+  const site = JSON.parse(fs.readFileSync(incidentRecordPath(dir, { home }), "utf8"));
+  const other = site.file === "src/a.js" ? "src/b.js" : "src/a.js";
+  recordPrediction(dir, config, { phaseId: 0, type: "debug", prediction: "ici", file: site.file, line: site.line + 1 });
+  recordPrediction(dir, config, { phaseId: 0, type: "debug", by: "ia", prediction: "plutôt là", file: other, line: 4 });
+  writeFile(dir, "src/a.js", twoFiles()["src/a.js"]);
+  writeFile(dir, "src/b.js", twoFiles()["src/b.js"]);
+
+  const out = capture(() => resolveCommand({ dir, home }));
+
+  assert.match(out, /Ta prédiction : exact/);
+  assert.match(out, /Second avis de l'IA : manqué/);
+  const { secondOpinion } = JSON.parse(fs.readFileSync(tracksPath({ home }), "utf8"));
+  assert.strictEqual(secondOpinion.incidents, 1);
+  assert.strictEqual(secondOpinion.learnerExactAiMissed, 1);
+});
+
+test("resolve without an ai prediction says there is no second opinion", () => {
+  const dir = project();
+  const home = tmpHome();
+  capture(() => breakCommand({ dir, home, random: FIRST }));
+  writeFile(dir, "src/a.js", "function isReady() {\n  return true;\n}\n\nmodule.exports = { isReady };\n");
+
+  const out = capture(() => resolveCommand({ dir, home }));
+
+  assert.match(out, /pas de second avis/);
+  assert.strictEqual(JSON.parse(fs.readFileSync(tracksPath({ home }), "utf8")).secondOpinion, undefined);
+});
+
+test("giveup shows both comparisons but records no second opinion", () => {
+  const dir = project();
+  const home = tmpHome();
+  capture(() => breakCommand({ dir, home, random: FIRST }));
+  const { config } = readProgress(dir);
+  recordPrediction(dir, config, { phaseId: 0, type: "debug", prediction: "ici", file: "src/zzz.js", line: 1 });
+  recordPrediction(dir, config, { phaseId: 0, type: "debug", by: "ia", prediction: "là", file: "src/a.js", line: 2 });
+
+  const out = capture(() => giveupCommand({ dir, home }));
+
+  assert.match(out, /Ta prédiction : manqué/);
+  assert.match(out, /Second avis de l'IA : exact/);
+  assert.ok(!fs.existsSync(tracksPath({ home })));
+});
+
 test("giveup restores the original and saves the learner version", () => {
   const dir = project();
   const home = tmpHome();

@@ -1798,6 +1798,18 @@ test("a prediction left unrevealed for a week is warned", () => {
   assert.ok(warning && warning.message.includes(recorded.id));
 });
 
+test("an AI second opinion is never warned as unrevealed", () => {
+  const dir = tmpProject(sampleProgress());
+  const { recordPrediction } = require("../bin/lib/predictions");
+  recordPrediction(dir, sampleProgress(), { phaseId: 0, prediction: "x" });
+
+  backdate(dir, (entries) => {
+    entries[0].at = new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString();
+    entries[0].by = "ia";
+  });
+  assert.ok(!checkProject(dir).issues.warnings.some((w) => /not been revealed/.test(w.message)));
+});
+
 test("a hook pointing at a missing script fails check", () => {
   const dir = tmpProject(sampleProgress());
   ensureGuardHook(dir);

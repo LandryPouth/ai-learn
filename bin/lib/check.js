@@ -49,6 +49,7 @@ const {
   readPredictions,
   countByPhase,
   countIATyped,
+  isAiPrediction,
   normalizePredictionsRequired,
   predictionsReport,
   formatPredictionsGap,
@@ -585,7 +586,7 @@ function checkProject(dir, { home, now = new Date() } = {}) {
   // tool cannot tell apart from a late prediction — said, not blocked.
   if (predictions.valid) {
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const stale = predictions.data.entries.filter((entry) => !entry.revealedAt && Date.parse(entry.at) < weekAgo);
+    const stale = predictions.data.entries.filter((entry) => !isAiPrediction(entry) && !entry.revealedAt && Date.parse(entry.at) < weekAgo);
     const afterTheFact = predictions.data.entries.filter((entry) => entry.revealedAt && entry.revealedAt === entry.at);
 
     for (const entry of stale) {

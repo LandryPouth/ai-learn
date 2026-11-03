@@ -8,6 +8,7 @@ const { log, fail, normalizePortable } = require("./util");
 const { readProgress, missingProgressMessage, validateProgress, latestEvidenceForPhase, phaseVerdict } = require("./progress");
 const { readGitTracks, TIER_IDS } = require("./tracks/git");
 const platformTracks = require("./tracks/platform");
+const { readOrDefaultDebugTracks } = require("./tracks/debug");
 const { detectDomainKey, domainSummary } = require("./tracks/domain");
 const { normProject } = require("./norm");
 const { loadGuardConfig } = require("./guard");
@@ -193,6 +194,17 @@ function printPlatformSummary({ home } = {}) {
   const total = platformTracks.TIER_IDS.length;
   log(`\nplateforme : ${total - missing.length}/${total}`);
   log(missing.length > 0 ? `  Paliers restants : ${missing.join(", ")}` : "  Tous les paliers sont atteints.");
+}
+
+// Story 11.01 — "second avis" line, silent until an incident was compared.
+function printSecondOpinionSummary({ home } = {}) {
+  const opinion = readOrDefaultDebugTracks({ home }).secondOpinion;
+
+  if (!opinion || opinion.incidents < 1) {
+    return;
+  }
+
+  log(`\nsecond avis : toi ${opinion.learner.exact}/${opinion.incidents} exacts · IA ${opinion.ai.exact}/${opinion.incidents}`);
 }
 
 // Additive, read-only summary of the domain mastery ledger (see
@@ -411,6 +423,7 @@ function statusCommand({ dir, home, json }) {
 
   printGitTracksSummary({ home });
   printPlatformSummary({ home });
+  printSecondOpinionSummary({ home });
   printDomainSummary({ dir, home });
   printNormSummary({ dir });
   printCommitReminder(dir);
@@ -422,6 +435,7 @@ module.exports = {
   latestEvidenceForPhase,
   printGitTracksSummary,
   printPlatformSummary,
+  printSecondOpinionSummary,
   printProfile,
   printDomainSummary,
   printNormSummary,

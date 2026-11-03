@@ -29,12 +29,17 @@ Sinon, montre le symptôme (la sortie du checkpoint) et suis le protocole
 1. **Prédire avant d'ouvrir un fichier** : l'apprenant écrit où il pense que se
    trouve la cause et pourquoi ; tu l'enregistres avec
    `ai-learn predict --phase <id> --type debug --file <fichier> --line <n> --prediction "<mécanisme>"`.
-2. **Expérience, puis réparation, par l'apprenant.** Tu ne connais pas le site : ne
+2. **Second avis de l'IA** (après la prédiction de l'apprenant, jamais avant) : avec
+   le seul symptôme et ce que l'apprenant a ouvert, tu donnes ton hypothèse et tu
+   l'enregistres : `ai-learn predict --phase <id> --type debug --by ia --file <fichier> --line <n> --prediction "<mécanisme>"`
+   (niveau 3 : `--cause "<type>"`). L'outil refuse sans incident actif, sans prédiction
+   de l'apprenant, ou si la tienne existe déjà. Tu ne proposes rien avant la sienne.
+3. **Expérience, puis réparation, par l'apprenant.** Tu ne connais pas le site : ne
    le cherche pas, ne lis pas `~/.ai-learn/incidents/` (le garde-fou le refuse). Tu
    donnes des indices de **méthode** (relire la sortie, réduire le cas, poser une
    expérience), jamais l'endroit.
-3. **Prouver** : `ai-learn break --resolve` relance les checkpoints. Vert : l'incident
-   est clos, le site est révélé et comparé à la prédiction. Rouge : il reste actif.
+4. **Prouver** : `ai-learn break --resolve` relance les checkpoints. Vert : l'incident
+   est clos, le site est révélé et comparé aux deux prédictions (apprenant et IA). Rouge : il reste actif.
 
 Limite assumée : `git diff` / `git status` côté apprenant montre la modification, et
 la prédiction ne vaut alors plus rien. Le mur de lecture du secret ne tient que sous
