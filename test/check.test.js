@@ -1885,3 +1885,13 @@ test("a progress without pertinence is never flagged", () => {
 
   assert.ok(![...entry.issues.errors, ...entry.issues.warnings].some((e) => /pertinence/.test(e.message)));
 });
+
+// Story 12.02 — an unfinished phase never fails `check` on its code map.
+test("an invalid code map of an unfinished phase only warns", () => {
+  const dir = tmpProject(sampleProgress({ phases: [{ id: 0, name: "P", status: "in-progress", checkpoint: "true", artifacts: ["docs/carte-du-code.md"], predictionsRequired: 0 }] }));
+  writeFile(dir, "docs/carte-du-code.md", "# Carte\n\nRacine : .\nsrc/a.js:99999\n");
+  const { issues } = checkProject(dir, { home: fs.mkdtempSync(path.join(os.tmpdir(), "ai-learn-h-")) });
+
+  assert.deepStrictEqual(issues.errors.filter((issue) => issue.file === "docs/carte-du-code.md"), []);
+  assert.match(issues.warnings.find((issue) => issue.file === "docs/carte-du-code.md").message, /src\/a\.js:99999/);
+});

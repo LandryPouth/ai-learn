@@ -57,6 +57,7 @@ const {
 const { citesRealPRUrl, hasSubstantialBody } = require("./citation");
 const { isFinished, bilanState } = require("./bilan");
 const { duplicateSlugs, reviewState } = require("./reviews");
+const { checkCodeMaps } = require("./codemap");
 const { ledgerHealth, hasReplayableEvidence } = require("./ledgers");
 const { contractWarnings } = require("./contract");
 const { incidentFact } = require("./incident");
@@ -75,6 +76,7 @@ const READING_WORDS_PER_MINUTE = 200;
 
 function checkProject(dir, { home, now = new Date() } = {}) {
   const issues = { errors: [], warnings: [], infos: [] };
+  const codeMaps = [];
   const { config, exists } = readProgress(dir);
 
   if (!exists) {
@@ -622,6 +624,7 @@ function checkProject(dir, { home, now = new Date() } = {}) {
     const checkpointFile = checkpointFilePath(dir, phase.checkpoint);
 
     checkDigest(dir, config, phase, issues);
+    checkCodeMaps(dir, phase, issues, codeMaps, home);
 
     for (const message of contractWarnings({ dir, phase, checkpointFile })) {
       issues.warnings.push({ file: "progress.json", message });
@@ -790,7 +793,7 @@ function checkProject(dir, { home, now = new Date() } = {}) {
     }
   }
 
-  return { dir, config, issues };
+  return { dir, config, issues, codeMaps };
 }
 
 // Story 06.02 — a generated digest is a snapshot of line ranges. The source
@@ -1269,6 +1272,7 @@ function buildCheckReport(root) {
       dir: normalizePortable(path.relative(root, entry.dir) || path.basename(entry.dir)),
       errorList: entry.issues.errors,
       warningList: entry.issues.warnings,
+      codeMaps: entry.codeMaps,
     };
 
     if (entry.config) {

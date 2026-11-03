@@ -167,7 +167,23 @@ function checkFileLineUnderRoot(root, citation) {
   return { ok: true, file, line };
 }
 
+// Story 12.02 — every distinct `file:line` in `content`, in order of appearance
+// (code blocks included). Syntactic only: nothing is resolved here.
+function allFileLines(content) {
+  const re = new RegExp(FILE_LINE_RE.source, FILE_LINE_RE.flags);
+  const seen = new Set();
+  let match = re.exec(content);
+
+  while (match) {
+    seen.add(`${match[1].replace(/\\/g, "/")}:${Number(match[2])}`);
+    match = re.exec(content);
+  }
+
+  return [...seen];
+}
+
 module.exports = {
+  allFileLines,
   resolveReadingRoot,
   checkFileLineUnderRoot,
   MIN_CONTENT_BEYOND_CITATION,

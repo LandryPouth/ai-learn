@@ -18,13 +18,13 @@ La « carte du code » que l'apprenant rédige en lisant Node, Fastify, Nest, `p
 
 ## Acceptance Criteria
 
-- [ ] Given une phase `done` dont la carte cite `lib/route.js:12`, `lib/reply.js:40`, `lib/hooks.js:3`, tous réels sous la racine, when `check`, then aucune erreur pour cette carte.
-- [ ] Given la même carte avec `lib/route.js:99999`, when `check`, then une erreur nomme `lib/route.js:99999`.
-- [ ] Given une carte sans ligne `Racine :`, when `check`, then erreur « racine non déclarée ».
-- [ ] Given une carte avec 2 citations réelles seulement, when `check`, then erreur « au moins 3 citations ».
-- [ ] Given une racine absente de la machine, when `check`, then avertissement et aucune erreur pour cette carte.
-- [ ] Given une phase en cours avec une carte invalide, when `check`, then avertissement, pas d'erreur.
-- [ ] Given une citation qui sort de la racine (`../x.js:1` ou lien symbolique), when `check`, then elle est comptée invalide.
+- [x] Given une phase `done` dont la carte cite `lib/route.js:12`, `lib/reply.js:40`, `lib/hooks.js:3`, tous réels sous la racine, when `check`, then aucune erreur pour cette carte.
+- [x] Given la même carte avec `lib/route.js:99999`, when `check`, then une erreur nomme `lib/route.js:99999`.
+- [x] Given une carte sans ligne `Racine :`, when `check`, then erreur « racine non déclarée ».
+- [x] Given une carte avec 2 citations réelles seulement, when `check`, then erreur « au moins 3 citations ».
+- [x] Given une racine absente de la machine, when `check`, then avertissement et aucune erreur pour cette carte.
+- [x] Given une phase en cours avec une carte invalide, when `check`, then avertissement, pas d'erreur.
+- [x] Given une citation qui sort de la racine (`../x.js:1` ou lien symbolique), when `check`, then elle est comptée invalide.
 
 ## Edge Cases
 
