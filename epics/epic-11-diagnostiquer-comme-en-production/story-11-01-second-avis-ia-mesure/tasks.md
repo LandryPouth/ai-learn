@@ -18,7 +18,7 @@
 - `tracks/debug.js` : `secondOpinion` optionnel, validé, idempotent par `incidentId` (`recordSecondOpinion`). `status.js` : ligne « second avis ».
 - AGENTS §3sexies, `commands/learn-break.md`, README, drapeau `--by`.
 - Validation : `ai-flow verify` vert (`npm test`, 1041 tests). Coverage: evidence.
-- Non fait : `/flow-review` (opt-in en STANDARD) ; bump de version de `package.json` (0.6.4) laissé à la release de l'epic.
+- Revue : `/flow-review` faite (pass), 2 P2 corrigés (check « non révélée », total du bilan). Version 0.6.5 (scaffold AGENTS modifié).
 
 ### Rollback Notes
 
