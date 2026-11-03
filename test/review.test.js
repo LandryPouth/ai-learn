@@ -314,3 +314,15 @@ test("a new proof offers a new kata", () => {
   prove("2026-11-04T10:00:00.000Z");
   assert.strictEqual(kataDue(dir, { home }), true);
 });
+
+test("review handles CRLF files: four changed lines, src untouched", () => {
+  const dir = project();
+  writeFile(dir, "src/load.js", CODE.replace(/\n/g, "\r\n"));
+  const home = tmpHome();
+  const before = fs.readFileSync(path.join(dir, "src/load.js"));
+  const state = start(dir, home);
+  const diff = fs.readFileSync(path.join(dir, "katas", state.id, "kata.diff"), "utf8");
+
+  assert.deepStrictEqual(fs.readFileSync(path.join(dir, "src/load.js")), before);
+  assert.strictEqual(diff.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++")).length, 4);
+});

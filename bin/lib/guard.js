@@ -1222,6 +1222,28 @@ function kataReason() {
   );
 }
 
+// A glob in a directory position (`*/*/kata.diff`, `k?tas/x`) can resolve to
+// `katas` without ever naming it. Only non-final segments count: `ls *` or
+// `src/*.js` stay allowed.
+function globsToKatas(command) {
+  return command.split(/\s+/).some((token) => {
+    const segments = token.replace(/^['"]|['"]$/g, "").split(/[\\/]/).slice(0, -1);
+
+    return segments.some((segment) => {
+      if (!/[*?[]/.test(segment)) {
+        return false;
+      }
+
+      try {
+        const re = segment.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+        return new RegExp(`^${re}$`, "i").test("katas");
+      } catch {
+        return true;
+      }
+    });
+  });
+}
+
 function revealsKata(command) {
   return splitSegments(command).some((segment) => /\bai-learn(?:\.js)?\b/.test(segment) && /\breview\b/.test(segment) && /--(?:reveal|giveup)\b/.test(segment));
 }
@@ -1330,7 +1352,7 @@ function decide(hook, root) {
       return { decision: "deny", command, reason: incidentStoreReason() };
     }
 
-    if (kataStores(root).length > 0 && (/\bkatas\b/i.test(command) || /\.ai-learn[\\/]+kat/i.test(command) || /lib[\\/]review/i.test(command))) {
+    if (kataStores(root).length > 0 && (/\bkatas\b/i.test(command) || /\.ai-learn[\\/]+kat/i.test(command) || /lib[\\/]review/i.test(command) || /\b(?:kata\.diff|revue\.md)\b/i.test(command) || globsToKatas(command))) {
       return { decision: "deny", command, reason: kataReason() };
     }
 

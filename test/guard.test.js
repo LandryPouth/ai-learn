@@ -1492,8 +1492,12 @@ test("an active kata is closed to the ai, a closed one is not", () => {
   assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x" }), dir).decision, "deny");
   assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x", path: dir, glob: "katas/**" }), dir).decision, "deny");
   assert.strictEqual(decide(hookFor(dir, "Grep", { pattern: "x", path: path.join(dir, "src") }), dir).decision, "allow", "un sous-dossier reste lisible");
-  for (const command of ["grep -rn . katas", "cd katas && cat */kata.diff", "cat Katas/abc12345/kata.diff", "cat ~/.ai-learn/kat*/*", "node -e \"require('./bin/lib/review').giveupCommand({dir:'.'})\""]) {
+  for (const command of ["grep -rn . katas", "cd katas && cat */kata.diff", "cat Katas/abc12345/kata.diff", "cat ~/.ai-learn/kat*/*", "cat */*/kata.diff", "cat k*/*/kata.diff", "cat ./k?tas/*/revue.md", "find . -name kata.diff -exec cat {} +", "node -e \"require('./bin/lib/review').giveupCommand({dir:'.'})\""]) {
     assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "deny", command);
+  }
+
+  for (const command of ["ls *", "cat src/*.js", "npm test"]) {
+    assert.strictEqual(decide(hookFor(dir, "Bash", { command }), dir).decision, "allow", command);
   }
 
   fs.writeFileSync(path.join(dir, ".ai-learn", "kata.json"), JSON.stringify({ active: false, id: "abc12345" }));
