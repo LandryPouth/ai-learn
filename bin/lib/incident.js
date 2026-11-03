@@ -374,6 +374,12 @@ function keepDetectableSite(candidates, { level, phases, dir, random, execute, s
         throw error;
       }
 
+      if (observed.error && symptom.auto) {
+        // Automatic draw: one slow site must not block the other candidates.
+        release(site, lockPath);
+        continue;
+      }
+
       if (observed.error) {
         release(site, lockPath);
         fail(`Niveau 4 : ${observed.error} Ton code est restauré.`);
@@ -461,25 +467,35 @@ function breakCommand({ dir, level = 1, home = os.homedir(), random = Math.rando
       log(`Niveau 4 écarté : ${reference.error.split("\n")[0]}`);
       level = chooseLevel({ home, random });
     } else {
-      symptom = reference;
+      symptom = { ...reference, auto };
     }
   }
 
-  if (level === 3) {
-    envFault = keepEnvFault({ dir, phases, random, execute, shell });
+  const draw = () => {
+    if (level === 3) {
+      envFault = keepEnvFault({ dir, phases, random, execute, shell });
 
-    if (envFault) {
-      kept = { site: null, lockPath: envFault.lockPath, failing: envFault.failing };
-    } else {
+      if (envFault) {
+        return { site: null, lockPath: envFault.lockPath, failing: envFault.failing };
+      }
+
       level = 2;
       log("Aucune panne d'environnement applicable (pas de `.env` non suivi, de `PORT` libre ni de service en cours) : repli sur le niveau 2.");
     }
-  }
 
-  if (!kept) {
     // Semantic faults first (story 11.02), then the pack's mutators.
-    kept = keepDetectableSite(findAllSites(dir, { bank: "faults" }), { level, phases, dir, random, execute, symptom })
+    return keepDetectableSite(findAllSites(dir, { bank: "faults" }), { level, phases, dir, random, execute, symptom })
       || keepDetectableSite(findAllSites(dir), { level, phases, dir, random, execute, symptom });
+  };
+
+  kept = draw();
+
+  if (!kept && symptom && auto) {
+    // No site shows in the symptom: an automatic incident falls back like a broken script does.
+    log("Niveau 4 écarté : aucune panne ne change le symptôme de production.");
+    symptom = null;
+    level = chooseLevel({ home, random });
+    kept = draw();
   }
 
   if (!kept) {

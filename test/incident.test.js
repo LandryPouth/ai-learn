@@ -588,6 +588,21 @@ test("auto falls back to a code incident when the symptom command is broken", ()
   assert.strictEqual(readIncident(dir).level, 2);
 });
 
+test("auto falls back when no fault changes the symptom", () => {
+  const dir = symptomProject("node -e \"console.log('same')\"");
+  const home = tmpHome();
+  fs.mkdirSync(path.dirname(tracksPath({ home })), { recursive: true });
+  const ledger = require("../bin/lib/tracks/debug").defaultDebugTracks();
+  ledger.tiers["1"].achieved = true;
+  ledger.tiers["2"].achieved = true;
+  fs.writeFileSync(tracksPath({ home }), JSON.stringify(ledger));
+
+  const out = capture(() => breakCommand({ dir, level: "auto", home, random: FIRST }));
+
+  assert.match(out, /aucune panne ne change le symptôme/);
+  assert.strictEqual(readIncident(dir).level, 2);
+});
+
 test("recordDebugTiers adds tier 5 to a ledger written before it existed", () => {
   const { defaultDebugTracks, recordDebugTiers } = require("../bin/lib/tracks/debug");
   const home = tmpHome();
