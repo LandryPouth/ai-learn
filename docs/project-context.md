@@ -93,6 +93,8 @@ Ce qui reste ouvert, honnêtement :
 - la cognition reste non prouvée (voir plus haut), et le garde-fou Gemini /
   Antigravity reste consultatif.
 
-Prochaine étape (2026-11-03) : epics 11 (diagnostiquer comme en production) et
+Prochaine étape (2026-11-24) : epics 13 (mémoire de l'apprenant dans le vault `~/dev/.ai-memory-vault`, zone `ai-learn/`) 14 (confiance, sondage, budget de friction de 3 gestes bloquants par phase, revisite en plusieurs formats), 15 (diagramme draw.io à calques `apprenant` / `ia-phase-N` dans chaque projet) et 16 (lecture guidée d'un dépôt étranger, état dans `~/.ai-learn/reading/`, examen par changement réel et incident dans un bac à sable) planifiés ; ordre dans `docs/roadmap.md`.
+
+Étape précédente (2026-11-03) : epics 11 (diagnostiquer comme en production) et
 12 (lire le code d'un autre) planifiés, aucune story commencée. Ordre recommandé
 dans `docs/roadmap.md`.
