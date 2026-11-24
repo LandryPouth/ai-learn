@@ -16,7 +16,7 @@ dire `PROVEN`, parce qu'il exécute le checkpoint lui-même.
 
 - Paquet : `@landry_pouth/ai-learn` v0.6.6, `bin: ai-learn`
 - Node >= 18, CI GitHub Actions sur Node 18/20/22, Linux + macOS + Windows
-- Licence MIT · dépôt `LandryPouth/ai-learn`
+- Licence FSL-1.1-MIT depuis le 2026-11-24 (usage, modification et redistribution libres ; concurrence commerciale interdite ; chaque version passe sous MIT après deux ans ; versions antérieures restées MIT) · dépôt `LandryPouth/ai-learn`
 
 ## Utilisateurs
 

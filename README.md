@@ -3,7 +3,7 @@
 **Evidence-based learning tracks.** `ai-learn` turns a learning path into a checked, shareable structure: every phase is proven by an executed checkpoint, tracked in a `progress.json` ledger, and cross-checked against reality — not by the word of an AI that could decide to skip the rule.
 
 [![CI](https://github.com/LandryPouth/ai-learn/actions/workflows/ci.yml/badge.svg)](https://github.com/LandryPouth/ai-learn/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
 
 > Zero dependencies — Node stdlib only, tests run with `node --test`.
@@ -157,4 +157,10 @@ ai-learn check --root .  # croise le ledger contre la réalité
 
 ## License
 
-[MIT](LICENSE) © Landry Pouth
+[FSL-1.1-MIT](LICENSE) (Functional Source License) © Landry Pouth.
+
+- **Autorisé** : lire, utiliser, modifier et redistribuer ai-learn, y compris dans une entreprise, une école ou une formation.
+- **Interdit** : en faire un produit ou un service commercial concurrent (le revendre, le renommer pour le vendre, l'héberger en service payant).
+- **Deux ans après sa publication, chaque version passe sous licence MIT.**
+- Les versions publiées avant le 2026-11-24 restent sous MIT.
+- « ai-learn » est le nom du projet : un fork publié doit porter un autre nom.
